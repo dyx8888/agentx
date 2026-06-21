@@ -1,0 +1,225 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: agentx-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    logging: &default-logging
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: agentx-frontend:latest
+    container_name: agentx-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      - main
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: agentx-etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd_data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: agentx-minio
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    volumes:
+      - minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    ports:
+      - "9001:9001"
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  milvus:
+    image: milvusdb/milvus:v2.3.3
+    container_name: agentx-milvus
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - milvus_data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    command: ["milvus", "run", "standalone"]
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    depends_on:
+      - etcd
+      - minio
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  main:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agentx-backend:latest
+    container_name: agentx-main
+    ports:
+      - "8000:8000"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - TOOL_LOAD_MODE=${TOOL_LOAD_MODE:-local}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://agentx:agentx_password@postgres:5432/agentx}
+      - REDIS_URL=redis://redis:6379/0
+      - HF_ENDPOINT=https://hf-mirror.com
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      - redis
+      - postgres
+      - kol-search
+      - report-server
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  kol-search:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agentx-backend:latest
+    container_name: agentx-kol-search
+    command: python app/mcp_servers/kol_search_server.py
+    ports:
+      - "8101:8101"
+    environment:
+      - RUN_AS_HTTP_SERVICE=true
+      - HF_ENDPOINT=https://hf-mirror.com
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  report-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agentx-backend:latest
+    container_name: agentx-report-server
+    command: python app/mcp_servers/report_server.py
+    ports:
+      - "8104:8104"
+    environment:
+      - RUN_AS_HTTP_SERVICE=true
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - HF_ENDPOINT=https://hf-mirror.com
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8104/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: agentx-postgres
+    environment:
+      - POSTGRES_DB=agentx
+      - POSTGRES_USER=agentx
+      - POSTGRES_PASSWORD=agentx_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentx -d agentx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  agentx-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+    driver: local
+  postgres_data:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  agentx-data:
+    driver: local

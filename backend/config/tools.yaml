@@ -1,0 +1,55 @@
+# ⚠️ DEPRECATED: 此文件已废弃，请使用 config/tool_providers.yaml
+# 所有工具配置已迁移至 tool_providers.yaml。
+# 此文件保留仅作为向后兼容参考，将在未来版本中删除。
+#
+# 迁移日期: 2026-06-07
+# 迁移说明: 参见 openspec/changes/agent-quality-upgrade/proposal.md
+
+tools:
+  - name: search_kols
+    module: app.mcp_servers.kol_search_server
+    function: search_kols
+    description: "查找特定品类的达人（KOL）"
+    endpoint: "http://localhost:8101/tools/search_kols"
+  - name: generate_outreach
+    module: app.mcp_servers.outreach_server
+    function: generate_outreach
+    description: "生成达人合作邀约话术"
+    endpoint: "http://localhost:8105/tools/generate_outreach"
+  - name: generate_script
+    module: app.mcp_servers.script_server
+    function: generate_script
+    description: "生成短视频脚本"
+    endpoint: "http://localhost:8103/tools/generate_script"
+  - name: check_delivery_status
+    module: app.mcp_servers.monitor_server
+    function: check_delivery_status
+    description: "查询快递配送状态"
+    endpoint: "http://localhost:8104/tools/check_delivery_status"
+  - name: generate_arrival_script
+    module: app.mcp_servers.monitor_server
+    function: generate_arrival_script
+    description: "生成快递提醒私信"
+    endpoint: "http://localhost:8106/tools/generate_arrival_script"
+  - name: generate_performance_report
+    module: app.mcp_servers.report_server
+    function: generate_performance_report
+    description: "生成达人合作效果报告"
+    endpoint: "http://localhost:8104/tools/generate_performance_report"
+  - name: generate_strategy_suggestion
+    module: app.mcp_servers.report_server
+    function: generate_strategy_suggestion
+    description: "生成平台营销策略建议"
+    endpoint: "http://localhost:8104/tools/generate_strategy_suggestion"
+  - name: get_current_time
+    module: app.agent
+    function: get_current_time
+    description: "获取当前时间"
+  - name: delegate_task
+    module: app.agent
+    function: delegate_task
+    description: "将任务委派给其他数字员工"
+  - name: a2a_delegate_task
+    module: app.agent
+    function: a2a_delegate_task
+    description: "使用 Google A2A 协议进行标准化 Agent 间通信"

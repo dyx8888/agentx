@@ -1,0 +1,87 @@
+# 客服投诉工作流
+# Engine主导模式：高风险场景Engine主导，Agent仅在内容生成介入
+
+name: customer_service_workflow
+version: "1.0.0"
+description: 处理客户投诉和退款请求的标准流程
+trigger_keywords:
+  - 投诉
+  - 退款
+  - 退货
+  - 换货
+  - 差评
+trigger_intent_types:
+  - general
+  - search
+min_complexity: 0
+max_complexity: 6
+default_agent: amy
+fallback_agent: ben
+
+steps:
+  - id: "1"
+    name: 验证订单信息
+    type: tool
+    action: lookup_order
+    params:
+      extract_order_id: true
+    timeout_seconds: 10
+    critical: true
+    on_success: "2"
+    on_failure: "error"
+
+  - id: "2"
+    name: 判断投诉类型
+    type: condition
+    params:
+      condition: "context.get('complaint_type') == 'refund'"
+      true_branch: "3"
+      false_branch: "4"
+    timeout_seconds: 5
+    critical: true
+
+  - id: "3"
+    name: 退款处理
+    type: tool
+    action: process_refund
+    params:
+      order_id: "{{context.order_id}}"
+      reason: "{{context.complaint_reason}}"
+    timeout_seconds: 30
+    retry_count: 2
+    critical: true
+    on_success: "5"
+    on_failure: "error"
+
+  - id: "4"
+    name: 其他投诉处理
+    type: agent
+    action: amy
+    params:
+      prompt: "客户投诉类型: {{context.complaint_type}}，请提供解决方案"
+    timeout_seconds: 30
+    critical: false
+    on_success: "5"
+    on_failure: "5"
+
+  - id: "5"
+    name: 生成客服回复
+    type: agent
+    action: amy
+    params:
+      prompt: "基于处理结果生成客户回复"
+    timeout_seconds: 20
+    critical: false
+    on_success: "END"
+    on_failure: "END"
+
+  - id: "error"
+    name: 错误处理
+    type: tool
+    action: create_support_ticket
+    params:
+      reason: "工作流执行失败"
+    timeout_seconds: 10
+    critical: false
+    on_success: "END"
+    on_failure: "END"

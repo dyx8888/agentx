@@ -1,0 +1,76 @@
+# 数据导出工作流
+# 固定步骤：验证参数→查询数据→格式化→导出
+
+name: data_export_workflow
+version: "1.0.0"
+description: 数据导出标准流程
+trigger_keywords:
+  - 导出
+  - 下载
+  - 生成报告
+  - 批量
+trigger_intent_types:
+  - generate
+  - search
+min_complexity: 0
+max_complexity: 5
+default_agent: ben
+fallback_agent: cc
+
+steps:
+  - id: "1"
+    name: 验证导出参数
+    type: tool
+    action: validate_export_params
+    params:
+      extract_params: true
+    timeout_seconds: 10
+    critical: true
+    on_success: "2"
+    on_failure: "error"
+
+  - id: "2"
+    name: 查询数据
+    type: tool
+    action: query_data
+    params:
+      date_range: "{{context.date_range}}"
+      data_type: "{{context.data_type}}"
+    timeout_seconds: 30
+    retry_count: 2
+    critical: true
+    on_success: "3"
+    on_failure: "error"
+
+  - id: "3"
+    name: 格式化数据
+    type: tool
+    action: format_export_data
+    params:
+      format: "{{context.export_format}}"
+    timeout_seconds: 20
+    critical: false
+    on_success: "4"
+    on_failure: "4"
+
+  - id: "4"
+    name: 生成下载链接
+    type: tool
+    action: generate_download_link
+    params:
+      expire_hours: 24
+    timeout_seconds: 10
+    critical: false
+    on_success: "END"
+    on_failure: "END"
+
+  - id: "error"
+    name: 错误通知
+    type: agent
+    action: ben
+    params:
+      prompt: "数据导出失败，请告知用户错误原因并提供替代方案"
+    timeout_seconds: 15
+    critical: false
+    on_success: "END"
+    on_failure: "END"

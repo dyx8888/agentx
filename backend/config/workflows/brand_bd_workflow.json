@@ -1,0 +1,75 @@
+{
+  "name": "brand_bd_standard",
+  "description": "品牌商务标准工作流：达人搜索→邀约话术→物流监控→数据复盘",
+  "nodes": [
+    {
+      "id": "search_kols_node",
+      "agent": "BrandBD",
+      "action": "search_kols",
+      "description": "根据产品品类搜索匹配的KOL达人",
+      "params": {
+        "category": "{{category}}",
+        "count": 3
+      },
+      "depends_on": []
+    },
+    {
+      "id": "generate_outreach_node",
+      "agent": "BrandBD",
+      "action": "generate_outreach",
+      "description": "为搜索到的达人批量生成个性化邀约话术",
+      "params": {
+        "kol_name": "{{search_kols_node.result.name}}",
+        "product_name": "{{product_name}}",
+        "style": "professional"
+      },
+      "depends_on": ["search_kols_node"]
+    },
+    {
+      "id": "generate_script_node",
+      "agent": "BrandBD",
+      "action": "generate_script",
+      "description": "为达人定制视频脚本",
+      "params": {
+        "kol_name": "{{search_kols_node.result.name}}",
+        "product_name": "{{product_name}}",
+        "platform": "douyin",
+        "style": "lively"
+      },
+      "depends_on": ["search_kols_node"]
+    },
+    {
+      "id": "check_delivery_node",
+      "agent": "BrandBD",
+      "action": "check_delivery_status",
+      "description": "查询样品物流状态",
+      "params": {
+        "order_id": "{{order_id}}"
+      },
+      "depends_on": ["generate_outreach_node"]
+    },
+    {
+      "id": "arrival_script_node",
+      "agent": "BrandBD",
+      "action": "generate_arrival_script",
+      "description": "生成到货提醒脚本",
+      "params": {
+        "kol_name": "{{search_kols_node.result.name}}",
+        "product_name": "{{product_name}}",
+        "delivery_status": "{{check_delivery_node.result.status}}"
+      },
+      "depends_on": ["check_delivery_node"]
+    },
+    {
+      "id": "performance_report_node",
+      "agent": "BrandBD",
+      "action": "generate_performance_report",
+      "description": "生成达人合作效果复盘报告",
+      "params": {
+        "kol_name": "{{search_kols_node.result.name}}",
+        "campaign_id": "{{campaign_id}}"
+      },
+      "depends_on": ["generate_outreach_node"]
+    }
+  ]
+}

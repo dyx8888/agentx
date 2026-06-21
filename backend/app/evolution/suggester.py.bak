@@ -1,0 +1,238 @@
+"""
+Evolution Suggester - LLM-based Improvement Suggestions
+Generates improvement suggestions based on human-edited feedback patterns
+"""
+
+import os
+import sqlite3
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional, Tuple
+from dataclasses import dataclass
+
+@dataclass
+class FeedbackPair:
+    """Data class for original vs edited feedback pairs"""
+    original_output: str
+    human_edited_output: str
+    tool_name: str
+    created_at: str
+
+@dataclass
+class EvolutionSuggestion:
+    """Data class for evolution suggestions"""
+    agent_id: int
+    suggested_prompt_changes: str
+    knowledge_entries: List[str]
+    analysis_summary: str
+    confidence_score: float
+
+class EvolutionSuggester:
+    """Suggester for generating LLM-based improvement suggestions"""
+    
+    def __init__(self, db_path: str = None):
+        self.db_path = db_path or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "feedback.db")
+    
+    def get_connection(self):
+        """Get database connection"""
+        return sqlite3.connect(self.db_path)
+    
+    def extract_feedback_pairs(self, agent_id: int, tool_name: str = None, days: int = 7) -> List[FeedbackPair]:
+        """
+        Extract original vs edited feedback pairs for analysis
+        
+        Args:
+            agent_id: Agent ID to analyze
+            tool_name: Optional tool name to filter by
+            days: Number of days to look back
+            
+        Returns:
+            List of FeedbackPair objects
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Calculate date threshold
+            threshold_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+            
+            # Query for modified feedback pairs
+            query = """
+                SELECT original_output, human_edited_output, tool_name, created_at
+                FROM feedback
+                WHERE agent_id = ? AND status = 'modified' AND created_at >= ?
+            """
+            params = [agent_id, threshold_date]
+            
+            if tool_name:
+                query += " AND tool_name = ?"
+                params.append(tool_name)
+            
+            query += " ORDER BY created_at DESC"
+            
+            cursor.execute(query, params)
+            
+            feedback_pairs = []
+            for row in cursor.fetchall():
+                original_output, human_edited_output, tool_name, created_at = row
+                
+                # Only include pairs where human actually made changes
+                if human_edited_output and human_edited_output != original_output:
+                    feedback_pairs.append(FeedbackPair(
+                        original_output=original_output,
+                        human_edited_output=human_edited_output,
+                        tool_name=tool_name,
+                        created_at=created_at
+                    ))
+            
+            return feedback_pairs
+    
+    def generate_suggestion(self, agent_id: int, tool_name: str = None) -> EvolutionSuggestion:
+        """
+        Generate improvement suggestions using LLM analysis
+        
+        Args:
+            agent_id: Agent ID to analyze
+            tool_name: Optional tool name to focus on
+            
+        Returns:
+            EvolutionSuggestion object with improvements
+        """
+        try:
+            # Extract feedback pairs
+            feedback_pairs = self.extract_feedback_pairs(agent_id, tool_name)
+            
+            if not feedback_pairs:
+                return EvolutionSuggestion(
+                    agent_id=agent_id,
+                    suggested_prompt_changes="No modified feedback found for analysis.",
+                    knowledge_entries=[],
+                    analysis_summary="Insufficient data for analysis.",
+                    confidence_score=0.0
+                )
+            
+            # Prepare feedback summary for LLM
+            feedback_summary = self._prepare_feedback_summary(feedback_pairs)
+            
+            # Generate LLM suggestions
+            llm_response = self._call_llm_for_suggestions(feedback_summary, tool_name)
+            
+            # Parse LLM response
+            suggestion = self._parse_llm_response(llm_response, agent_id)
+            
+            return suggestion
+            
+        except Exception as e:
+            return EvolutionSuggestion(
+                agent_id=agent_id,
+                suggested_prompt_changes=f"Error generating suggestions: {str(e)}",
+                knowledge_entries=[],
+                analysis_summary="Failed to analyze feedback patterns.",
+                confidence_score=0.0
+            )
+    
+    def _prepare_feedback_summary(self, feedback_pairs: List[FeedbackPair]) -> str:
+        """Prepare feedback summary for LLM analysis"""
+        summary = "以下是人类修改AI输出的样本分析：\n\n"
+        
+        for i, pair in enumerate(feedback_pairs[:10], 1):  # Limit to 10 pairs
+            summary += f"样本 {i} (工具: {pair.tool_name}):\n"
+            summary += f"原始输出: {pair.original_output[:200]}...\n"
+            summary += f"人工修改后: {pair.human_edited_output[:200]}...\n"
+            summary += f"修改时间: {pair.created_at}\n\n"
+        
+        summary += f"\n总计分析了 {len(feedback_pairs)} 个修改样本。"
+        
+        return summary
+    
+    def _call_llm_for_suggestions(self, feedback_summary: str, tool_name: str = None) -> str:
+        """Call LLM to generate improvement suggestions"""
+        try:
+            from app.services.model_gateway import ModelGateway
+            
+            model_gateway = ModelGateway()
+            llm = model_gateway.get_llm()
+            
+            prompt = f"""
+基于以下人类修改AI输出的反馈分析，请生成改进建议：
+
+{feedback_summary}
+
+请分析人类修改的共性模式，并提供以下建议：
+
+1. 系统提示词改进建议：
+   - 分析当前AI输出的问题
+   - 提供具体的提示词优化建议
+   - 说明如何避免类似的错误
+
+2. 知识库补充内容：
+   - 识别缺失的知识或模板
+   - 提供可以添加到知识库的具体话术或模板
+   - 确保内容实用且易于检索
+
+3. 分析总结：
+   - 总结主要的改进方向
+   - 评估改进的优先级
+   - 提供实施建议
+
+{f'特别关注工具：{tool_name}' if tool_name else ''}
+
+请以JSON格式返回结果，包含以下字段：
+- suggested_prompt_changes: 系统提示词改进建议
+- knowledge_entries: 知识库补充内容列表
+- analysis_summary: 分析总结
+- confidence_score: 置信度分数(0-1)
+"""
+            
+            response = llm.invoke(prompt)
+            return response.content
+            
+        except Exception as e:
+            return f"LLM调用失败: {str(e)}"
+    
+    def _parse_llm_response(self, llm_response: str, agent_id: int) -> EvolutionSuggestion:
+        """Parse LLM response into EvolutionSuggestion object"""
+        try:
+            import json
+            
+            # Try to extract JSON from response
+            if "```json" in llm_response:
+                json_start = llm_response.find("```json") + 7
+                json_end = llm_response.find("```", json_start)
+                json_str = llm_response[json_start:json_end].strip()
+            else:
+                # Try to parse the entire response as JSON
+                json_str = llm_response.strip()
+            
+            parsed = json.loads(json_str)
+            
+            return EvolutionSuggestion(
+                agent_id=agent_id,
+                suggested_prompt_changes=parsed.get('suggested_prompt_changes', ''),
+                knowledge_entries=parsed.get('knowledge_entries', []),
+                analysis_summary=parsed.get('analysis_summary', ''),
+                confidence_score=float(parsed.get('confidence_score', 0.5))
+            )
+            
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            # Fallback: extract text from response
+            return EvolutionSuggestion(
+                agent_id=agent_id,
+                suggested_prompt_changes=llm_response,
+                knowledge_entries=[],
+                analysis_summary="LLM响应解析失败，返回原始内容。",
+                confidence_score=0.3
+            )
+    
+    def save_suggestion_to_log(agent_id: int, tool_name: str, suggestion: str, training_data_path: str = None) -> bool:
+    """Save evolution suggestion to database log"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO evolution_log (agent_id, tool_name, suggestion_text, training_data_path)
+                VALUES (?, ?, ?, ?)
+            """, (agent_id, tool_name, suggestion, training_data_path))
+            conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error saving suggestion to log: {e}")
+        return False

@@ -1,0 +1,498 @@
+﻿node.exe : [2m11:23:39[22m [33m[1m[vite][22m[39m [33mwarning: `esbuild` 
+option was specified by "vite:react-babel" plugin. This option is deprecated, p
+lease use `oxc` instead.[39m
+所在位置 行:1 字符: 1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([2m11:23:39[2...` instead.[39m 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[2m11:23:39[22m [33m[1m[vite][22m[39m [33mwarning: `optimizeDeps.esbuild
+Options` option was specified by "vite:react-babel" plugin. This option is depr
+ecated, please use `optimizeDeps.rolldownOptions` instead.[39m
+[33mBoth esbuild and oxc options were set. oxc options will be used and esbuil
+d options will be ignored.[39m The following esbuild options were set: `{ jsx:
+ 'automatic', jsxImportSource: undefined }`
+
+ RUN  v4.1.5 C:/kaifawenjian/agentdianshang/frontend
+
+stdout | src/__tests__/LoginForm.test.jsx > LoginForm > does not call API when username is empty
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mstyle[39m=[32m"min-height: 100vh; display: flex; flex-direction: row;"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mstyle[39m=[32m"width: 45%; background: linear-gradient(right, rgb(255, 236, 210), rgb(252, 182, 159), rgb(255, 236, 210)); padding: 48px; display: flex; flex-direction: column; justify-content: space-between; position: relative; overflow: hidden;"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mstyle[39m=[32m"display: flex; align-items: center; gap: 12px; margin-bottom: 32px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mstyle[39m=[32m"width: 40px; height: 40px; background: rgb(24, 144, 255); border-radius: 8px; display: flex; align-items: center; justify-content: center;"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mstyle[39m=[32m"color: white; font-weight: bold; font-size: 18px;"[39m
+              [36m>[39m
+                [0mA[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33mstyle[39m=[32m"font-size: 24px; font-weight: bold; color: rgb(51, 51, 51);"[39m
+            [36m>[39m
+              [0mAgentX[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mstyle[39m=[32m"flex: 1 1 0%; display: flex; flex-direction: column; justify-content: center;"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"ant-typography css-dev-only-do-not-override-mncuj7"[39m
+            [33mstyle[39m=[32m"font-size: 48px; margin-bottom: 24px;"[39m
+          [36m>[39m
+            [0m鏁板瓧鍛樺伐娲鹃仯骞冲彴[0m
+          [36m</h1>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"ant-typography css-dev-only-do-not-override-mncuj7"[39m
+            [33mstyle[39m=[32m"font-size: 20px; color: rgb(102, 102, 102); max-width: 400px;"[39m
+          [36m>[39m
+            [0m鐢ˋI閲嶅鐢靛晢杩愯惀锛岃姣忎釜浜烘嫢鏈変笓灞炴暟瀛楀洟闃?[0m
+          [36m</span>[39m
+        [36m</div>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mstyle[39m=[32m"border-top: 1px solid rgba(0, 0, 0, 0.1); padding-top: 24px;"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"ant-typography css-dev-only-do-not-override-mncuj7"[39m
+              [33mstyle[39m=[32m"font-size: 14px; color: rgb(153, 153, 153);"[39m
+            [36m>[39m
+              [0m宸叉湁瓒呰繃 10,000+ 浼佷笟淇¤禆鎴戜滑[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mstyle[39m=[32m"width: 55%; display: flex; align-items: center; justify-content: center; padding: 48px; background: rgb(245, 245, 245);"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"ant-card ant-card-bordered css-dev-only-do-not-override-mncuj7"[39m
+          [33mstyle[39m=[32m"width: 100%; max-width: 400px; border: medium; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"ant-card-body"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mstyle[39m=[32m"text-align: center; margin-bottom: 32px;"[39m
+            [36m>[39m
+              [36m<h2[39m
+                [33mclass[39m=[32m"ant-typography css-dev-only-do-not-override-mncuj7"[39m
+              [36m>[39m
+                [0m娆㈣繋鍥炴潵[0m
+              [36m</h2>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ant-typography ant-typography-secondary css-dev-only-do-not-override-mncuj7"[39m
+              [36m>[39m
+                [0m璇疯緭鍏ユ偍鐨勮处鍙蜂俊鎭櫥褰曠郴缁?[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<form[39m
+              [33mclass[39m=[32m"ant-form ant-form-vertical css-dev-only-do-not-override-mncuj7"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-form-item css-dev-only-do-not-override-mncuj7 ant-form-item-vertical"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-row ant-form-item-row css-dev-only-do-not-override-mncuj7"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-col ant-form-item-label css-dev-only-do-not-override-mncuj7"[39m
+                  [36m>[39m
+                    [36m<label[39m
+                      [33mclass[39m=[32m"ant-form-item-required"[39m
+                      [33mfor[39m=[32m"username"[39m
+                      [33mtitle[39m=[32m"鐢ㄦ埛鍚?/ 閭"[39m
+                    [36m>[39m
+                      [0m鐢ㄦ埛鍚?/ 閭[0m
+                    [36m</label>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-col ant-form-item-control css-dev-only-do-not-override-mncuj7"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-form-item-control-input"[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"ant-form-item-control-input-content"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-input-affix-wrapper ant-input-affix-wrapper-lg css-dev-only-do-not-override-mncuj7 ant-input-outlined"[39m
+                        [36m>[39m
+                          [36m<span[39m
+                            [33mclass[39m=[32m"ant-input-prefix"[39m
+                          [36m>[39m
+                            [36m<span[39m
+                              [33maria-label[39m=[32m"user"[39m
+                              [33mclass[39m=[32m"anticon anticon-user"[39m
+                              [33mrole[39m=[32m"img"[39m
+                            [36m>[39m
+                              [36m<svg[39m
+                                [33maria-hidden[39m=[32m"true"[39m
+                                [33mdata-icon[39m=[32m"user"[39m
+                                [33mfill[39m=[32m"currentColor"[39m
+                                [33mfocusable[39m=[32m"false"[39m
+                                [33mheight[39m=[32m"1em"[39m
+                                [33mviewBox[39m=[32m"64 64 896 896"[39m
+                                [33mwidth[39m=[32m"1em"[39m
+                              [36m>[39m
+                                [36m<path[39m
+                                  [33md[39m=[32m"M858.5 763.6a374 374 0 00-80.6-119.5 375.63 375.63 0 00-119.5-80.6c-.4-.2-.8-.3-1.2-.5C719.5 518 760 444.7 760 362c0-137-111-248-248-248S264 225 264 362c0 82.7 40.5 156 102.8 201.1-.4.2-.8.3-1.2.5-44.8 18.9-85 46-119.5 80.6a375.63 375.63 0 00-80...
+
+stderr | src/__tests__/LoginForm.test.jsx > LoginForm > does not call API when 
+username is empty
+鈿狅笍 React Router Future Flag Warning: React Router will begin wrapping state up
+dates in `React.startTransition` in v7. You can use the `v7_startTransition` fu
+ture flag to opt-in early. For more information, see https://reactrouter.com/v6
+/upgrading/future#v7_starttransition.
+鈿狅笍 React Router Future Flag Warning: Relative route resolution within Splat ro
+utes is changing in v7. You can use the `v7_relativeSplatPath` future flag to o
+pt-in early. For more information, see https://reactrouter.com/v6/upgrading/fut
+ure#v7_relativesplatpath.
+
+ 鈫?src/__tests__/LoginForm.test.jsx > LoginForm > renders login form correctly
+ 鈫?src/__tests__/LoginForm.test.jsx > LoginForm > calls loginApi with correct credentials when form is submitted
+ 鈫?src/__tests__/LoginForm.test.jsx > LoginForm > displays error when loginApi fails
+ 脳 src/__tests__/LoginForm.test.jsx > LoginForm > does not call API when username is empty 570ms
+   鈫?Unable to find an element with the text: 鐧诲綍. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mstyle[39m=[32m"min-height: 100vh; display: flex; flex-direction: row;"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mstyle[39m=[32m"width: 45%; background: linear-gradient(right, rgb(255, 236, 210), rgb(252, 182, 159), rgb(255, 236, 210)); padding: 48px; display: flex; flex-direction: column; justify-content: space-between; position: relative; overflow: hidden;"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mstyle[39m=[32m"display: flex; align-items: center; gap: 12px; margin-bottom: 32px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mstyle[39m=[32m"width: 40px; height: 40px; background: rgb(24, 144, 255); border-radius: 8px; display: flex; align-items: center; justify-content: center;"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mstyle[39m=[32m"color: white; font-weight: bold; font-size: 18px;"[39m
+              [36m>[39m
+                [0mA[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33mstyle[39m=[32m"font-size: 24px; font-weight: bold; color: rgb(51, 51, 51);"[39m
+            [36m>[39m
+              [0mAgentX[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mstyle[39m=[32m"flex: 1 1 0%; display: flex; flex-direction: column; justify-content: center;"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"ant-typography css-dev-only-do-not-override-mncuj7"[39m
+            [33mstyle[39m=[32m"font-size: 48px; margin-bottom: 24px;"[39m
+          [36m>[39m
+            [0m鏁板瓧鍛樺伐娲鹃仯骞冲彴[0m
+          [36m</h1>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"ant-typography css-dev-only-do-not-override-mncuj7"[39m
+            [33mstyle[39m=[32m"font-size: 20px; color: rgb(102, 102, 102); max-width: 400px;"[39m
+          [36m>[39m
+            [0m鐢ˋI閲嶅鐢靛晢杩愯惀锛岃姣忎釜浜烘嫢鏈変笓灞炴暟瀛楀洟闃?[0m
+          [36m</span>[39m
+        [36m</div>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mstyle[39m=[32m"border-top: 1px solid rgba(0, 0, 0, 0.1); padding-top: 24px;"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"ant-typography css-dev-only-do-not-override-mncuj7"[39m
+              [33mstyle[39m=[32m"font-size: 14px; color: rgb(153, 153, 153);"[39m
+            [36m>[39m
+              [0m宸叉湁瓒呰繃 10,000+ 浼佷笟淇¤禆鎴戜滑[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mstyle[39m=[32m"width: 55%; display: flex; align-items: center; justify-content: center; padding: 48px; background: rgb(245, 245, 245);"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"ant-card ant-card-bordered css-dev-only-do-not-override-mncuj7"[39m
+          [33mstyle[39m=[32m"width: 100%; max-width: 400px; border: medium; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"ant-card-body"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mstyle[39m=[32m"text-align: center; margin-bottom: 32px;"[39m
+            [36m>[39m
+              [36m<h2[39m
+                [33mclass[39m=[32m"ant-typography css-dev-only-do-not-override-mncuj7"[39m
+              [36m>[39m
+                [0m娆㈣繋鍥炴潵[0m
+              [36m</h2>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ant-typography ant-typography-secondary css-dev-only-do-not-override-mncuj7"[39m
+              [36m>[39m
+                [0m璇疯緭鍏ユ偍鐨勮处鍙蜂俊鎭櫥褰曠郴缁?[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<form[39m
+              [33mclass[39m=[32m"ant-form ant-form-vertical css-dev-only-do-not-override-mncuj7"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-form-item css-dev-only-do-not-override-mncuj7 ant-form-item-vertical"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-row ant-form-item-row css-dev-only-do-not-override-mncuj7"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-col ant-form-item-label css-dev-only-do-not-override-mncuj7"[39m
+                  [36m>[39m
+                    [36m<label[39m
+                      [33mclass[39m=[32m"ant-form-item-required"[39m
+                      [33mfor[39m=[32m"username"[39m
+                      [33mtitle[39m=[32m"鐢ㄦ埛鍚?/ 閭"[39m
+                    [36m>[39m
+                      [0m鐢ㄦ埛鍚?/ 閭[0m
+                    [36m</label>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-col ant-form-item-control css-dev-only-do-not-override-mncuj7"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-form-item-control-input"[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"ant-form-item-control-input-content"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-input-affix-wrapper ant-input-affix-wrapper-lg css-dev-only-do-not-override-mncuj7 ant-input-outlined"[39m
+                        [36m>[39m
+                          [36m<span[39m
+                            [33mclass[39m=[32m"ant-input-prefix"[39m
+                          [36m>[39m
+                            [36m<span[39m
+                              [33maria-label[39m=[32m"user"[39m
+                              [33mclass[39m=[32m"anticon anticon-user"[39m
+                              [33mrole[39m=[32m"img"[39m
+                            [36m>[39m
+                              [36m<svg[39m
+                                [33maria-hidden[39m=[32m"true"[39m
+                                [33mdata-icon[39m=[32m"user"[39m
+                                [33mfill[39m=[32m"currentColor"[39m
+                                [33mfocusable[39m=[32m"false"[39m
+                                [33mheight[39m=[32m"1em"[39m
+                                [33mviewBox[39m=[32m"64 64 896 896"[39m
+                                [33mwidth[39m=[32m"1em"[39m
+                              [36m>[39m
+                                [36m<path[39m
+                                  [33md[39m=[32m"M858.5 763.6a374 374 0 00-80.6-119.5 375.63 375.63 0 00-119.5-80.6c-.4-.2-.8-.3-1.2-.5C719.5 518 760 444.7 760 362c0-137-111-248-248-248S264 225 264 362c0 82.7 40.5 156 102.8 201.1-.4.2-.8.3-1.2.5-44.8 18.9-85 46-119.5 80.6a375.63 375.63 0 00-80...
+
+鈳幆鈳幆鈳幆鈳?Failed Tests 1 鈳幆鈳幆鈳幆鈳?
+ FAIL  src/__tests__/LoginForm.test.jsx > LoginForm > does not call API when us
+ername is empty
+TestingLibraryElementError: Unable to find an element with the text: 鐧诲綍. This 
+could be because the text is broken up by multiple elements. In this case, you 
+can provide a function for your text matcher to make your matcher more flexible
+.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mstyle[39m=[32m"min-height: 100vh; display: flex; flex-direction: r
+ow;"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mstyle[39m=[32m"width: 45%; background: linear-gradient(right, rg
+b(255, 236, 210), rgb(252, 182, 159), rgb(255, 236, 210)); padding: 48px; displ
+ay: flex; flex-direction: column; justify-content: space-between; position: rel
+ative; overflow: hidden;"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mstyle[39m=[32m"display: flex; align-items: center; gap: 12px
+; margin-bottom: 32px;"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mstyle[39m=[32m"width: 40px; height: 40px; background: rgb(
+24, 144, 255); border-radius: 8px; display: flex; align-items: center; justify-
+content: center;"[39m
+            [36m>[39m
+              [36m<span[39m
+                [33mstyle[39m=[32m"color: white; font-weight: bold; font-siz
+e: 18px;"[39m
+              [36m>[39m
+                [0mA[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<span[39m
+              [33mstyle[39m=[32m"font-size: 24px; font-weight: bold; color: 
+rgb(51, 51, 51);"[39m
+            [36m>[39m
+              [0mAgentX[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+        [36m<div[39m
+          [33mstyle[39m=[32m"flex: 1 1 0%; display: flex; flex-direction: co
+lumn; justify-content: center;"[39m
+        [36m>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"ant-typography css-dev-only-do-not-override-m
+ncuj7"[39m
+            [33mstyle[39m=[32m"font-size: 48px; margin-bottom: 24px;"[39m
+          [36m>[39m
+            [0m鏁板瓧鍛樺伐娲鹃仯骞冲彴[0m
+          [36m</h1>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"ant-typography css-dev-only-do-not-override-m
+ncuj7"[39m
+            [33mstyle[39m=[32m"font-size: 20px; color: rgb(102, 102, 102); m
+ax-width: 400px;"[39m
+          [36m>[39m
+            [0m鐢ˋI閲嶅鐢靛晢杩愯惀锛岃姣忎釜浜烘嫢鏈変笓灞炴暟瀛楀洟闃?[0m
+          [36m</span>[39m
+        [36m</div>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mstyle[39m=[32m"border-top: 1px solid rgba(0, 0, 0, 0.1); pad
+ding-top: 24px;"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"ant-typography css-dev-only-do-not-override
+-mncuj7"[39m
+              [33mstyle[39m=[32m"font-size: 14px; color: rgb(153, 153, 153);
+"[39m
+            [36m>[39m
+              [0m宸叉湁瓒呰繃 10,000+ 浼佷笟淇¤禆鎴戜滑[0m
+            [36m</span>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mstyle[39m=[32m"width: 55%; display: flex; align-items: center; j
+ustify-content: center; padding: 48px; background: rgb(245, 245, 245);"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"ant-card ant-card-bordered css-dev-only-do-not-
+override-mncuj7"[39m
+          [33mstyle[39m=[32m"width: 100%; max-width: 400px; border: medium; 
+box-shadow: 0 4px 12px rgba(0,0,0,0.1);"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"ant-card-body"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mstyle[39m=[32m"text-align: center; margin-bottom: 32px;"[
+39m
+            [36m>[39m
+              [36m<h2[39m
+                [33mclass[39m=[32m"ant-typography css-dev-only-do-not-overri
+de-mncuj7"[39m
+              [36m>[39m
+                [0m娆㈣繋鍥炴潵[0m
+              [36m</h2>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"ant-typography ant-typography-secondary c
+ss-dev-only-do-not-override-mncuj7"[39m
+              [36m>[39m
+                [0m璇疯緭鍏ユ偍鐨勮处鍙蜂俊鎭櫥褰曠郴缁?[0m
+              [36m</span>[39m
+            [36m</div>[39m
+            [36m<form[39m
+              [33mclass[39m=[32m"ant-form ant-form-vertical css-dev-only-do-
+not-override-mncuj7"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"ant-form-item css-dev-only-do-not-overrid
+e-mncuj7 ant-form-item-vertical"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"ant-row ant-form-item-row css-dev-only-
+do-not-override-mncuj7"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-col ant-form-item-label css-dev-o
+nly-do-not-override-mncuj7"[39m
+                  [36m>[39m
+                    [36m<label[39m
+                      [33mclass[39m=[32m"ant-form-item-required"[39m
+                      [33mfor[39m=[32m"username"[39m
+                      [33mtitle[39m=[32m"鐢ㄦ埛鍚?/ 閭"[39m
+                    [36m>[39m
+                      [0m鐢ㄦ埛鍚?/ 閭[0m
+                    [36m</label>[39m
+                  [36m</div>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"ant-col ant-form-item-control css-dev
+-only-do-not-override-mncuj7"[39m
+                  [36m>[39m
+                    [36m<div[39m
+                      [33mclass[39m=[32m"ant-form-item-control-input"[39m
+                    [36m>[39m
+                      [36m<div[39m
+                        [33mclass[39m=[32m"ant-form-item-control-input-conte
+nt"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"ant-input-affix-wrapper ant-inp
+ut-affix-wrapper-lg css-dev-only-do-not-override-mncuj7 ant-input-outlined"[39
+m
+                        [36m>[39m
+                          [36m<span[39m
+                            [33mclass[39m=[32m"ant-input-prefix"[39m
+                          [36m>[39m
+                            [36m<span[39m
+                              [33maria-label[39m=[32m"user"[39m
+                              [33mclass[39m=[32m"anticon anticon-user"[39m
+                              [33mrole[39m=[32m"img"[39m
+                            [36m>[39m
+                              [36m<svg[39m
+                                [33maria-hidden[39m=[32m"true"[39m
+                                [33mdata-icon[39m=[32m"user"[39m
+                                [33mfill[39m=[32m"currentColor"[39m
+                                [33mfocusable[39m=[32m"false"[39m
+                                [33mheight[39m=[32m"1em"[39m
+                                [33mviewBox[39m=[32m"64 64 896 896"[39m
+                                [33mwidth[39m=[32m"1em"[39m
+                              [36m>[39m
+                                [36m<path[39m
+                                  [33md[39m=[32m"M858.5 763.6a374 374 0 00-8
+0.6-119.5 375.63 375.63 0 00-119.5-80.6c-.4-.2-.8-.3-1.2-.5C719.5 518 760 444.7
+ 760 362c0-137-111-248-248-248S264 225 264 362c0 82.7 40.5 156 102.8 201.1-.4.2
+-.8.3-1.2.5-44.8 18.9-85 46-119.5 80.6a375.63 375.63 0 00-80...
+ 鉂?Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:1
+9
+ 鉂?node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ 鉂?node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ 鉂?node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ 鉂?src/__tests__/LoginForm.test.jsx:111:28
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  11:23:39
+   Duration  19.02s (transform 88ms, setup 309ms, import 15.71s, tests 573ms, environment 2.01s)
+
+    109|     });
+    110|
+    111|     fireEvent.click(screen.getByText('鐧诲綍'));
+       |                            ^
+    112|
+    113|     await waitFor(() => {
+
+鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆[1/1]鈳?

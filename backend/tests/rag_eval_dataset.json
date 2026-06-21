@@ -1,0 +1,122 @@
+[
+  {
+    "query": "公司品牌在抖音平台上的表现如何？",
+    "relevant_docs": ["doc_001"],
+    "relevance_scores": {"doc_001": 3, "doc_002": 1},
+    "retrieved_docs": ["doc_001", "doc_003", "doc_002", "doc_004", "doc_005"]
+  },
+  {
+    "query": "最近一个月GMV增长了多少？",
+    "relevant_docs": ["doc_002"],
+    "relevance_scores": {"doc_002": 3},
+    "retrieved_docs": ["doc_002", "doc_001", "doc_005", "doc_003", "doc_004"]
+  },
+  {
+    "query": "我们的ROI相比行业平均水平如何？",
+    "relevant_docs": ["doc_003"],
+    "relevance_scores": {"doc_003": 3, "doc_001": 1},
+    "retrieved_docs": ["doc_003", "doc_001", "doc_004", "doc_002", "doc_005"]
+  },
+  {
+    "query": "品牌短视频内容应该怎么优化？",
+    "relevant_docs": ["doc_004"],
+    "relevance_scores": {"doc_004": 3, "doc_005": 2},
+    "retrieved_docs": ["doc_004", "doc_005", "doc_001", "doc_003", "doc_002"]
+  },
+  {
+    "query": "直播带货的转化率如何提升？",
+    "relevant_docs": ["doc_005"],
+    "relevance_scores": {"doc_005": 3, "doc_004": 2},
+    "retrieved_docs": ["doc_005", "doc_004", "doc_002", "doc_001", "doc_003"]
+  },
+  {
+    "query": "我们品牌在小红书上的种草策略是什么？",
+    "relevant_docs": ["doc_006"],
+    "relevance_scores": {"doc_006": 3, "doc_004": 1},
+    "retrieved_docs": ["doc_006", "doc_004", "doc_003", "doc_001", "doc_005"]
+  },
+  {
+    "query": "供应链选品有哪些数据指标可以参考？",
+    "relevant_docs": ["doc_007"],
+    "relevance_scores": {"doc_007": 3, "doc_002": 2},
+    "retrieved_docs": ["doc_002", "doc_007", "doc_001", "doc_005", "doc_003"]
+  },
+  {
+    "query": "如何降低客服响应时间？",
+    "relevant_docs": ["doc_008"],
+    "relevance_scores": {"doc_008": 3},
+    "retrieved_docs": ["doc_008", "doc_004", "doc_001", "doc_005", "doc_002"]
+  },
+  {
+    "query": "拼多多平台适合什么样的产品？",
+    "relevant_docs": ["doc_009"],
+    "relevance_scores": {"doc_009": 3, "doc_007": 2},
+    "retrieved_docs": ["doc_009", "doc_007", "doc_001", "doc_003", "doc_004"]
+  },
+  {
+    "query": "我们品牌视觉设计的核心风格是什么？",
+    "relevant_docs": ["doc_010"],
+    "relevance_scores": {"doc_010": 3},
+    "retrieved_docs": ["doc_010", "doc_004", "doc_003", "doc_001", "doc_005"]
+  },
+  {
+    "query": "广告投放的CPA控制目标是多少？",
+    "relevant_docs": ["doc_011"],
+    "relevance_scores": {"doc_011": 3, "doc_003": 1},
+    "retrieved_docs": ["doc_011", "doc_003", "doc_002", "doc_001", "doc_005"]
+  },
+  {
+    "query": "仓储物流配送时效如何保障？",
+    "relevant_docs": ["doc_012"],
+    "relevance_scores": {"doc_012": 3},
+    "retrieved_docs": ["doc_012", "doc_004", "doc_001", "doc_003", "doc_005"]
+  },
+  {
+    "query": "品牌KOL合作有哪些成功案例？",
+    "relevant_docs": ["doc_013"],
+    "relevance_scores": {"doc_013": 3, "doc_001": 2},
+    "retrieved_docs": ["doc_001", "doc_013", "doc_004", "doc_002", "doc_003"]
+  },
+  {
+    "query": "淘宝店铺的点击率如何优化？",
+    "relevant_docs": ["doc_014"],
+    "relevance_scores": {"doc_014": 3, "doc_003": 2},
+    "retrieved_docs": ["doc_014", "doc_003", "doc_001", "doc_004", "doc_005"]
+  },
+  {
+    "query": "品牌年货节活动应该怎么策划？",
+    "relevant_docs": ["doc_015"],
+    "relevance_scores": {"doc_015": 3, "doc_001": 1},
+    "retrieved_docs": ["doc_015", "doc_001", "doc_003", "doc_004", "doc_002"]
+  },
+  {
+    "query": "爆品打造的一般流程是什么？",
+    "relevant_docs": ["doc_016"],
+    "relevance_scores": {"doc_016": 3, "doc_007": 2},
+    "retrieved_docs": ["doc_016", "doc_007", "doc_001", "doc_004", "doc_003"]
+  },
+  {
+    "query": "视频号内容运营和抖音有什么不同？",
+    "relevant_docs": ["doc_017"],
+    "relevance_scores": {"doc_017": 3, "doc_004": 2},
+    "retrieved_docs": ["doc_017", "doc_004", "doc_001", "doc_005", "doc_003"]
+  },
+  {
+    "query": "如何评估一个新品牌合作机会？",
+    "relevant_docs": ["doc_018"],
+    "relevance_scores": {"doc_018": 3, "doc_001": 2},
+    "retrieved_docs": ["doc_018", "doc_001", "doc_007", "doc_004", "doc_003"]
+  },
+  {
+    "query": "用户复购率低的原因有哪些？",
+    "relevant_docs": ["doc_019"],
+    "relevance_scores": {"doc_019": 3, "doc_002": 1},
+    "retrieved_docs": ["doc_019", "doc_002", "doc_001", "doc_005", "doc_004"]
+  },
+  {
+    "query": "新品上市前需要做哪些市场调研？",
+    "relevant_docs": ["doc_020"],
+    "relevance_scores": {"doc_020": 3, "doc_007": 1},
+    "retrieved_docs": ["doc_020", "doc_007", "doc_001", "doc_003", "doc_004"]
+  }
+]

@@ -1,0 +1,74 @@
+# 审批流程工作流
+# 固定步骤：提交→审核→批准/驳回→通知
+
+name: approval_workflow
+version: "1.0.0"
+description: 标准审批流程
+trigger_keywords:
+  - 审批
+  - 审核
+  - 批准
+  - 驳回
+trigger_intent_types:
+  - delegate
+  - general
+min_complexity: 0
+max_complexity: 6
+default_agent: ben
+fallback_agent: amy
+
+steps:
+  - id: "1"
+    name: 提交审批
+    type: tool
+    action: create_approval_request
+    params:
+      extract_details: true
+    timeout_seconds: 10
+    critical: true
+    on_success: "2"
+    on_failure: "error"
+
+  - id: "2"
+    name: 规则审核
+    type: condition
+    params:
+      condition: "context.get('auto_approve', False)"
+      true_branch: "4"
+      false_branch: "3"
+    timeout_seconds: 5
+    critical: false
+
+  - id: "3"
+    name: 人工审核
+    type: tool
+    action: request_manual_review
+    params:
+      approval_id: "{{context.approval_id}}"
+    timeout_seconds: 300
+    critical: true
+    on_success: "4"
+    on_failure: "error"
+
+  - id: "4"
+    name: 发送通知
+    type: tool
+    action: send_notification
+    params:
+      recipient: "{{context.requester}}"
+      status: "{{context.approval_status}}"
+    timeout_seconds: 10
+    critical: false
+    on_success: "END"
+    on_failure: "END"
+
+  - id: "error"
+    name: 错误处理
+    type: tool
+    action: create_support_ticket
+    params:
+      reason: "审批流程执行失败"
+    timeout_seconds: 10
+    critical: false
+    on_success: "END"
+    on_failure: "END"

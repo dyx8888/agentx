@@ -1,0 +1,324 @@
+# =============================================================================
+# AgentX 统一工具 Provider 配置
+# 替代 tools.yaml + mcp_config.yaml，唯一定义所有工具来源
+# =============================================================================
+
+providers:
+
+  # ── MCP stdio 服务器 ──────────────────────────────────────────────────
+
+  - name: kol_search
+    type: mcp_stdio
+    command: python
+    args: ["-m", "app.mcp_servers.kol_search_server"]
+    capabilities: [search, brand_bd]
+    danger_level: low
+    timeout_ms: 30000
+    degradation:
+      critical: true
+      cache_ttl: 3600
+
+  - name: outreach
+    type: mcp_stdio
+    command: python
+    args: ["-m", "app.mcp_servers.outreach_server"]
+    capabilities: [content, brand_bd]
+    danger_level: low
+    timeout_ms: 30000
+    degradation:
+      critical: true
+      cache_ttl: 3600
+
+  - name: script_generator
+    type: mcp_stdio
+    command: python
+    args: ["-m", "app.mcp_servers.script_server"]
+    capabilities: [content, content_operation]
+    danger_level: low
+    timeout_ms: 30000
+    degradation:
+      critical: false
+      cache_ttl: 1800
+
+  - name: report_analyzer
+    type: mcp_stdio
+    command: python
+    args: ["-m", "app.mcp_servers.report_server"]
+    capabilities: [analysis, brand_bd]
+    danger_level: low
+    timeout_ms: 60000
+    degradation:
+      critical: true
+      cache_ttl: 7200
+
+  - name: delivery_monitor
+    type: mcp_stdio
+    command: python
+    args: ["-m", "app.mcp_servers.monitor_server"]
+    capabilities: [logistics, warehouse_logistics]
+    danger_level: low
+    timeout_ms: 15000
+    degradation:
+      critical: true
+      cache_ttl: 600
+
+  - name: knowledge_retrieval
+    type: mcp_stdio
+    command: python
+    args: ["-m", "app.mcp_servers.knowledge_retrieval_server"]
+    capabilities: [search, knowledge, customer_service]
+    danger_level: low
+    multi_tenant: true
+    timeout_ms: 15000
+    degradation:
+      critical: false
+      cache_ttl: 1800
+
+  - name: time
+    type: mcp_stdio
+    command: python
+    args: ["-m", "mcp_server_time"]
+    capabilities: [core]
+    danger_level: low
+    timeout_ms: 5000
+    degradation:
+      critical: false
+      cache_ttl: 60
+
+  - name: fetch
+    type: mcp_stdio
+    command: python
+    args: ["-m", "mcp_server_fetch"]
+    capabilities: [core, search]
+    danger_level: low
+    timeout_ms: 30000
+    degradation:
+      critical: false
+      cache_ttl: 300
+
+  # ── 本地 Python Agent 专用工具 ────────────────────────────────────────
+
+  - name: data_analysis_tools
+    type: local
+    module: app.agents.tools
+    function: get_agent_tools
+    agent_key: data_analysis
+    capabilities: [analysis, data_analysis]
+    danger_level: low
+    timeout_ms: 60000
+    degradation:
+      critical: true
+      cache_ttl: 3600
+
+  - name: warehouse_logistics_tools
+    type: local
+    module: app.agents.tools
+    function: get_agent_tools
+    agent_key: warehouse_logistics
+    capabilities: [logistics, warehouse_logistics]
+    danger_level: low
+    timeout_ms: 30000
+    degradation:
+      critical: true
+      cache_ttl: 600
+
+  - name: customer_service_tools
+    type: local
+    module: app.agents.tools
+    function: get_agent_tools
+    agent_key: customer_service
+    capabilities: [service, customer_service]
+    danger_level: medium
+    timeout_ms: 30000
+    degradation:
+      critical: true
+      cache_ttl: 1800
+
+  - name: visual_designer_tools
+    type: local
+    module: app.agents.tools
+    function: get_agent_tools
+    agent_key: visual_designer
+    capabilities: [design, visual_designer]
+    danger_level: medium
+    timeout_ms: 60000
+    degradation:
+      critical: false
+      cache_ttl: 3600
+
+  - name: product_selector_tools
+    type: local
+    module: app.agents.tools
+    function: get_agent_tools
+    agent_key: product_selector
+    capabilities: [analysis, product_selector]
+    danger_level: medium
+    timeout_ms: 30000
+    degradation:
+      critical: true
+      cache_ttl: 1800
+
+  - name: smart_ad_delivery_tools
+    type: local
+    module: app.agents.tools
+    function: get_agent_tools
+    agent_key: smart_ad_delivery
+    capabilities: [analysis, advertising, smart_ad_delivery]
+    danger_level: high
+    timeout_ms: 30000
+    degradation:
+      critical: true
+      cache_ttl: 3600
+    tools_requiring_approval:
+      - evaluate_stop_loss
+      - analyze_ab_test_result
+
+  - name: content_operation_tools
+    type: local
+    module: app.agents.tools
+    function: get_agent_tools
+    agent_key: content_operation
+    capabilities: [content, content_operation]
+    danger_level: medium
+    timeout_ms: 30000
+    degradation:
+      critical: false
+      cache_ttl: 1800
+
+  - name: brand_bd_tools
+    type: local
+    module: app.agents.tools
+    function: get_agent_tools
+    agent_key: brand_bd
+    capabilities: [content, brand_bd]
+    danger_level: low
+    timeout_ms: 30000
+    degradation:
+      critical: false
+      cache_ttl: 1800
+
+  # ── 核心内置工具 ──────────────────────────────────────────────────────
+
+  - name: core_tools
+    type: local
+    module: app.agent
+    function: get_core_tools
+    capabilities: [core]
+    danger_level: low
+    timeout_ms: 15000
+    degradation:
+      critical: false
+      cache_ttl: 300
+
+  # ── HTTP 外部服务端点 ─────────────────────────────────────────────────
+
+  - name: kol_search_http
+    type: http_endpoint
+    url: "http://localhost:8101/tools/search_kols"
+    timeout_ms: 30000
+    retry:
+      max_attempts: 3
+      backoff: exponential
+    capabilities: [search, brand_bd]
+    danger_level: low
+    degradation:
+      critical: true
+      cache_ttl: 3600
+      fallback_url: "http://localhost:8101/tools/search_kols_cache"
+
+  - name: generate_outreach_http
+    type: http_endpoint
+    url: "http://localhost:8105/tools/generate_outreach"
+    timeout_ms: 30000
+    retry:
+      max_attempts: 3
+      backoff: exponential
+    capabilities: [content, brand_bd]
+    danger_level: low
+    degradation:
+      critical: true
+      cache_ttl: 3600
+
+  - name: generate_script_http
+    type: http_endpoint
+    url: "http://localhost:8103/tools/generate_script"
+    timeout_ms: 30000
+    retry:
+      max_attempts: 3
+      backoff: exponential
+    capabilities: [content, content_operation]
+    danger_level: low
+    degradation:
+      critical: false
+      cache_ttl: 1800
+
+  - name: check_delivery_http
+    type: http_endpoint
+    url: "http://localhost:8104/tools/check_delivery_status"
+    timeout_ms: 15000
+    retry:
+      max_attempts: 2
+      backoff: exponential
+    capabilities: [logistics, warehouse_logistics]
+    danger_level: low
+    degradation:
+      critical: true
+      cache_ttl: 600
+
+  - name: generate_arrival_http
+    type: http_endpoint
+    url: "http://localhost:8106/tools/generate_arrival_script"
+    timeout_ms: 15000
+    retry:
+      max_attempts: 2
+      backoff: exponential
+    capabilities: [logistics, content]
+    danger_level: low
+    degradation:
+      critical: false
+      cache_ttl: 1800
+
+  - name: generate_report_http
+    type: http_endpoint
+    url: "http://localhost:8104/tools/generate_performance_report"
+    timeout_ms: 30000
+    retry:
+      max_attempts: 3
+      backoff: exponential
+    capabilities: [analysis, brand_bd]
+    danger_level: low
+    degradation:
+      critical: true
+      cache_ttl: 7200
+
+  - name: generate_strategy_http
+    type: http_endpoint
+    url: "http://localhost:8104/tools/generate_strategy_suggestion"
+    timeout_ms: 30000
+    retry:
+      max_attempts: 3
+      backoff: exponential
+    capabilities: [analysis, advertising]
+    danger_level: low
+    degradation:
+      critical: true
+      cache_ttl: 3600
+
+# =============================================================================
+# 能力标签 → Provider 映射
+# Agent 初始化时按 agent_name 匹配对应的 capabilities 列表
+# =============================================================================
+
+capability_map:
+  search:    [kol_search, knowledge_retrieval, fetch, kol_search_http]
+  analysis:  [report_analyzer, data_analysis_tools, product_selector_tools,
+              smart_ad_delivery_tools, generate_report_http, generate_strategy_http]
+  content:   [outreach, script_generator, content_operation_tools, brand_bd_tools,
+              generate_outreach_http, generate_script_http, generate_arrival_http]
+  service:   [customer_service_tools, knowledge_retrieval]
+  logistics: [delivery_monitor, warehouse_logistics_tools,
+              check_delivery_http, generate_arrival_http]
+  design:    [visual_designer_tools]
+  advertising: [smart_ad_delivery_tools, generate_strategy_http]
+  core:      [time, core_tools, fetch]
+  knowledge: [knowledge_retrieval]

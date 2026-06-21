@@ -1,0 +1,44 @@
+# Feature Flags for Agent Quality Upgrade
+# Phase rollout: higher phase = later rollout
+# Environment variable override: FEATURE_{NAME}=true/false
+
+features:
+  idempotency:
+    enabled: false
+    phase: 1
+  checkpoint_recovery:
+    enabled: false
+    phase: 1
+  loop_detection:
+    enabled: true
+    phase: 1
+  tool_timeout_retry:
+    enabled: false
+    phase: 2
+  degradation:
+    enabled: false
+    phase: 2
+  tool_error_standardization:
+    enabled: true
+    phase: 2
+  mcp_health_check:
+    enabled: true
+    phase: 3
+  semantic_skill_matching:
+    enabled: false
+    phase: 4
+  token_based_truncation:
+    enabled: false
+    phase: 5
+  lru_memory_eviction:
+    enabled: false
+    phase: 5
+  perception_pipeline:
+    enabled: false
+    phase: 6
+  parallel_agent:
+    enabled: false
+    phase: 7
+  hierarchical_orchestrator:
+    enabled: false
+    phase: 8

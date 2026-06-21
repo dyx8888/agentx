@@ -1,0 +1,63 @@
+skills:
+  - name: kol_screening
+    agent_name: brand_bd
+    title: 达人筛选与评估
+    description: 按品类搜索达人，深度分析数据，输出推荐榜单
+    trigger_keywords:
+      - "找达人"
+      - "筛选"
+      - "推荐达人"
+      - "KOL"
+      - "博主"
+      - "达人推荐"
+      - "有哪些"
+    skill_path: app/skills/brand_bd/kol_screening.md
+    enabled: true
+
+  - name: campaign_planning
+    agent_name: brand_bd
+    title: 新品推广策划
+    description: 制定完整的新品推广方案，包含市场分析、达人策略、预算分配、执行时间线
+    trigger_keywords:
+      - "推广方案"
+      - "推广策划"
+      - "新品推广"
+      - "营销方案"
+      - "计划"
+      - "策划"
+    skill_path: app/skills/brand_bd/campaign_planning.md
+    enabled: true
+
+  - name: content_creation
+    agent_name: content_operation
+    title: 内容创意与脚本撰写
+    description: 从热点调研到脚本撰写的完整内容创作流程，适配抖音/小红书/快手
+    trigger_keywords:
+      - "写脚本"
+      - "文案"
+      - "内容创作"
+      - "创意"
+      - "脚本"
+      - "短视频"
+      - "内容方案"
+      - "帖子"
+    skill_path: app/skills/content_operation/content_creation.md
+    enabled: true
+
+  - name: performance_analysis
+    agent_name: data_analysis
+    title: 投放效果数据分析
+    description: 对 KOL 投放数据进行采集、清洗、分析、对标，输出优化建议
+    trigger_keywords:
+      - "数据分析"
+      - "效果分析"
+      - "ROI"
+      - "投放数据"
+      - "报表"
+      - "数据报告"
+      - "转化率"
+      - "CPM"
+      - "效果评估"
+      - "分析报告"
+    skill_path: app/skills/data_analysis/performance_analysis.md
+    enabled: true
