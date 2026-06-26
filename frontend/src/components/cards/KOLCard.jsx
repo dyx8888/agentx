@@ -9,7 +9,7 @@ export default function KOLCard({ data }) {
   const kol = data.kol || data;
 
   return (
-    <div className="mt-3 p-4 rounded-xl border border-[var(--color-hairline)] bg-white
+    <div className="mt-3 p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-surface)]
       shadow-sm hover:shadow-md transition-shadow">
       {/* Header: Avatar + Name */}
       <div className="flex items-center gap-3 mb-3">
@@ -18,21 +18,21 @@ export default function KOLCard({ data }) {
           icon={!kol.avatar && <UserOutlined />}
           size={44}
           className="flex-shrink-0"
-          style={{ backgroundColor: 'var(--color-canvas-soft-2)' }}
+          style={{ backgroundColor: 'var(--color-bg-active)' }}
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h4 className="text-sm font-semibold text-[var(--color-ink)] truncate">
+            <h4 className="text-sm font-semibold text-[var(--color-text-primary)] truncate">
               {kol.name || kol.nickname || '未知达人'}
             </h4>
             {kol.verified && (
               <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-full
-                bg-[var(--color-success-bg-soft)] text-[var(--color-success)]">
+                bg-[var(--color-success-light)] text-[var(--color-success)]">
                 已认证
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 mt-0.5 text-xs text-[var(--color-mute)]">
+          <div className="flex items-center gap-2 mt-0.5 text-xs text-[var(--color-text-tertiary)]">
             {kol.platform && (
               <span className="flex items-center gap-1">
                 <EnvironmentOutlined />
@@ -51,7 +51,7 @@ export default function KOLCard({ data }) {
 
       {/* Description */}
       {kol.description && (
-        <p className="text-xs text-[var(--color-body)] mb-3 line-clamp-2">
+        <p className="text-xs text-[var(--color-text-secondary)] mb-3 line-clamp-2">
           {kol.description}
         </p>
       )}
@@ -63,8 +63,8 @@ export default function KOLCard({ data }) {
             <span
               key={i}
               className="px-2 py-0.5 text-[10px] rounded-full
-                bg-[var(--color-canvas-soft)] text-[var(--color-mute)]
-                border border-[var(--color-hairline)]"
+                bg-[var(--color-bg-hover)] text-[var(--color-text-tertiary)]
+                border border-[var(--color-border)]"
             >
               {typeof tag === 'string' ? tag : tag.name || tag.label}
             </span>
@@ -74,23 +74,23 @@ export default function KOLCard({ data }) {
 
       {/* Stats */}
       {kol.stats && (
-        <div className="flex gap-4 mb-3 p-2 rounded-lg bg-[var(--color-canvas-soft)]">
+        <div className="flex gap-4 mb-3 p-2 rounded-lg bg-[var(--color-bg-hover)]">
           {kol.stats.posts != null && (
             <div className="text-center">
-              <div className="text-xs font-semibold text-[var(--color-ink)]">{formatNumber(kol.stats.posts)}</div>
-              <div className="text-[10px] text-[var(--color-mute)]">作品</div>
+              <div className="text-xs font-semibold text-[var(--color-text-primary)]">{formatNumber(kol.stats.posts)}</div>
+              <div className="text-[10px] text-[var(--color-text-tertiary)]">作品</div>
             </div>
           )}
           {kol.stats.avg_likes != null && (
             <div className="text-center">
-              <div className="text-xs font-semibold text-[var(--color-ink)]">{formatNumber(kol.stats.avg_likes)}</div>
-              <div className="text-[10px] text-[var(--color-mute)]">均赞</div>
+              <div className="text-xs font-semibold text-[var(--color-text-primary)]">{formatNumber(kol.stats.avg_likes)}</div>
+              <div className="text-[10px] text-[var(--color-text-tertiary)]">均赞</div>
             </div>
           )}
           {kol.stats.engagement_rate != null && (
             <div className="text-center">
-              <div className="text-xs font-semibold text-[var(--color-ink)]">{kol.stats.engagement_rate}%</div>
-              <div className="text-[10px] text-[var(--color-mute)]">互动率</div>
+              <div className="text-xs font-semibold text-[var(--color-text-primary)]">{kol.stats.engagement_rate}%</div>
+              <div className="text-[10px] text-[var(--color-text-tertiary)]">互动率</div>
             </div>
           )}
         </div>
@@ -102,8 +102,8 @@ export default function KOLCard({ data }) {
           href={kol.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-[var(--color-link)]
-            hover:text-[var(--color-link-deep)] transition-colors"
+          className="inline-flex items-center gap-1 text-xs text-[var(--color-accent)]
+            hover:text-[var(--color-accent-hover)] transition-colors"
         >
           <LinkOutlined />
           查看主页

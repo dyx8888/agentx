@@ -31,27 +31,27 @@ function getFileIcon(fileType) {
  */
 export default function ArtifactCard({ data }) {
   return (
-    <div className="mt-3 p-4 rounded-xl border border-[var(--color-hairline)] bg-white
+    <div className="mt-3 p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-surface)]
       shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-lg bg-[var(--color-canvas-soft)]
-          flex items-center justify-center text-lg text-[var(--color-link)] flex-shrink-0">
+        <div className="w-10 h-10 rounded-lg bg-[var(--color-bg-hover)]
+          flex items-center justify-center text-lg text-[var(--color-accent)] flex-shrink-0">
           {getFileIcon(data.file_type)}
         </div>
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-semibold text-[var(--color-ink)] mb-1 truncate">
+          <h4 className="text-sm font-semibold text-[var(--color-text-primary)] mb-1 truncate">
             {data.title || '未命名文件'}
           </h4>
-          <p className="text-xs text-[var(--color-mute)] mb-2 line-clamp-2">
+          <p className="text-xs text-[var(--color-text-tertiary)] mb-2 line-clamp-2">
             {data.summary || data.description || '暂无描述'}
           </p>
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 text-[10px] font-medium rounded-full
-              bg-[var(--color-link-bg-soft)] text-[var(--color-link)]">
+              bg-[var(--color-accent-subtle)] text-[var(--color-accent)]">
               {data.type_label || data.file_type || '文件'}
             </span>
             {data.file_size && (
-              <span className="text-[10px] text-[var(--color-mute)]">{data.file_size}</span>
+              <span className="text-[10px] text-[var(--color-text-tertiary)]">{data.file_size}</span>
             )}
           </div>
         </div>
@@ -61,8 +61,8 @@ export default function ArtifactCard({ data }) {
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium
-              text-[var(--color-link)] hover:text-white hover:bg-[var(--color-link)]
-              border border-[var(--color-link)] rounded-lg
+              text-[var(--color-accent)] hover:text-white hover:bg-[var(--color-accent)]
+              border border-[var(--color-accent)] rounded-lg
               transition-colors flex-shrink-0"
           >
             <DownloadOutlined />

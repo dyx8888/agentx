@@ -1,22 +1,23 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Button, Input, Form, message } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
+import { message } from 'antd';
+import { RocketOutlined, LoadingOutlined } from '@ant-design/icons';
 import { login as loginApi } from '@/api/auth';
 import { useAuth } from '@/lib/AuthContext';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const [form] = Form.useForm();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const handleSubmit = async (values) => {
+  const doLogin = async (user, pass) => {
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const data = await loginApi(values.username, values.password);
+      const data = await loginApi(user, pass);
       if (data.access_token) {
         await login(data.access_token, data.refresh_token || null);
         message.success('登录成功');
@@ -32,160 +33,107 @@ export default function LoginPage() {
     }
   };
 
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!username.trim()) { setErrorMsg('请输入用户名'); return; }
+    if (!password || password.length < 8) { setErrorMsg('密码至少 8 位'); return; }
+    doLogin(username, password);
+  };
+
   const handleDemoLogin = async () => {
-    setIsLoading(true);
-    setErrorMsg('');
-    try {
-      const data = await loginApi('demo', 'demo123456');
-      if (data.access_token) {
-        await login(data.access_token, data.refresh_token || null);
-        message.success('演示账号登录成功');
-        navigate('/chat');
-      }
-    } catch (err) {
-      const msg = err.response?.data?.detail || err.message || '登录失败';
-      setErrorMsg(msg);
-    } finally {
-      setIsLoading(false);
-    }
+    setUsername('demo');
+    setPassword('demo123456');
+    await doLogin('demo', 'demo123456');
   };
 
   return (
-    <div className="flex min-h-screen">
-      {/* Left Brand Panel */}
-      <div
-        className="hidden lg:flex w-[45%] flex-col justify-between p-12 relative overflow-hidden"
-        style={{
-          background: 'linear-gradient(135deg, #007cf0 0%, #00dfd8 50%, #7928ca 100%)',
-        }}
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-gray-50">
+      {/* Decorative gradient blobs */}
+      <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] rounded-full opacity-20 pointer-events-none"
+        style={{ background: 'radial-gradient(circle, #6366f1 0%, transparent 70%)' }} />
+      <div className="absolute bottom-[-10%] left-[-5%] w-[400px] h-[400px] rounded-full opacity-10 pointer-events-none"
+        style={{ background: 'radial-gradient(circle, #8b5cf6 0%, transparent 70%)' }} />
+
+      {/* Card */}
+      <div className="relative max-w-[460px] w-[90vw] p-10 bg-white
+        rounded-3xl shadow-lg animate-slide-up">
+
+        {/* Brand — single row */}
+        <div className="flex items-center gap-4 mb-10">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm"
+            style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+            <RocketOutlined className="text-lg text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900 tracking-tight leading-tight">
+              AgentX <span className="text-sm font-medium text-gray-500">AI 工作助手</span>
+            </h1>
+          </div>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-2">用户名</label>
+            <input
+              value={username}
+              onChange={(e) => { setUsername(e.target.value); setErrorMsg(''); }}
+              placeholder="请输入用户名"
+              autoComplete="username"
+              className="w-full h-12 px-4 text-sm text-gray-900 bg-white
+                border border-gray-200 rounded-xl
+                placeholder:text-gray-400
+                outline-none transition-all duration-150
+                focus:border-gray-400 focus:ring-2 focus:ring-gray-200/50"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-2">密码</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => { setPassword(e.target.value); setErrorMsg(''); }}
+              placeholder="请输入密码"
+              autoComplete="current-password"
+              className="w-full h-12 px-4 text-sm text-gray-900 bg-white
+                border border-gray-200 rounded-xl
+                placeholder:text-gray-400
+                outline-none transition-all duration-150
+                focus:border-gray-400 focus:ring-2 focus:ring-gray-200/50"
+            />
+          </div>
+
+          {errorMsg && (
+            <p className="text-xs text-red-500 -mt-1">{errorMsg}</p>
+          )}
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full h-12 rounded-xl text-sm font-medium
+              bg-gray-900 text-white
+              hover:bg-gray-800 hover:shadow-sm
+              transition-all duration-150
+              disabled:opacity-50 disabled:cursor-not-allowed
+              flex items-center justify-center gap-2"
+          >
+            {isLoading && <LoadingOutlined className="animate-spin" />}
+            {isLoading ? '登录中...' : '登 录'}
+          </button>
+        </form>
+      </div>
+
+      {/* Demo login — tiny, bottom-right corner of screen */}
+      <button
+        onClick={handleDemoLogin}
+        disabled={isLoading}
+        className="absolute bottom-6 right-6 text-xs text-gray-400
+          hover:text-gray-700 transition-colors
+          disabled:opacity-30 disabled:cursor-not-allowed"
       >
-        <div>
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">A</span>
-            </div>
-            <span className="text-white text-2xl font-semibold">AgentX</span>
-          </div>
-        </div>
-
-        <div className="flex-1 flex flex-col justify-center">
-          <h1 className="text-5xl font-semibold text-white mb-6 leading-tight">
-            数字员工
-            <br />
-            派遣平台
-          </h1>
-          <p className="text-xl text-white/80 max-w-md">
-            用AI重塑电商运营，让每个人拥有专属数字团队
-          </p>
-        </div>
-
-        <div>
-          <div className="border-t border-white/20 pt-6">
-            <p className="text-sm text-white/60">已有超过 10,000+ 企业信赖我们</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Right Login Form */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-[var(--color-canvas-soft)]">
-        <div className="w-full max-w-[400px]">
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-semibold text-[var(--color-ink)] mb-2">欢迎回来</h2>
-            <p className="text-sm text-[var(--color-mute)]">
-              请输入您的账号信息登录系统
-            </p>
-          </div>
-
-          <div className="bg-white rounded-xl p-8 shadow-[0_4px_12px_rgba(0,0,0,0.08)] border border-[var(--color-hairline)]">
-            <Form form={form} onFinish={handleSubmit} layout="vertical" size="large">
-              <Form.Item
-                name="username"
-                rules={[
-                  { required: true, message: '请输入用户名' },
-                  { min: 1, message: '用户名不能为空' },
-                ]}
-              >
-                <Input
-                  prefix={<UserOutlined className="text-[var(--color-mute)]" />}
-                  placeholder="用户名"
-                  className="h-11"
-                  autoComplete="username"
-                />
-              </Form.Item>
-
-              <Form.Item
-                name="password"
-                rules={[
-                  { required: true, message: '请输入密码' },
-                  { min: 8, message: '密码至少 8 位' },
-                ]}
-              >
-                <Input.Password
-                  prefix={<LockOutlined className="text-[var(--color-mute)]" />}
-                  placeholder="密码"
-                  className="h-11"
-                  autoComplete="current-password"
-                />
-              </Form.Item>
-
-              {errorMsg && (
-                <div className="mb-4 p-3 rounded-lg text-sm bg-[var(--color-error-soft)] text-[var(--color-error)] border border-[var(--color-error)]/20">
-                  {errorMsg}
-                </div>
-              )}
-
-              <Form.Item>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  loading={isLoading}
-                  block
-                  className="h-11 font-medium"
-                  style={{
-                    background: 'var(--color-ink)',
-                    borderRadius: '8px',
-                  }}
-                >
-                  登录
-                </Button>
-              </Form.Item>
-            </Form>
-
-            <div className="relative my-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-[var(--color-hairline)]" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="px-2 bg-white text-[var(--color-mute)]">或</span>
-              </div>
-            </div>
-
-            <Button
-              block
-              onClick={handleDemoLogin}
-              loading={isLoading}
-              className="h-11 font-medium"
-              style={{
-                border: '1px solid var(--color-hairline)',
-                borderRadius: '8px',
-                color: 'var(--color-ink)',
-              }}
-            >
-              演示账号登录
-            </Button>
-
-            <div className="mt-6 text-center text-sm text-[var(--color-mute)]">
-              还没有账号？
-              <Link
-                to="/register"
-                className="ml-1 text-[var(--color-link)] hover:text-[var(--color-link-deep)] font-medium"
-              >
-                立即注册
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
+        演示账号登录
+      </button>
     </div>
   );
 }

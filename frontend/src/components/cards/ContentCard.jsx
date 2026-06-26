@@ -20,24 +20,24 @@ export default function ContentCard({ data }) {
   };
 
   const statusConfig = {
-    draft: { label: '草稿', color: 'bg-[var(--color-canvas-soft-2)] text-[var(--color-mute)]' },
-    ready: { label: '就绪', color: 'bg-[var(--color-success-bg-soft)] text-[var(--color-success)]' },
-    pending: { label: '待审核', color: 'bg-amber-50 text-amber-600' },
-    approved: { label: '已通过', color: 'bg-[var(--color-success-bg-soft)] text-[var(--color-success)]' },
+    draft: { label: '草稿', color: 'bg-[var(--color-bg-active)] text-[var(--color-text-tertiary)]' },
+    ready: { label: '就绪', color: 'bg-[var(--color-success-light)] text-[var(--color-success)]' },
+    pending: { label: '待审核', color: 'bg-[var(--color-badge-pending-bg)] text-[var(--color-badge-pending-text)]' },
+    approved: { label: '已通过', color: 'bg-[var(--color-success-light)] text-[var(--color-success)]' },
   };
   const status = statusConfig[data.status] || statusConfig.draft;
 
   return (
-    <div className="mt-3 p-4 rounded-xl border border-[var(--color-hairline)] bg-white
+    <div className="mt-3 p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-surface)]
       shadow-sm hover:shadow-md transition-shadow">
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-[var(--color-canvas-soft)]
-            flex items-center justify-center text-sm text-[var(--color-link)] flex-shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-[var(--color-bg-hover)]
+            flex items-center justify-center text-sm text-[var(--color-accent)] flex-shrink-0">
             <FileTextOutlined />
           </div>
-          <h4 className="text-sm font-semibold text-[var(--color-ink)] truncate">
+          <h4 className="text-sm font-semibold text-[var(--color-text-primary)] truncate">
             {data.title || '内容策划'}
           </h4>
         </div>
@@ -49,7 +49,7 @@ export default function ContentCard({ data }) {
       </div>
 
       {/* Type & Word Count */}
-      <div className="flex items-center gap-3 mb-2 text-xs text-[var(--color-mute)]">
+      <div className="flex items-center gap-3 mb-2 text-xs text-[var(--color-text-tertiary)]">
         {data.script_type && (
           <span className="flex items-center gap-1">
             <EditOutlined />
@@ -74,8 +74,8 @@ export default function ContentCard({ data }) {
       {(data.preview || data.content) && (
         <div className="relative mb-2">
           <div
-            className="p-3 rounded-lg bg-[var(--color-canvas-soft)] border border-[var(--color-hairline)]
-              text-xs text-[var(--color-body)] leading-relaxed whitespace-pre-wrap
+            className="p-3 rounded-lg bg-[var(--color-bg-hover)] border border-[var(--color-border)]
+              text-xs text-[var(--color-text-secondary)] leading-relaxed whitespace-pre-wrap
               max-h-32 overflow-y-auto"
           >
             {data.preview || data.content}
@@ -83,8 +83,8 @@ export default function ContentCard({ data }) {
           <button
             onClick={handleCopy}
             className="absolute top-2 right-2 p-1.5 rounded-md
-              bg-white/80 hover:bg-white border border-[var(--color-hairline)]
-              text-[var(--color-mute)] hover:text-[var(--color-ink)] transition-colors"
+              bg-white/80 hover:bg-white border border-[var(--color-border)]
+              text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
             title="复制内容"
           >
             <CopyOutlined className="text-xs" />
@@ -99,8 +99,8 @@ export default function ContentCard({ data }) {
             <span
               key={i}
               className="px-2 py-0.5 text-[10px] rounded-full
-                bg-[var(--color-canvas-soft)] text-[var(--color-mute)]
-                border border-[var(--color-hairline)]"
+                bg-[var(--color-bg-hover)] text-[var(--color-text-tertiary)]
+                border border-[var(--color-border)]"
             >
               {tag}
             </span>

@@ -1,51 +1,103 @@
 @import "tailwindcss";
 
 /* ============================================================
-   DESIGN TOKENS — Vercel-Inspired (from DESIGN.md)
+   AGENTX DESIGN SYSTEM v3
+   Apple-minimalist | ChatGPT / Claude / DeepSeek inspired
+   Breathable whitespace · Purple-blue gradient accent · Soft shadows
    ============================================================ */
 @theme {
-  --color-ink: #171717;
-  --color-body: #4d4d4d;
-  --color-mute: #888888;
-  --color-hairline: #ebebeb;
-  --color-hairline-strong: #a1a1a1;
-  --color-canvas: #ffffff;
-  --color-canvas-soft: #fafafa;
-  --color-canvas-soft-2: #f5f5f5;
-  --color-link: #0070f3;
-  --color-link-deep: #0761d1;
-  --color-link-bg-soft: #d3e5ff;
-  --color-success: #0070f3;
-  --color-error: #ee0000;
-  --color-error-soft: #f7d4d6;
-  --color-error-deep: #c50000;
-  --color-warning: #f5a623;
-  --color-warning-soft: #ffefcf;
-  --color-warning-deep: #ab570a;
-  --color-violet: #7928ca;
-  --color-violet-soft: #d8ccf1;
-  --color-violet-deep: #4c2889;
-  --color-cyan: #50e3c2;
-  --color-cyan-soft: #aaffec;
-  --color-cyan-deep: #29bc9b;
-  --color-highlight-pink: #ff0080;
-  --color-highlight-magenta: #eb367f;
-  --gradient-develop-start: #007cf0;
-  --gradient-develop-end: #00dfd8;
-  --gradient-preview-start: #7928ca;
-  --gradient-preview-end: #ff0080;
-  --gradient-ship-start: #ff4d4d;
-  --gradient-ship-end: #f9cb28;
-  --font-sans: Geist, Inter, system-ui, -apple-system, sans-serif;
-  --font-mono: Geist Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  /* ── Background ── */
+  --color-bg-primary: #f9fafb;
+  --color-bg-surface: #ffffff;
+  --color-bg-hover: #f3f4f6;
+  --color-bg-active: #e5e7eb;
+
+  /* ── Text ── */
+  --color-text-primary: #171717;
+  --color-text-secondary: #404040;
+  --color-text-tertiary: #737373;
+  --color-text-disabled: #a3a3a3;
+
+  /* ── Border ── */
+  --color-border: #e5e7eb;
+  --color-border-light: #f3f4f6;
+  --color-border-focus: #8b5cf6;
+
+  /* ── Accent: purple-blue gradient ── */
+  --color-accent: #7c3aed;
+  --color-accent-hover: #6d28d9;
+  --color-accent-light: #ede9fe;
+  --color-accent-subtle: #f5f3ff;
+
+  --gradient-accent: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%);
+  --gradient-accent-subtle: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 50%, #ede9fe 100%);
+
+  /* ── Semantic badges ── */
+  --color-badge-pending-bg: #f3e8ff;
+  --color-badge-pending-text: #7c3aed;
+  --color-badge-success-bg: #ecfdf5;
+  --color-badge-success-text: #059669;
+  --color-badge-info-bg: #eff6ff;
+  --color-badge-info-text: #2563eb;
+  --color-badge-warning-bg: #fffbeb;
+  --color-badge-warning-text: #d97706;
+  --color-badge-error-bg: #fef2f2;
+  --color-badge-error-text: #dc2626;
+
+  /* ── Semantic state ── */
+  --color-success: #059669;
+  --color-success-light: #ecfdf5;
+  --color-error: #dc2626;
+  --color-error-light: #fef2f2;
+  --color-warning: #d97706;
+  --color-warning-light: #fffbeb;
+  --color-info: #2563eb;
+  --color-info-light: #eff6ff;
+
+  /* ── Typography ── */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', monospace;
+
+  --font-size-xs: 11px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 15px;
+  --font-size-xl: 16px;
+  --font-size-2xl: 18px;
+  --font-size-3xl: 20px;
+  --font-size-4xl: 24px;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
+
+  /* ── Border Radius ── */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ── */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
+  --shadow-input: 0 0 0 3px rgba(139, 92, 246, 0.1);
+  --shadow-input-error: 0 0 0 3px rgba(220, 38, 38, 0.1);
 }
 
 /* ============================================================
-   BASE STYLES
+   BASE
    ============================================================ */
-*,
-*::before,
-*::after {
+*, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -54,31 +106,113 @@
 html, body, #root {
   height: 100%;
   font-family: var(--font-sans);
-  background: var(--color-canvas);
-  color: var(--color-ink);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--color-hairline);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-hairline-strong);
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+/* ── Selection ── */
+::selection {
+  background-color: var(--color-accent-light);
+  color: var(--color-accent);
 }
 
-/* Ant Design overrides */
-.ant-btn-primary {
-  box-shadow: none;
+/* ── Focus visible ── */
+:focus-visible {
+  outline: 2px solid #d1d5db;
+  outline-offset: 2px;
+  border-radius: 4px;
 }
-.ant-message {
-  z-index: 9999;
+
+/* ============================================================
+   KEYFRAMES
+   ============================================================ */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+@keyframes typing-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-4px); }
+}
+
+.animate-fade-in { animation: fade-in 0.2s ease-out; }
+.animate-slide-up { animation: slide-up 0.25s ease-out; }
+.animate-slide-down { animation: slide-down 0.2s ease-out; }
+.animate-typing-cursor { animation: typing-cursor 1s step-end infinite; }
+.animate-dot-bounce { animation: dot-bounce 1.2s ease-in-out infinite; }
+
+/* ============================================================
+   ANT DESIGN GLOBAL OVERRIDES
+   ============================================================ */
+.ant-btn-primary {
+  box-shadow: none !important;
+}
+.ant-modal .ant-modal-content {
+  border-radius: var(--radius-xl) !important;
+  padding: 0 !important;
+}
+.ant-modal .ant-modal-header {
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0 !important;
+  padding: 20px 24px 16px !important;
+  margin-bottom: 0 !important;
+}
+.ant-modal .ant-modal-body {
+  padding: 0 24px 24px !important;
+}
+.ant-modal .ant-modal-footer {
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl) !important;
+  padding: 16px 24px !important;
+  margin-top: 0 !important;
+}
+.ant-message { z-index: 9999; }
+.ant-tooltip-inner {
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  padding: 6px 10px !important;
+}
+
+/* ============================================================
+   PROSE OVERRIDES (for markdown rendering)
+   ============================================================ */
+.prose { --tw-prose-body: var(--color-text-primary); }
+.prose :where(h1,h2,h3,h4):first-child { margin-top: 0; }
+.prose :where(code):not(:where(pre code)) {
+  background: var(--color-bg-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: var(--color-accent);
+}
+.prose :where(pre) {
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
 }

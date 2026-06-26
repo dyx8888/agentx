@@ -3,10 +3,9 @@ import { BrowserRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock the API using vi.hoisted
-const { mockLoginApi, mockAuthLogin, mockAuthSetUser } = vi.hoisted(() => ({
+const { mockLoginApi, mockAuthLogin } = vi.hoisted(() => ({
   mockLoginApi: vi.fn(),
   mockAuthLogin: vi.fn(),
-  mockAuthSetUser: vi.fn(),
 }));
 
 vi.mock('@/api/auth', () => ({
@@ -17,7 +16,6 @@ vi.mock('@/api/auth', () => ({
 vi.mock('@/lib/AuthContext', () => ({
   useAuth: () => ({
     user: null,
-    setUser: mockAuthSetUser,
     login: mockAuthLogin,
     logout: vi.fn(),
     loading: false,
@@ -45,36 +43,29 @@ describe('LoginPage', () => {
   it('renders login form elements', () => {
     renderLoginPage();
 
-    expect(screen.getByText('欢迎回来')).toBeInTheDocument();
-    expect(screen.getByText('请输入您的账号信息登录系统')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('用户名')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('密码')).toBeInTheDocument();
     expect(screen.getByText('AgentX')).toBeInTheDocument();
+    expect(screen.getByText('AI 工作助手 — 对话即可完成工作')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('请输入用户名')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('请输入密码')).toBeInTheDocument();
   });
 
-  it('renders demo login button', () => {
+  it('renders login and demo buttons', () => {
     renderLoginPage();
 
+    expect(screen.getByText('登 录')).toBeInTheDocument();
     expect(screen.getByText('演示账号登录')).toBeInTheDocument();
-  });
-
-  it('renders brand panel content', () => {
-    renderLoginPage();
-
-    expect(screen.getByText('已有超过 10,000+ 企业信赖我们')).toBeInTheDocument();
   });
 
   it('calls login API with correct credentials on form submit', async () => {
     mockLoginApi.mockResolvedValue({
       access_token: 'test-token',
       refresh_token: 'test-refresh',
-      user: { id: 1, username: 'testuser' },
     });
 
     renderLoginPage();
 
-    const usernameInput = screen.getByPlaceholderText('用户名');
-    const passwordInput = screen.getByPlaceholderText('密码');
+    const usernameInput = screen.getByPlaceholderText('请输入用户名');
+    const passwordInput = screen.getByPlaceholderText('请输入密码');
     const form = usernameInput.closest('form');
 
     fireEvent.change(usernameInput, { target: { value: 'testuser' } });
@@ -90,22 +81,20 @@ describe('LoginPage', () => {
     mockLoginApi.mockResolvedValue({
       access_token: 'test-token',
       refresh_token: 'test-refresh',
-      user: { id: 1, username: 'testuser' },
     });
 
     renderLoginPage();
 
-    fireEvent.change(screen.getByPlaceholderText('用户名'), {
+    fireEvent.change(screen.getByPlaceholderText('请输入用户名'), {
       target: { value: 'testuser' },
     });
-    fireEvent.change(screen.getByPlaceholderText('密码'), {
+    fireEvent.change(screen.getByPlaceholderText('请输入密码'), {
       target: { value: 'testpass123' },
     });
-    fireEvent.submit(screen.getByPlaceholderText('用户名').closest('form'));
+    fireEvent.submit(screen.getByPlaceholderText('请输入用户名').closest('form'));
 
     await waitFor(() => {
       expect(mockAuthLogin).toHaveBeenCalledWith('test-token', 'test-refresh');
-      expect(mockAuthSetUser).toHaveBeenCalledWith({ id: 1, username: 'testuser' });
     });
   });
 
@@ -116,13 +105,13 @@ describe('LoginPage', () => {
 
     renderLoginPage();
 
-    fireEvent.change(screen.getByPlaceholderText('用户名'), {
+    fireEvent.change(screen.getByPlaceholderText('请输入用户名'), {
       target: { value: 'wronguser' },
     });
-    fireEvent.change(screen.getByPlaceholderText('密码'), {
+    fireEvent.change(screen.getByPlaceholderText('请输入密码'), {
       target: { value: 'wrongpass123' },
     });
-    fireEvent.submit(screen.getByPlaceholderText('用户名').closest('form'));
+    fireEvent.submit(screen.getByPlaceholderText('请输入用户名').closest('form'));
 
     await waitFor(() => {
       expect(screen.getByText('用户名或密码错误')).toBeInTheDocument();
@@ -134,13 +123,13 @@ describe('LoginPage', () => {
 
     renderLoginPage();
 
-    fireEvent.change(screen.getByPlaceholderText('用户名'), {
+    fireEvent.change(screen.getByPlaceholderText('请输入用户名'), {
       target: { value: 'testuser' },
     });
-    fireEvent.change(screen.getByPlaceholderText('密码'), {
+    fireEvent.change(screen.getByPlaceholderText('请输入密码'), {
       target: { value: 'testpass123' },
     });
-    fireEvent.submit(screen.getByPlaceholderText('用户名').closest('form'));
+    fireEvent.submit(screen.getByPlaceholderText('请输入用户名').closest('form'));
 
     await waitFor(() => {
       expect(screen.getByText('Network error')).toBeInTheDocument();
@@ -152,13 +141,13 @@ describe('LoginPage', () => {
 
     renderLoginPage();
 
-    fireEvent.change(screen.getByPlaceholderText('用户名'), {
+    fireEvent.change(screen.getByPlaceholderText('请输入用户名'), {
       target: { value: 'testuser' },
     });
-    fireEvent.change(screen.getByPlaceholderText('密码'), {
+    fireEvent.change(screen.getByPlaceholderText('请输入密码'), {
       target: { value: 'testpass123' },
     });
-    fireEvent.submit(screen.getByPlaceholderText('用户名').closest('form'));
+    fireEvent.submit(screen.getByPlaceholderText('请输入用户名').closest('form'));
 
     await waitFor(() => {
       expect(screen.getByText('未获取到有效的访问令牌')).toBeInTheDocument();
@@ -169,7 +158,6 @@ describe('LoginPage', () => {
     mockLoginApi.mockResolvedValue({
       access_token: 'demo-token',
       refresh_token: 'demo-refresh',
-      user: { id: 0, username: 'demo' },
     });
 
     renderLoginPage();
@@ -184,7 +172,7 @@ describe('LoginPage', () => {
   it('does not call API when username is empty', async () => {
     renderLoginPage();
 
-    const form = screen.getByPlaceholderText('用户名').closest('form');
+    const form = screen.getByPlaceholderText('请输入用户名').closest('form');
     fireEvent.submit(form);
 
     await waitFor(() => {
@@ -195,13 +183,13 @@ describe('LoginPage', () => {
   it('does not call API when password is too short', async () => {
     renderLoginPage();
 
-    fireEvent.change(screen.getByPlaceholderText('用户名'), {
+    fireEvent.change(screen.getByPlaceholderText('请输入用户名'), {
       target: { value: 'testuser' },
     });
-    fireEvent.change(screen.getByPlaceholderText('密码'), {
+    fireEvent.change(screen.getByPlaceholderText('请输入密码'), {
       target: { value: '123' },
     });
-    fireEvent.submit(screen.getByPlaceholderText('用户名').closest('form'));
+    fireEvent.submit(screen.getByPlaceholderText('请输入用户名').closest('form'));
 
     await waitFor(() => {
       expect(mockLoginApi).not.toHaveBeenCalled();

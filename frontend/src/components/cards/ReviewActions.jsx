@@ -49,9 +49,9 @@ export default function ReviewActions({ reviewStatus, onApprove, onReject, disab
   // 已审核状态展示
   if (reviewStatus === 'approved') {
     return (
-      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--color-hairline)]">
+      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--color-border)]">
         <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-          bg-[var(--color-success-bg-soft)] text-[var(--color-success)]">
+          bg-[var(--color-success-light)] text-[var(--color-success)]">
           <CheckOutlined />
           已通过
         </span>
@@ -61,15 +61,15 @@ export default function ReviewActions({ reviewStatus, onApprove, onReject, disab
 
   if (reviewStatus === 'rejected') {
     return (
-      <div className="mt-3 pt-3 border-t border-[var(--color-hairline)]">
+      <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium
-            bg-[var(--color-error-bg-soft)] text-[var(--color-error)]">
+            bg-[var(--color-error-light)] text-[var(--color-error)]">
             <CloseOutlined />
             已驳回
           </span>
           {rejectReason && (
-            <span className="text-xs text-[var(--color-mute)] truncate max-w-[200px]">
+            <span className="text-xs text-[var(--color-text-tertiary)] truncate max-w-[200px]">
               {rejectReason}
             </span>
           )}
@@ -81,13 +81,13 @@ export default function ReviewActions({ reviewStatus, onApprove, onReject, disab
   // 待审核操作按钮
   return (
     <>
-      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--color-hairline)]">
+      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--color-border)]">
         <button
           onClick={handleApprove}
           disabled={disabled || isSubmitting}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium
             text-[var(--color-success)] border border-[var(--color-success)]
-            rounded-lg hover:bg-[var(--color-success-bg-soft)]
+            rounded-lg hover:bg-[var(--color-success-light)]
             disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           <CheckOutlined />
@@ -98,7 +98,7 @@ export default function ReviewActions({ reviewStatus, onApprove, onReject, disab
           disabled={disabled || isSubmitting}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium
             text-[var(--color-error)] border border-[var(--color-error)]
-            rounded-lg hover:bg-[var(--color-error-bg-soft)]
+            rounded-lg hover:bg-[var(--color-error-light)]
             disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           <CloseOutlined />
@@ -124,7 +124,7 @@ export default function ReviewActions({ reviewStatus, onApprove, onReject, disab
         centered
         width={440}
       >
-        <p className="text-sm text-[var(--color-body)] mb-3">
+        <p className="text-sm text-[var(--color-text-secondary)] mb-3">
           请输入驳回原因，以便后续修正：
         </p>
         <TextArea

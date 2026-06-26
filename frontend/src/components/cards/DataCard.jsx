@@ -20,20 +20,20 @@ export default function DataCard({ data }) {
   const chartType = data.chart_type || data.type || 'bar';
 
   return (
-    <div className="mt-3 p-4 rounded-xl border border-[var(--color-hairline)] bg-white
+    <div className="mt-3 p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-surface)]
       shadow-sm hover:shadow-md transition-shadow">
       {/* Header */}
       <div className="flex items-center gap-2 mb-3">
-        <div className="w-8 h-8 rounded-lg bg-[var(--color-canvas-soft)]
-          flex items-center justify-center text-sm text-[var(--color-link)]">
+        <div className="w-8 h-8 rounded-lg bg-[var(--color-bg-hover)]
+          flex items-center justify-center text-sm text-[var(--color-accent)]">
           {CHART_TYPE_ICONS[chartType] || <BarChartOutlined />}
         </div>
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-semibold text-[var(--color-ink)] truncate">
+          <h4 className="text-sm font-semibold text-[var(--color-text-primary)] truncate">
             {data.title || '数据分析'}
           </h4>
           {data.period && (
-            <span className="text-[10px] text-[var(--color-mute)]">{data.period}</span>
+            <span className="text-[10px] text-[var(--color-text-tertiary)]">{data.period}</span>
           )}
         </div>
       </div>
@@ -43,7 +43,7 @@ export default function DataCard({ data }) {
         <div className="mb-3">
           {/* Mini bar chart */}
           {chartType === 'bar' && (
-            <div className="flex items-end gap-1.5 h-24 p-2 rounded-lg bg-[var(--color-canvas-soft)]">
+            <div className="flex items-end gap-1.5 h-24 p-2 rounded-lg bg-[var(--color-bg-hover)]">
               {data.data_points.map((point, i) => {
                 const maxVal = Math.max(...data.data_points.map((p) => p.value));
                 const height = maxVal > 0 ? (point.value / maxVal) * 90 : 0;
@@ -53,11 +53,11 @@ export default function DataCard({ data }) {
                       className="w-full rounded-t-sm transition-all"
                       style={{
                         height: `${height}%`,
-                        background: 'linear-gradient(180deg, var(--color-link), var(--color-link-soft))',
+                        background: 'linear-gradient(180deg, var(--color-accent), var(--color-accent-light))',
                         minHeight: point.value > 0 ? '4px' : '0',
                       }}
                     />
-                    <span className="text-[9px] text-[var(--color-mute)] mt-1 truncate w-full text-center">
+                    <span className="text-[9px] text-[var(--color-text-tertiary)] mt-1 truncate w-full text-center">
                       {point.label}
                     </span>
                   </div>
@@ -68,12 +68,12 @@ export default function DataCard({ data }) {
 
           {/* Mini line chart approximation */}
           {chartType === 'line' && (
-            <div className="p-2 rounded-lg bg-[var(--color-canvas-soft)]">
+            <div className="p-2 rounded-lg bg-[var(--color-bg-hover)]">
               <div className="relative h-20 flex items-end">
                 <svg className="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
                   <polyline
                     fill="none"
-                    stroke="var(--color-link)"
+                    stroke="var(--color-accent)"
                     strokeWidth="2"
                     points={data.data_points
                       .map((p, i) => {
@@ -88,7 +88,7 @@ export default function DataCard({ data }) {
               </div>
               <div className="flex justify-between mt-1">
                 {data.data_points.slice(0, 6).map((point, i) => (
-                  <span key={i} className="text-[9px] text-[var(--color-mute)]">
+                  <span key={i} className="text-[9px] text-[var(--color-text-tertiary)]">
                     {point.label}
                   </span>
                 ))}
@@ -104,12 +104,12 @@ export default function DataCard({ data }) {
           {data.metrics.map((metric, i) => (
             <div
               key={i}
-              className="p-2.5 rounded-lg bg-[var(--color-canvas-soft)]
-                border border-[var(--color-hairline)]"
+              className="p-2.5 rounded-lg bg-[var(--color-bg-hover)]
+                border border-[var(--color-border)]"
             >
-              <div className="text-[10px] text-[var(--color-mute)] mb-0.5">{metric.label}</div>
+              <div className="text-[10px] text-[var(--color-text-tertiary)] mb-0.5">{metric.label}</div>
               <div className="flex items-baseline gap-1">
-                <span className="text-sm font-semibold text-[var(--color-ink)]">
+                <span className="text-sm font-semibold text-[var(--color-text-primary)]">
                   {metric.value}
                 </span>
                 {metric.change != null && (
@@ -129,7 +129,7 @@ export default function DataCard({ data }) {
 
       {/* Summary */}
       {data.summary && (
-        <p className="text-xs text-[var(--color-body)] bg-[var(--color-canvas-soft)] p-2.5 rounded-lg border border-[var(--color-hairline)]">
+        <p className="text-xs text-[var(--color-text-secondary)] bg-[var(--color-bg-hover)] p-2.5 rounded-lg border border-[var(--color-border)]">
           {data.summary}
         </p>
       )}
