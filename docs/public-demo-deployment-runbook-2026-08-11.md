@@ -8,7 +8,7 @@ filled environment files.
 
 - Branch: `codex/public-demo-20260810`
 - Local baseline tag: `public-demo-local-20260811`
-- Current local baseline commit: `36c40fc`
+- Current local baseline commit: `7f52294`
 - Verify local HEAD before remote push with `git rev-parse --short HEAD`
 - Local worktree status: clean
 - Selected deployment path: Vercel frontend, Render backend, Neon Postgres
@@ -39,7 +39,10 @@ git push --dry-run origin codex/public-demo-20260810 public-demo-local-20260811
 
 If the dry-run hangs or fails because GitHub credentials are unavailable, stop
 and authenticate GitHub in a normal PowerShell session before running the real
-push. Do not change branches or push the original dirty worktree.
+push. In the Codex environment on 2026-08-11, the non-mutating dry-run failed
+with `fatal: User cancelled dialog.` and `fatal: could not read Username for
+'https://github.com': terminal prompts disabled`. Do not change branches or
+push the original dirty worktree.
 
 If `public_demo_pre_push_audit.py` fails with `runtime artifacts not reachable
 in branch history`, stop. Do not push the history-preserving branch to a public

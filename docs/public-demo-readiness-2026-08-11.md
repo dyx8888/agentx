@@ -219,10 +219,12 @@ Next required external step:
 3. Create/configure Vercel, Render, and Neon resources.
 4. Run public smoke after HTTPS URLs exist.
 
-Codex attempted a local `git push --dry-run` precheck on 2026-08-11. The
-command produced no remote result after about 90 seconds and was aborted,
-consistent with local GitHub credential or network interaction waiting. No
-remote writes were made by that dry-run attempt.
+Codex attempted local `git push --dry-run` prechecks on 2026-08-11. The first
+attempt produced no remote result after about 90 seconds and was aborted. A
+second non-mutating dry-run with `GIT_TERMINAL_PROMPT=0` failed with
+`fatal: User cancelled dialog.` and `fatal: could not read Username for
+'https://github.com': terminal prompts disabled`. No remote writes were made by
+either dry-run attempt.
 
 Do not describe the project as fully complete until a public URL, HTTPS configuration, and public smoke test are verified.
 
