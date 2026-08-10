@@ -1,0 +1,40 @@
+mcp_servers:
+  kol_search:
+    transport: stdio
+    command: python
+    args: ["-m", "app.mcp_servers.kol_search_server"]
+
+  outreach:
+    transport: stdio
+    command: python
+    args: ["-m", "app.mcp_servers.outreach_server"]
+
+  script_generator:
+    transport: stdio
+    command: python
+    args: ["-m", "app.mcp_servers.script_server"]
+
+  report_analyzer:
+    transport: stdio
+    command: python
+    args: ["-m", "app.mcp_servers.report_server"]
+
+  delivery_monitor:
+    transport: stdio
+    command: python
+    args: ["-m", "app.mcp_servers.monitor_server"]
+
+  knowledge_retrieval:
+    transport: stdio
+    command: python
+    args: ["-m", "app.mcp_servers.knowledge_retrieval_server"]
+
+  time:
+    transport: stdio
+    command: python
+    args: ["-m", "mcp_server_time"]
+
+  fetch:
+    transport: stdio
+    command: python
+    args: ["-m", "mcp_server_fetch"]

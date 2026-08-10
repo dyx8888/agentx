@@ -1,0 +1,109 @@
+# ============================================
+# Agent Evaluation Pipeline 工作流配置文件
+# ============================================
+# 本文件定义了 Agent 能力评估的自动化流程。
+# 
+# 主要功能：
+# 1. Evaluation（评估）：运行单元测试、Agent 能力评估、根因分析、回归检查
+# 2. Lint（代码检查）：检查代码风格和类型正确性
+# 
+# 触发条件：
+# - 推送代码到 main 或 develop 分支，且修改了 backend/ 或 tests/ 目录
+# - 创建或更新 PR 到 main 分支，且修改了 backend/ 或 tests/ 目录
+# 
+# 特色功能：
+# - 失败时自动生成根因分析报告
+# - 对比历史基线检测性能退化
+# - 无论成功失败都上传评估报告
+# ============================================
+name: Agent Evaluation Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend/**'
+      - 'tests/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'tests/**'
+
+jobs:
+  evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio pytest-cov
+
+      - name: Run unit tests
+        run: |
+          cd tests
+          pytest unit/ -v --cov=../backend/app --cov-report=xml --junitxml=unit-results.xml
+
+      - name: Run evaluation
+        run: |
+          cd tests
+          python -m evaluation.runner --ci
+
+      - name: Generate root cause analysis
+        if: failure()
+        run: |
+          cd tests
+          python -m evaluation.runner --root-cause
+
+      - name: Check regression
+        run: |
+          cd tests
+          python -c "
+          from evaluation.calibration import RegressionTester
+          import json
+          tester = RegressionTester()
+          baseline = tester.load_baseline()
+          if baseline:
+              print(f'Baseline: {baseline[\"timestamp\"]}')
+          "
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-reports
+          path: |
+            reports/evaluation/
+            tests/unit-results.xml
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install ruff
+        run: pip install ruff
+      - name: Lint
+        run: ruff check backend/ tests/
+      - name: Type check
+        run: |
+          pip install pyright
+          pyright backend/app/ --ignoreexternal

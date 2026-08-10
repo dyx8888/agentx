@@ -1,0 +1,4 @@
+content,category,scenario,title,external_id,data_source,source_url,source_note,tags
+"Demo data - fictional: Qingzhu skincare livestream conversion improved after moving the hero product comparison earlier in the script.",business_metric,live_ops,Demo livestream observation,demo-knowledge-001,manual_upload,,Demo data - fictional,"demo|livestream|conversion"
+"Demo data - fictional: skincare KOL shortlist should prioritize recent engagement rate above follower count for early campaign screening.",kol_strategy,creator_selection,Demo KOL screening rule,demo-knowledge-002,public_web,https://public-source.invalid/demo-knowledge,Demo data - fictional,"demo|kol|selection"
+"Demo data - fictional: when OAuth or platform credentials are missing, the UI must show not connected instead of returning fake platform success.",platform_readiness,safety,Demo platform safety rule,demo-knowledge-003,cached_snapshot,,Demo data - fictional,"demo|platform|safety"

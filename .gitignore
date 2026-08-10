@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+.pytest_cache/
+.pytest_cache_agentx/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+.venv/
+venv/
+env/
+*.log
+.DS_Store
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+
+# Runtime data / local reports
+.coverage
+backend/.coverage
+backend/data/
+reports/
+tests/reports/
+frontend/screenshots/
+perf_*
+
+# Public demo excluded debug/generated files
+*.bak
+backend/debug_*.py
+backend/setup_test_agents.py
+backend/simple_chat_test.py
+backend/verify_startup.py
+frontend/test-output.txt
+frontend/test-results/

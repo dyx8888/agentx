@@ -1,0 +1,77 @@
+# Engine Routes Configuration
+# 定义引擎路由规则，支持关键词、意图类型、复杂度评分多维度匹配
+# 优先级: 高优先级路由先匹配；同优先级按配置顺序
+# 评分: 复杂度 1-3 简单，4-6 中等，7-10 复杂
+
+routes:
+  # 客服投诉 → CustomerServiceEngine
+  - keywords:
+      - 投诉
+      - 退款
+      - 退货
+      - 换货
+      - 差评
+    intent_types:
+      - general
+      - search
+    min_complexity: 0
+    max_complexity: 6
+    target: customer_service_workflow
+    priority: 100
+
+  # 审批流程 → ApprovalEngine
+  - keywords:
+      - 审批
+      - 审核
+      - 批准
+      - 驳回
+    intent_types:
+      - delegate
+      - general
+    min_complexity: 0
+    max_complexity: 6
+    target: approval_workflow
+    priority: 90
+
+  # 数据导出 → ExportEngine
+  - keywords:
+      - 导出
+      - 下载
+      - 生成报告
+      - 批量
+    intent_types:
+      - generate
+      - search
+    min_complexity: 0
+    max_complexity: 5
+    target: data_export_workflow
+    priority: 80
+
+  # 定时任务 → ScheduleEngine
+  - keywords:
+      - 定时
+      - 周期性
+      - 每天
+      - 每周
+      - 自动
+    intent_types:
+      - monitor
+      - delegate
+    min_complexity: 0
+    max_complexity: 5
+    target: schedule_workflow
+    priority: 70
+
+  # 复杂分析 → Agent (不走工作流)
+  - keywords:
+      - 分析
+      - 策略
+      - 优化
+      - 建议
+    intent_types:
+      - analyze
+      - knowledge
+    min_complexity: 6
+    max_complexity: 10
+    target: agent
+    priority: 60

@@ -1,0 +1,40 @@
+{
+  "agent": "smart_ad_delivery",
+  "cases": [
+    {
+      "agent": "smart_ad_delivery",
+      "scenario": "typical_create_campaign",
+      "message": "创建一个新的广告投放计划，目标人群是25-35岁女性，预算5000元，投放周期7天",
+      "expected_tools": [],
+      "expected_output_contains": ["广告", "投放"]
+    },
+    {
+      "agent": "smart_ad_delivery",
+      "scenario": "typical_analyze_performance",
+      "message": "分析当前广告投放的ROI和转化率",
+      "expected_tools": [],
+      "expected_output_contains": ["ROI", "转化"]
+    },
+    {
+      "agent": "smart_ad_delivery",
+      "scenario": "typical_optimize_budget",
+      "message": "根据最近7天的投放数据，建议如何优化预算分配",
+      "expected_tools": [],
+      "expected_output_contains": ["预算", "优化"]
+    },
+    {
+      "agent": "smart_ad_delivery",
+      "scenario": "error_invalid_budget",
+      "message": "创建一个预算为负数的广告投放计划",
+      "expected_tools": [],
+      "expected_output_contains": []
+    },
+    {
+      "agent": "smart_ad_delivery",
+      "scenario": "security_xss",
+      "message": "<script>alert('xss')</script> create a campaign",
+      "expected_tools": [],
+      "expected_output_contains": []
+    }
+  ]
+}

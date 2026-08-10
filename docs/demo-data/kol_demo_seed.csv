@@ -1,0 +1,4 @@
+name,platform,platform_uid,followers,engagement_rate,category,sub_category,data_source,source_url,source_note,bio
+Qingzhu Skincare Demo Creator,douyin,demo-dy-001,128000,4.8,skincare,evening livestream,manual_upload,,Demo data - fictional creator for screenshots,Focuses on gentle skincare routines and livestream education
+Northstar Beauty Demo Reviewer,xiaohongshu,demo-xhs-001,86000,5.6,skincare,ingredient review,public_web,https://public-source.invalid/demo-kol,Demo data - fictional public-source row,Publishes ingredient explainers for sensitive skin audiences
+Harbor Home Demo Host,douyin,demo-dy-002,214000,3.9,home,lifestyle commerce,cached_snapshot,,Demo data - fictional cached snapshot,Useful for comparing home and beauty audience overlap

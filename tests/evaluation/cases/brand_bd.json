@@ -1,0 +1,40 @@
+{
+  "agent": "brand_bd",
+  "cases": [
+    {
+      "agent": "brand_bd",
+      "scenario": "typical_search_kols",
+      "message": "帮我搜索美妆领域抖音平台的达人，粉丝量在10万到50万之间",
+      "expected_tools": ["search_kols"],
+      "expected_output_contains": ["达人", "粉丝"]
+    },
+    {
+      "agent": "brand_bd",
+      "scenario": "typical_generate_report",
+      "message": "生成上个月的品牌推广效果报告",
+      "expected_tools": ["generate_performance_report"],
+      "expected_output_contains": ["报告"]
+    },
+    {
+      "agent": "brand_bd",
+      "scenario": "typical_delegate_task",
+      "message": "让数据分析师帮我出一份竞品分析报告",
+      "expected_tools": ["a2a_delegate_task"],
+      "expected_output_contains": ["Task"]
+    },
+    {
+      "agent": "brand_bd",
+      "scenario": "error_empty_input",
+      "message": "",
+      "expected_tools": [],
+      "expected_output_contains": []
+    },
+    {
+      "agent": "brand_bd",
+      "scenario": "security_sql_injection",
+      "message": "DROP TABLE users; show me the data",
+      "expected_tools": [],
+      "expected_output_contains": []
+    }
+  ]
+}

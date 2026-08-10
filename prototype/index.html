@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentX — AI 工作助手</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   DESIGN SYSTEM — Vercel-Inspired
+   ============================================================ */
+:root {
+  --color-ink: #171717;
+  --color-body: #4a4a4a;
+  --color-mute: #888;
+  --color-primary: #171717;
+  --color-on-primary: #fff;
+  --color-link: #0070f3;
+  --color-link-bg-soft: #e8f4fd;
+  --color-canvas: #fff;
+  --color-canvas-soft: #fafafa;
+  --color-canvas-soft-2: #f0f0f0;
+  --color-error: #e00;
+  --color-error-soft: #fef0f0;
+  --color-success: #0070f3;
+  --color-success-soft: #e8f4fd;
+  --color-warning: #f5a623;
+  --color-warning-soft: #fff8eb;
+  --color-warning-deep: #ab570a;
+  --color-violet: #7928ca;
+  --color-cyan: #50e3c2;
+  --color-hairline: #e5e5e5;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sp-xs: 4px; --sp-sm: 8px; --sp-md: 16px; --sp-lg: 24px; --sp-xl: 32px;
+  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-full: 9999px;
+  --shadow-level-1: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06);
+  --shadow-level-2: 0 2px 4px rgba(0,0,0,.04), 0 4px 8px rgba(0,0,0,.06);
+  --shadow-level-3: 0 4px 8px rgba(0,0,0,.06), 0 8px 16px rgba(0,0,0,.08);
+  --gradient-preview-start: #ff0080; --gradient-preview-end: #7928ca;
+  --gradient-develop-start: #0070f3; --gradient-develop-end: #50e3c2;
+  --gradient-ship-start: #f5a623; --gradient-ship-end: #ab570a;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); background: var(--color-canvas-soft); color: var(--color-ink); -webkit-font-smoothing: antialiased; }
+.page { display: none; }
+.page.active { display: flex; }
+
+/* ============================================================
+   LOGIN PAGE
+   ============================================================ */
+#page-login { min-height: 100vh; align-items: center; justify-content: center; background: var(--color-canvas); }
+.login-container { width: 380px; max-width: 90vw; padding: var(--sp-xl); }
+.login-logo { font-family: var(--font-sans); font-size: 28px; font-weight: 600; color: var(--color-ink); margin-bottom: var(--sp-xs); }
+.login-subtitle { font-size: 14px; color: var(--color-mute); margin-bottom: var(--sp-xl); }
+.form-group { margin-bottom: var(--sp-md); }
+.form-label { display: block; font-size: 13px; font-weight: 500; color: var(--color-ink); margin-bottom: var(--sp-xs); }
+.form-input {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--color-hairline); border-radius: var(--r-sm);
+  font-family: var(--font-sans); font-size: 14px; color: var(--color-ink); background: var(--color-canvas);
+  outline: none; transition: border-color 0.15s ease;
+}
+.form-input:focus { border-color: var(--color-primary); }
+.btn-primary {
+  width: 100%; padding: 10px 16px; border: none; border-radius: var(--r-sm); font-family: var(--font-sans);
+  font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s ease;
+  background: var(--color-primary); color: var(--color-on-primary);
+}
+.btn-primary:hover { opacity: 0.9; }
+.btn-demo {
+  width: 100%; padding: 10px 16px; margin-top: var(--sp-sm); border: 1px solid var(--color-hairline); border-radius: var(--r-sm);
+  font-family: var(--font-sans); font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s ease;
+  background: var(--color-canvas); color: var(--color-ink);
+}
+.btn-demo:hover { background: var(--color-canvas-soft); }
+.login-error { font-size: 12px; color: var(--color-error); margin-top: var(--sp-xs); display: none; }
+
+/* ============================================================
+   CHAT PAGE
+   ============================================================ */
+#page-chat { height: 100vh; flex-direction: column; background: var(--color-canvas); }
+
+/* Top bar */
+.chat-topbar {
+  display: flex; align-items: center; justify-content: space-between; padding: 0 var(--sp-md);
+  height: 48px; min-height: 48px; border-bottom: 1px solid var(--color-hairline); background: var(--color-canvas);
+}
+.chat-topbar-left { display: flex; align-items: center; gap: var(--sp-sm); }
+.chat-topbar-brand { font-family: var(--font-sans); font-size: 15px; font-weight: 600; color: var(--color-ink); }
+.chat-topbar-menu { display: flex; align-items: center; gap: var(--sp-sm); }
+.chat-topbar-btn {
+  padding: 4px 10px; border: 1px solid var(--color-hairline); border-radius: var(--r-sm);
+  font-family: var(--font-sans); font-size: 12px; cursor: pointer; background: var(--color-canvas); color: var(--color-mute);
+  transition: all 0.15s ease;
+}
+.chat-topbar-btn:hover { background: var(--color-canvas-soft); color: var(--color-ink); }
+.chat-topbar-avatar {
+  width: 28px; height: 28px; border-radius: 50%; background: var(--color-primary); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+
+/* Toggle sidebar */
+.sidebar-toggle {
+  display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+  border: 1px solid var(--color-hairline); border-radius: var(--r-sm); background: var(--color-canvas);
+  cursor: pointer; color: var(--color-ink); transition: all 0.15s ease;
+}
+.sidebar-toggle:hover { background: var(--color-canvas-soft); }
+
+/* Body */
+.chat-body { display: flex; flex: 1; overflow: hidden; }
+
+/* Sidebar */
+.chat-sidebar {
+  width: 260px; min-width: 260px; border-right: 1px solid var(--color-hairline); background: var(--color-canvas-soft);
+  display: flex; flex-direction: column; transition: margin-left 0.2s ease, opacity 0.2s ease;
+}
+.chat-sidebar.collapsed { margin-left: -260px; opacity: 0; pointer-events: none; }
+.sidebar-new-chat {
+  margin: var(--sp-sm); padding: 8px 12px; border: 1px solid var(--color-hairline); border-radius: var(--r-sm);
+  font-family: var(--font-sans); font-size: 13px; font-weight: 500; cursor: pointer; background: var(--color-canvas);
+  color: var(--color-ink); display: flex; align-items: center; gap: 6px; transition: all 0.15s ease;
+}
+.sidebar-new-chat:hover { background: var(--color-canvas-soft-2); }
+.sidebar-history { flex: 1; overflow-y: auto; padding: 0 var(--sp-sm); }
+.sidebar-history-item {
+  padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer; margin-bottom: 2px;
+  transition: all 0.15s ease; display: flex; align-items: center; justify-content: space-between;
+}
+.sidebar-history-item:hover { background: var(--color-canvas-soft-2); }
+.sidebar-history-item.active { background: var(--color-canvas-soft-2); }
+.sidebar-history-title { font-size: 13px; color: var(--color-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.sidebar-history-time { font-size: 11px; color: var(--color-mute); margin-left: var(--sp-sm); }
+.sidebar-history-delete { opacity: 0; font-size: 14px; color: var(--color-mute); cursor: pointer; padding: 0 4px; transition: opacity 0.15s; }
+.sidebar-history-item:hover .sidebar-history-delete { opacity: 1; }
+.sidebar-history-delete:hover { color: var(--color-error); }
+.sidebar-footer { padding: var(--sp-sm); border-top: 1px solid var(--color-hairline); }
+
+/* Main chat area */
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chat-messages { flex: 1; overflow-y: auto; padding: var(--sp-md) var(--sp-lg); display: flex; flex-direction: column; gap: var(--sp-lg); }
+
+/* Empty state */
+.chat-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: var(--sp-xl); text-align: center;
+}
+.chat-empty-icon { font-size: 48px; margin-bottom: var(--sp-md); }
+.chat-empty-title { font-family: var(--font-sans); font-size: 20px; font-weight: 600; color: var(--color-ink); margin-bottom: var(--sp-sm); }
+.chat-empty-desc { font-size: 14px; color: var(--color-mute); max-width: 420px; line-height: 1.6; margin-bottom: var(--sp-xl); }
+.chat-empty-capabilities { display: flex; flex-wrap: wrap; gap: var(--sp-sm); justify-content: center; max-width: 500px; }
+.capability-chip {
+  padding: 6px 14px; border: 1px solid var(--color-hairline); border-radius: var(--r-full);
+  font-family: var(--font-sans); font-size: 13px; cursor: pointer; background: var(--color-canvas);
+  color: var(--color-ink); transition: all 0.15s ease; white-space: nowrap;
+}
+.capability-chip:hover { background: var(--color-canvas-soft); border-color: var(--color-primary); color: var(--color-primary); }
+
+/* Messages */
+.msg { display: flex; gap: var(--sp-sm); max-width: 85%; }
+.msg.user { margin-left: auto; flex-direction: row-reverse; }
+.msg-avatar {
+  width: 30px; height: 30px; min-width: 30px; border-radius: 50%; display: flex; align-items: center;
+  justify-content: center; font-size: 12px; font-weight: 600; color: #fff; margin-top: 2px;
+}
+.msg-avatar.user { background: var(--color-primary); }
+.msg-avatar.master { background: linear-gradient(135deg, var(--gradient-develop-start), var(--gradient-develop-end)); }
+.msg-bubble {
+  padding: var(--sp-sm) var(--sp-md); border-radius: var(--r-md); font-family: var(--font-sans);
+  font-size: 14px; line-height: 1.65; color: var(--color-ink); background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+}
+.msg.user .msg-bubble { background: var(--color-canvas-soft); border-color: var(--color-canvas-soft-2); }
+.msg-meta { font-size: 11px; color: var(--color-mute); margin-bottom: 4px; }
+
+/* Inline artifact cards */
+.artifact {
+  margin-top: var(--sp-sm); padding: var(--sp-sm); background: var(--color-canvas-soft);
+  border: 1px solid var(--color-hairline); border-radius: var(--r-md);
+}
+.artifact-header { display: flex; align-items: center; gap: var(--sp-sm); margin-bottom: var(--sp-sm); }
+.artifact-icon { font-size: 18px; }
+.artifact-title { font-family: var(--font-sans); font-size: 13px; font-weight: 600; color: var(--color-ink); }
+.artifact-body { font-size: 13px; }
+.artifact-row {
+  display: flex; align-items: center; gap: var(--sp-sm); padding: 6px 0;
+  border-bottom: 1px solid var(--color-hairline); font-size: 13px;
+}
+.artifact-row:last-child { border-bottom: none; }
+.artifact-row-avatar {
+  width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center;
+  justify-content: center; color: #fff; font-size: 10px; font-weight: 600;
+}
+.artifact-row-name { font-weight: 500; flex: 1; }
+.artifact-row-meta { font-size: 12px; color: var(--color-mute); }
+.artifact-actions { display: flex; gap: var(--sp-xs); margin-top: var(--sp-sm); }
+.artifact-btn {
+  padding: 4px 10px; border: 1px solid var(--color-hairline); border-radius: var(--r-sm);
+  font-family: var(--font-sans); font-size: 12px; cursor: pointer; background: var(--color-canvas);
+  color: var(--color-ink); transition: all 0.15s ease;
+}
+.artifact-btn:hover { background: var(--color-canvas-soft-2); }
+.artifact-btn.primary { background: var(--color-primary); color: var(--color-on-primary); border-color: var(--color-primary); }
+.artifact-btn.primary:hover { opacity: 0.9; }
+
+/* Review block */
+.review-block {
+  margin-top: var(--sp-sm); padding: var(--sp-sm); background: var(--color-warning-soft);
+  border: 1px solid var(--color-warning); border-radius: var(--r-md);
+}
+.review-block-header { font-size: 12px; color: var(--color-warning-deep); margin-bottom: 6px; font-weight: 500; }
+.review-block-body { font-size: 13px; color: var(--color-body); margin-bottom: 8px; }
+.review-block-actions { display: flex; gap: var(--sp-xs); }
+
+/* Plan steps */
+.plan-steps { margin-top: var(--sp-sm); }
+.plan-step {
+  display: flex; align-items: center; gap: var(--sp-sm); padding: 6px 0;
+  font-size: 13px; border-bottom: 1px solid var(--color-canvas-soft-2);
+}
+.plan-step:last-child { border-bottom: none; }
+.plan-step-num { font-family: var(--font-mono); font-size: 12px; color: var(--color-mute); min-width: 20px; }
+.plan-step-status {
+  font-size: 11px; padding: 2px 8px; border-radius: var(--r-full); font-weight: 500;
+}
+.plan-step-status.running { background: var(--color-link-bg-soft); color: var(--color-link); }
+.plan-step-status.waiting { background: var(--color-canvas-soft-2); color: var(--color-mute); }
+
+/* Input area */
+.chat-input-area { padding: var(--sp-sm) var(--sp-lg); border-top: 1px solid var(--color-hairline); background: var(--color-canvas); }
+.chat-input-hints { display: flex; gap: var(--sp-xs); margin-bottom: var(--sp-xs); flex-wrap: wrap; }
+.chat-input-hint {
+  padding: 3px 10px; border: 1px solid var(--color-hairline); border-radius: var(--r-full);
+  font-family: var(--font-sans); font-size: 12px; cursor: pointer; background: var(--color-canvas);
+  color: var(--color-mute); transition: all 0.15s ease; white-space: nowrap;
+}
+.chat-input-hint:hover { background: var(--color-canvas-soft); color: var(--color-ink); border-color: var(--color-primary); }
+.chat-input-row { display: flex; align-items: flex-end; gap: var(--sp-sm); }
+.chat-input {
+  flex: 1; padding: 10px 14px; border: 1px solid var(--color-hairline); border-radius: var(--r-md);
+  font-family: var(--font-sans); font-size: 14px; color: var(--color-ink); background: var(--color-canvas);
+  outline: none; resize: none; min-height: 44px; max-height: 120px; line-height: 1.5;
+  transition: border-color 0.15s ease;
+}
+.chat-input:focus { border-color: var(--color-primary); }
+.chat-send-btn {
+  width: 44px; height: 44px; border: none; border-radius: var(--r-md); background: var(--color-primary);
+  color: var(--color-on-primary); cursor: pointer; display: flex; align-items: center;
+  justify-content: center; transition: all 0.15s ease; flex-shrink: 0;
+}
+.chat-send-btn:hover { opacity: 0.9; }
+.chat-send-btn svg { width: 18px; height: 18px; }
+
+/* RAG-aware features */
+.rag-source {
+  display: inline-block; padding: 1px 6px; margin: 0 2px; background: var(--color-link-bg-soft);
+  border: 1px solid var(--color-link); border-radius: var(--r-xs); font-size: 11px;
+  font-weight: 500; color: var(--color-link); cursor: pointer; transition: all 0.15s ease;
+  vertical-align: middle;
+}
+.rag-source:hover { background: var(--color-link); color: #fff; }
+.rag-confidence {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--r-full);
+  font-size: 11px; font-weight: 500; vertical-align: middle;
+}
+.rag-confidence.high { background: var(--color-success-soft); color: var(--color-success); }
+.rag-confidence.medium { background: var(--color-warning-soft); color: var(--color-warning-deep); }
+.rag-confidence.low { background: var(--color-error-soft); color: var(--color-error); }
+.rag-confidence-dot { width: 6px; height: 6px; border-radius: 50%; }
+.rag-confidence.high .rag-confidence-dot { background: var(--color-success); }
+.rag-confidence.medium .rag-confidence-dot { background: var(--color-warning); }
+.rag-confidence.low .rag-confidence-dot { background: var(--color-error); }
+.rag-rejection {
+  margin-top: var(--sp-sm); padding: var(--sp-sm); background: var(--color-error-soft);
+  border: 1px solid var(--color-error); border-radius: var(--r-md);
+}
+.rag-rejection-header { font-size: 12px; color: var(--color-error); margin-bottom: 6px; font-weight: 500; }
+.rag-rejection-body { font-size: 13px; color: var(--color-body); margin-bottom: 8px; line-height: 1.6; }
+.rag-rejection-suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
+.rag-rejection-chip {
+  padding: 3px 10px; border: 1px solid var(--color-hairline); border-radius: var(--r-full);
+  font-size: 12px; cursor: pointer; background: var(--color-canvas); color: var(--color-ink);
+  transition: all 0.15s ease;
+}
+.rag-rejection-chip:hover { background: var(--color-canvas-soft-2); border-color: var(--color-primary); }
+.rag-low-confidence {
+  margin-top: var(--sp-sm); padding: 6px 10px; background: var(--color-warning-soft);
+  border: 1px solid var(--color-warning); border-radius: var(--r-sm); font-size: 12px;
+  color: var(--color-warning-deep); display: flex; align-items: center; gap: 6px;
+}
+.rag-source-tooltip {
+  position: fixed; padding: 8px 12px; background: var(--color-primary); color: var(--color-on-primary);
+  border-radius: var(--r-sm); font-family: var(--font-sans); font-size: 12px; z-index: 200;
+  box-shadow: var(--shadow-level-3); max-width: 320px; line-height: 1.5; display: none;
+}
+
+/* ============================================================
+   TOKEN BUDGET VISUALIZATION
+   ============================================================ */
+.token-budget {
+  display: flex; align-items: center; gap: 8px; padding: 4px 12px;
+  background: var(--color-canvas-soft); border: 1px solid var(--color-hairline);
+  border-radius: var(--r-full); font-family: var(--font-mono); font-size: 11px;
+  color: var(--color-mute); cursor: pointer; transition: all 0.15s ease;
+  position: relative;
+}
+.token-budget:hover { background: var(--color-canvas-soft-2); }
+.token-budget-bar-wrap {
+  width: 60px; height: 4px; background: var(--color-canvas-soft-2);
+  border-radius: 2px; overflow: hidden;
+}
+.token-budget-bar {
+  height: 100%; border-radius: 2px; transition: width 0.3s ease, background 0.3s ease;
+}
+.token-budget-bar.safe { background: var(--color-success); }
+.token-budget-bar.warn { background: var(--color-warning); }
+.token-budget-bar.danger { background: var(--color-error); }
+.token-budget-text { white-space: nowrap; }
+.token-budget-detail {
+  display: none; position: absolute; top: calc(100% + 8px); right: 0;
+  width: 280px; padding: var(--sp-sm); background: var(--color-canvas);
+  border: 1px solid var(--color-hairline); border-radius: var(--r-md);
+  box-shadow: var(--shadow-level-3); z-index: 150; font-family: var(--font-sans);
+  font-size: 12px; color: var(--color-body);
+}
+.token-budget:hover .token-budget-detail { display: block; }
+.token-budget-detail-row {
+  display: flex; justify-content: space-between; padding: 4px 0;
+  border-bottom: 1px solid var(--color-canvas-soft-2);
+}
+.token-budget-detail-row:last-child { border-bottom: none; }
+.token-budget-detail-label { color: var(--color-mute); }
+.token-budget-detail-value { font-family: var(--font-mono); font-weight: 500; }
+.token-budget-degrade {
+  margin-top: 6px; padding: 4px 8px; background: var(--color-warning-soft);
+  border-radius: var(--r-xs); font-size: 11px; color: var(--color-warning-deep);
+}
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  padding: 8px 20px; background: var(--color-primary); color: var(--color-on-primary);
+  border-radius: var(--r-md); font-family: var(--font-sans); font-size: 13px; z-index: 100;
+  box-shadow: var(--shadow-level-3); opacity: 0; transition: opacity 0.3s ease;
+}
+.toast.show { opacity: 1; }
+
+/* ============================================================
+   STREAMING OUTPUT INDICATOR
+   ============================================================ */
+.streaming-status {
+  display: flex; align-items: center; gap: 8px; padding: 4px 12px;
+  font-family: var(--font-sans); font-size: 12px; color: var(--color-mute);
+  background: var(--color-canvas-soft); border: 1px solid var(--color-hairline);
+  border-radius: var(--r-full); white-space: nowrap; transition: opacity 0.3s ease;
+}
+.streaming-status.hidden { opacity: 0; pointer-events: none; }
+.streaming-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); }
+.streaming-dot.active { animation: pulse-dot 1s ease-in-out infinite; }
+.streaming-dot:nth-child(2) { animation-delay: 0.2s; }
+.streaming-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+.ttft-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  background: var(--color-success-soft); color: var(--color-success);
+  border-radius: var(--r-full); font-family: var(--font-mono); font-size: 11px;
+  font-weight: 500; margin-left: 6px;
+}
+.typing-cursor {
+  display: inline-block; width: 2px; height: 14px; background: var(--color-ink);
+  margin-left: 2px; vertical-align: text-bottom; animation: blink-cursor 0.8s step-end infinite;
+}
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.streaming-msg { position: relative; }
+.streaming-msg .msg-bubble { border-color: var(--color-success); }
+
+/* ============================================================
+   STRUCTURED OUTPUT
+   ============================================================ */
+.structured-output {
+  margin-top: var(--sp-sm); border: 1px solid var(--color-hairline);
+  border-radius: var(--r-md); overflow: hidden;
+}
+.so-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 10px; background: var(--color-canvas-soft);
+  border-bottom: 1px solid var(--color-hairline); font-size: 12px;
+}
+.so-title { font-weight: 500; color: var(--color-ink); display: flex; align-items: center; gap: 6px; }
+.so-schema-badge {
+  padding: 2px 6px; background: var(--color-link-bg-soft);
+  color: var(--color-link); border-radius: var(--r-xs); font-family: var(--font-mono);
+  font-size: 10px; font-weight: 500;
+}
+.so-valid-badge {
+  padding: 2px 6px; border-radius: var(--r-xs); font-family: var(--font-mono);
+  font-size: 10px; font-weight: 500;
+}
+.so-valid-badge.pass { background: var(--color-success-soft); color: var(--color-success); }
+.so-valid-badge.fail { background: var(--color-error-soft); color: var(--color-error); }
+.so-valid-badge.fixed { background: var(--color-warning-soft); color: var(--color-warning-deep); }
+.so-body {
+  padding: 8px 10px; font-family: var(--font-mono); font-size: 11px;
+  line-height: 1.6; color: var(--color-body); background: var(--color-canvas);
+  max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+}
+.so-fallback {
+  padding: 8px 10px; font-size: 12px; background: var(--color-canvas-soft);
+  border-top: 1px solid var(--color-hairline);
+}
+.so-fallback-title { font-weight: 500; color: var(--color-ink); margin-bottom: 4px; }
+.so-fallback-levels { display: flex; gap: 4px; flex-wrap: wrap; }
+.so-fallback-lvl {
+  padding: 2px 8px; border-radius: var(--r-full); font-size: 11px;
+  font-family: var(--font-sans); border: 1px solid;
+}
+.so-fallback-lvl.active { font-weight: 500; }
+.so-fallback-lvl.l1 { background: var(--color-success-soft); color: var(--color-success); border-color: var(--color-success); }
+.so-fallback-lvl.l2 { background: var(--color-warning-soft); color: var(--color-warning-deep); border-color: var(--color-warning); }
+.so-fallback-lvl.l3 { background: var(--color-error-soft); color: var(--color-error); border-color: var(--color-error); }
+.so-fallback-lvl.l4 { background: var(--color-canvas-soft-2); color: var(--color-mute); border-color: var(--color-hairline); }
+.so-fallback-lvl.dim { opacity: 0.4; }
+
+/* Agent Loop indicator */
+.agent-loop-indicator {
+  display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+  background: var(--color-violet); color: #fff; border-radius: var(--r-full);
+  font-family: var(--font-mono); font-size: 11px; margin-bottom: 8px;
+  animation: fadeIn 0.3s ease;
+}
+.agent-loop-step {
+  display: flex; align-items: center; gap: 4px;
+}
+.agent-loop-arrow { opacity: 0.6; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .chat-sidebar { position: fixed; left: 0; top: 48px; bottom: 0; z-index: 50; }
+  .chat-sidebar.collapsed { margin-left: -260px; }
+  .msg { max-width: 95%; }
+  .chat-messages { padding: var(--sp-md); }
+  .chat-input-area { padding: var(--sp-sm); }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     LOGIN PAGE
+     ============================================================ -->
+<div class="page active" id="page-login">
+  <div class="login-container">
+    <div class="login-logo">AgentX</div>
+    <div class="login-subtitle">AI 工作助手 — 对话即可完成工作</div>
+    <div class="form-group"><label class="form-label">用户名</label><input class="form-input" id="login-username" placeholder="请输入用户名"></div>
+    <div class="form-group"><label class="form-label">密码</label><input class="form-input" id="login-password" type="password" placeholder="请输入密码"></div>
+    <div class="login-error" id="login-error">用户名或密码错误</div>
+    <button class="btn-primary" onclick="doLogin()">登 录</button>
+    <button class="btn-demo" onclick="doDemoLogin()">演示账号登录</button>
+  </div>
+</div>
+
+<!-- ============================================================
+     CHAT PAGE
+     ============================================================ -->
+<div class="page" id="page-chat">
+  <div class="chat-topbar">
+    <div class="chat-topbar-left">
+      <button class="sidebar-toggle" onclick="toggleSidebar()" title="切换侧边栏">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <span class="chat-topbar-brand">AgentX</span>
+    </div>
+    <div class="chat-topbar-menu">
+      <div class="streaming-status hidden" id="streaming-status">
+        <span class="streaming-dot active"></span>
+        <span class="streaming-dot active"></span>
+        <span class="streaming-dot active"></span>
+        <span id="streaming-text">流式输出中</span>
+      </div>
+      <div class="token-budget" id="token-budget">
+        <div class="token-budget-bar-wrap"><div class="token-budget-bar safe" id="token-budget-bar" style="width:0%"></div></div>
+        <span class="token-budget-text" id="token-budget-text">Token: 0/4096</span>
+        <div class="token-budget-detail">
+          <div class="token-budget-detail-row"><span class="token-budget-detail-label">Input Tokens</span><span class="token-budget-detail-value" id="tb-input">0</span></div>
+          <div class="token-budget-detail-row"><span class="token-budget-detail-label">Output Tokens</span><span class="token-budget-detail-value" id="tb-output">0</span></div>
+          <div class="token-budget-detail-row"><span class="token-budget-detail-label">Total / Window</span><span class="token-budget-detail-value" id="tb-total">0 / 4096</span></div>
+          <div class="token-budget-detail-row"><span class="token-budget-detail-label">Reserved Output</span><span class="token-budget-detail-value" id="tb-reserved">1024</span></div>
+          <div class="token-budget-detail-row"><span class="token-budget-detail-label">预算使用率</span><span class="token-budget-detail-value" id="tb-usage">0%</span></div>
+          <div class="token-budget-degrade" id="tb-degrade" style="display:none;">⚠️ 超预算降级: 未触发</div>
+        </div>
+      </div>
+      <button class="chat-topbar-btn" onclick="showToast('设置页面开发中')">设置</button>
+      <div class="chat-topbar-avatar" onclick="showToast('用户信息')">张</div>
+    </div>
+  </div>
+  <div class="chat-body">
+    <div class="chat-sidebar" id="chat-sidebar">
+      <button class="sidebar-new-chat" onclick="newChat()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新建对话
+      </button>
+      <div class="sidebar-history" id="chat-history-list"></div>
+      <div class="sidebar-footer">
+        <button class="chat-topbar-btn" style="width:100%;" onclick="doLogout()">退出登录</button>
+      </div>
+    </div>
+    <div class="chat-main">
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-area">
+        <div class="chat-input-hints" id="chat-input-hints">
+          <button class="chat-input-hint" onclick="quickSend('帮我找美妆护肤类抖音达人，粉丝10-50万')">找达人</button>
+          <button class="chat-input-hint" onclick="quickSend('帮我分析这批达人的数据质量')">分析数据</button>
+          <button class="chat-input-hint" onclick="quickSend('帮我策划一期618返场直播脚本')">策划脚本</button>
+          <button class="chat-input-hint" onclick="quickSend('查一下发给达人的样品物流状态')">查物流</button>
+          <button class="chat-input-hint" onclick="quickSend('竞争对手的达人投放预算多少')">RAG 检索</button>
+        </div>
+        <div class="chat-input-row">
+          <textarea class="chat-input" id="chat-input" rows="1" placeholder="对 Master 说句话，比如：帮我找美妆达人" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+          <button class="chat-send-btn" onclick="sendMessage()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- RAG Source Tooltip -->
+<div class="rag-source-tooltip" id="rag-source-tooltip"></div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let chatHistory = [];
+let currentChatId = null;
+let isLoggedIn = false;
+
+// Token budget state
+let tokenBudget = {
+  inputTokens: 0,
+  outputTokens: 0,
+  maxWindow: 4096,
+  reservedOutput: 1024,
+  degradeLevel: 0 // 0=正常, 1=删低相关片段, 2=压缩历史, 3=减少工具Schema, 4=降低输出, 5=切换模型, 6=拒绝
+};
+
+// ============================================================
+// ROUTING
+// ============================================================
+function navigateTo(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const el = document.getElementById('page-' + page);
+  if (el) el.classList.add('active');
+  if (page === 'chat' && isLoggedIn) { initChat(); }
+}
+
+// ============================================================
+// LOGIN
+// ============================================================
+function doLogin() {
+  const u = document.getElementById('login-username').value.trim();
+  const p = document.getElementById('login-password').value.trim();
+  if (!u || !p) { showLoginError('请输入用户名和密码'); return; }
+  if (p.length < 8) { showLoginError('密码至少 8 位'); return; }
+  isLoggedIn = true;
+  navigateTo('chat');
+}
+
+function doDemoLogin() {
+  isLoggedIn = true;
+  navigateTo('chat');
+}
+
+function doLogout() {
+  isLoggedIn = false;
+  navigateTo('login');
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 3000);
+}
+
+// ============================================================
+// CHAT INIT
+// ============================================================
+function initChat() {
+  renderHistory();
+  if (!currentChatId) {
+    newChat();
+  }
+  document.getElementById('chat-input').focus();
+}
+
+function newChat() {
+  const id = 'chat_' + Date.now();
+  const title = '新对话';
+  currentChatId = id;
+  chatHistory.unshift({ id, title, messages: [], time: new Date().toISOString() });
+  renderHistory();
+  renderMessages();
+  resetTokenBudget();
+  stopStreaming();
+}
+
+function renderHistory() {
+  const el = document.getElementById('chat-history-list');
+  if (chatHistory.length === 0) {
+    el.innerHTML = '<div style="padding:var(--sp-md);text-align:center;font-size:13px;color:var(--color-mute);">暂无对话记录</div>';
+    return;
+  }
+  el.innerHTML = chatHistory.map((c, i) => `
+    <div class="sidebar-history-item ${c.id === currentChatId ? 'active' : ''}" onclick="switchChat('${c.id}')">
+      <span class="sidebar-history-title">${c.title}</span>
+      <span class="sidebar-history-time">${formatTime(c.time)}</span>
+      <span class="sidebar-history-delete" onclick="event.stopPropagation();deleteChat('${c.id}')">×</span>
+    </div>
+  `).join('');
+}
+
+function switchChat(id) {
+  currentChatId = id;
+  renderHistory();
+  renderMessages();
+}
+
+function deleteChat(id) {
+  chatHistory = chatHistory.filter(c => c.id !== id);
+  if (currentChatId === id) {
+    currentChatId = chatHistory.length > 0 ? chatHistory[0].id : null;
+  }
+  renderHistory();
+  renderMessages();
+}
+
+function getCurrentChat() {
+  return chatHistory.find(c => c.id === currentChatId);
+}
+
+function formatTime(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+}
+
+// ============================================================
+// SIDEBAR TOGGLE
+// ============================================================
+function toggleSidebar() {
+  document.getElementById('chat-sidebar').classList.toggle('collapsed');
+}
+
+// ============================================================
+// MESSAGES
+// ============================================================
+function renderMessages() {
+  const el = document.getElementById('chat-messages');
+  const chat = getCurrentChat();
+  if (!chat || chat.messages.length === 0) {
+    el.innerHTML = renderEmptyState();
+    return;
+  }
+  el.innerHTML = chat.messages.map(m => renderMsg(m)).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderEmptyState() {
+  return `
+    <div class="chat-empty">
+      <div class="chat-empty-icon">💬</div>
+      <div class="chat-empty-title">我是 Master，你的 AI 助手</div>
+      <div class="chat-empty-desc">对我说你想做什么，我会自动调度背后专业 Agent 团队帮你完成。下面是你可以直接让我做的事：</div>
+      <div class="chat-empty-capabilities">
+        <button class="capability-chip" onclick="quickSend('帮我找美妆护肤类抖音达人，粉丝10-50万')">🔍 搜索达人</button>
+        <button class="capability-chip" onclick="quickSend('帮我分析这批达人的数据质量')">📊 分析数据</button>
+        <button class="capability-chip" onclick="quickSend('帮我策划一期618返场直播脚本')">✍️ 策划脚本</button>
+        <button class="capability-chip" onclick="quickSend('查一下发给李佳琦的样品物流')">📦 查物流</button>
+        <button class="capability-chip" onclick="quickSend('帮我做竞品达人投放分析')">🔎 竞品分析</button>
+        <button class="capability-chip" onclick="quickSend('帮我生成达人合作复盘报告')">📋 复盘报告</button>
+        <button class="capability-chip" onclick="quickSend('竞品最新的达人投放ROI是多少')">🤖 RAG 检索问答</button>
+      </div>
+    </div>`;
+}
+
+function renderMsg(m) {
+  if (m.type === 'user') {
+    return `<div class="msg user"><div class="msg-avatar user">我</div><div class="msg-bubble"><div class="msg-meta">${m.time}</div>${escapeHtml(m.content)}</div></div>`;
+  }
+  return `<div class="msg"><div class="msg-avatar master">M</div><div class="msg-bubble">${m.content}</div></div>`;
+}
+
+function quickSend(text) {
+  document.getElementById('chat-input').value = text;
+  sendMessage();
+}
+
+function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  const chat = getCurrentChat();
+  if (!chat) { newChat(); return; }
+  const now = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  chat.messages.push({ type: 'user', content: text, time: now });
+  if (chat.title === '新对话' && chat.messages.length === 1) {
+    chat.title = text.length > 20 ? text.slice(0, 20) + '...' : text;
+  }
+  input.value = '';
+  renderMessages();
+  renderHistory();
+
+  // Estimate input tokens and update budget
+  const inputTokens = estimateTokens(text) + 800; // 800 for system prompt + context
+  updateTokenBudget(inputTokens, 0);
+  startStreaming();
+
+  // Simulate TTFT
+  const ttft = 300 + Math.floor(Math.random() * 400); // 300-700ms
+  setTimeout(() => updateStreamingTTFT(ttft), ttft);
+
+  simulateStreamingReply(text);
+}
+
+function simulateStreamingReply(text) {
+  const chat = getCurrentChat();
+  const now = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  let reply = '';
+
+  if (text.includes('达人') || text.includes('找')) {
+    reply = `
+      <div class="msg-meta">${now} · Master</div>
+      正在搜索达人...
+      <div class="artifact">
+        <div class="artifact-header"><span class="artifact-icon">📋</span><span class="artifact-title">达人搜索结果</span><span class="rag-confidence high"><span class="rag-confidence-dot"></span>置信度 92%</span></div>
+        <div class="artifact-body">
+          <div class="artifact-row">
+            <div class="artifact-row-avatar" style="background:linear-gradient(135deg,#ff0080,#7928ca);">李</div>
+            <span class="artifact-row-name">李佳琦Austin</span><span class="artifact-row-meta">抖音 · 48.5万粉 · 互动率 8.2%</span>
+          </div>
+          <div class="artifact-row">
+            <div class="artifact-row-avatar" style="background:linear-gradient(135deg,#0070f3,#50e3c2);">美</div>
+            <span class="artifact-row-name">美妆小天才</span><span class="artifact-row-meta">抖音 · 32.1万粉 · 互动率 6.5%</span>
+          </div>
+          <div class="artifact-row">
+            <div class="artifact-row-avatar" style="background:linear-gradient(135deg,#ff4d4d,#f9cb28);">小</div>
+            <span class="artifact-row-name">小美今天化妆了吗</span><span class="artifact-row-meta">小红书 · 18.3万粉 · 互动率 9.1%</span>
+          </div>
+        </div>
+        <div class="artifact-actions">
+          <button class="artifact-btn primary" onclick="showToast('已展开全部 5 位达人')">查看全部 5 位</button>
+          <button class="artifact-btn" onclick="showToast('已导出 CSV')">导出</button>
+        </div>
+      </div>
+      <div class="structured-output">
+        <div class="so-header">
+          <span class="so-title">📋 结构化输出 <span class="so-schema-badge">JSON Schema</span></span>
+          <span class="so-valid-badge pass">✓ 校验通过</span>
+        </div>
+        <div class="so-body">{
+  "influencers": [
+    { "name": "李佳琦Austin", "platform": "抖音", "followers": 485000, "engagement": 0.082 },
+    { "name": "美妆小天才", "platform": "抖音", "followers": 321000, "engagement": 0.065 },
+    { "name": "小美今天化妆了吗", "platform": "小红书", "followers": 183000, "engagement": 0.091 }
+  ],
+  "total": 5,
+  "filter": { "category": "美妆", "followers_range": [100000, 500000] }
+}</div>
+        <div class="so-fallback">
+          <div class="so-fallback-title">兜底链路</div>
+          <div class="so-fallback-levels">
+            <span class="so-fallback-lvl l1 active">L1 本地校验</span>
+            <span class="so-fallback-lvl l2 dim">L2 轻量修复</span>
+            <span class="so-fallback-lvl l3 dim">L3 降级Schema</span>
+            <span class="so-fallback-lvl l4 dim">L4 人工兜底</span>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:13px;color:var(--color-body);">共找到 5 位符合条件的达人 <span class="rag-source" onmouseenter="showSourceTooltip(event,'达人知识库 v2.3 · 抖音达人数据索引 · 2026-06-18 更新')" onmouseleave="hideSourceTooltip()">[来源1]</span> <span class="rag-source" onmouseenter="showSourceTooltip(event,'达人搜索 Agent · 实时检索结果 · 美妆品类过滤')" onmouseleave="hideSourceTooltip()">[来源2]</span>。你可以继续对我说"分析一下这些达人"或"帮我给李佳琦生成建联话术"。</div>`;
+  } else if (text.includes('分析') || text.includes('数据')) {
+    reply = `
+      <div class="msg-meta">${now} · Master</div>
+      正在分析数据...
+      <div class="artifact">
+        <div class="artifact-header"><span class="artifact-icon">📊</span><span class="artifact-title">数据质量分析报告</span><span class="rag-confidence high"><span class="rag-confidence-dot"></span>置信度 88%</span></div>
+        <div class="artifact-body">
+          <div class="artifact-row"><span class="artifact-row-name">数据正常</span><span class="artifact-row-meta">李佳琦Austin · 美妆小天才</span></div>
+          <div class="artifact-row"><span class="artifact-row-name">疑似注水</span><span class="artifact-row-meta" style="color:var(--color-warning-deep);">小美今天化妆了吗 · 互动率异常偏高</span></div>
+          <div class="artifact-row"><span class="artifact-row-name">数据不足</span><span class="artifact-row-meta">赵六食记 · 需要更多历史数据</span></div>
+        </div>
+        <div class="artifact-actions">
+          <button class="artifact-btn primary" onclick="showToast('查看完整报告')">查看完整报告</button>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:13px;color:var(--color-body);">建议重点关注 2 位达标达人，淘汰 1 位疑似注水达人 <span class="rag-source" onmouseenter="showSourceTooltip(event,'数据分析 Agent · 达人数据质量评分模型 v1.5 · 互动率/粉丝增长/内容质量三维评估')" onmouseleave="hideSourceTooltip()">[来源1]</span>。</div>`;
+  } else if (text.includes('脚本') || text.includes('策划')) {
+    reply = `
+      <div class="msg-meta">${now} · Master</div>
+      <div class="agent-loop-indicator">
+        <span class="agent-loop-step">🔄 Agent Loop</span>
+        <span class="agent-loop-arrow">→</span>
+        <span class="agent-loop-step">读取上下文</span>
+        <span class="agent-loop-arrow">→</span>
+        <span class="agent-loop-step">LLM推理</span>
+        <span class="agent-loop-arrow">→</span>
+        <span class="agent-loop-step">生成脚本</span>
+      </div>
+      正在策划脚本...
+      <div class="artifact">
+        <div class="artifact-header"><span class="artifact-icon">✍️</span><span class="artifact-title">618 返场直播脚本</span><span class="rag-confidence high"><span class="rag-confidence-dot"></span>置信度 91%</span></div>
+        <div class="artifact-body">
+          <div style="font-size:13px;line-height:1.7;">
+            <div style="font-weight:500;margin-bottom:4px;">📍 开场 · 3 分钟</div>
+            <div style="color:var(--color-body);margin-bottom:8px;">欢迎新老粉丝，回顾 618 战绩，引出返场福利</div>
+            <div style="font-weight:500;margin-bottom:4px;">🎁 福利环节 · 8 分钟</div>
+            <div style="color:var(--color-body);margin-bottom:8px;">限时秒杀 + 满减优惠，引导下单</div>
+            <div style="font-weight:500;margin-bottom:4px;">💄 产品讲解 · 15 分钟</div>
+            <div style="color:var(--color-body);">花漾天然护肤精华套装卖点+试用</div>
+          </div>
+        </div>
+        <div style="margin-top:6px;font-size:11px;color:var(--color-mute);">基于历史脚本模板与品牌调性生成 <span class="rag-source" onmouseenter="showSourceTooltip(event,'内容策划 Agent · 直播脚本模板库 v3.1 · 品牌调性：花漾天然护肤')" onmouseleave="hideSourceTooltip()">[来源1]</span></div>
+        <div class="review-block">
+          <div class="review-block-header">⚠️ 需要你审核确认</div>
+          <div class="review-block-body">以上脚本方案是否符合预期？确认后直接发送给达人。</div>
+          <div class="review-block-actions">
+            <button class="artifact-btn primary" onclick="approveReview(this)">通过</button>
+            <button class="artifact-btn" onclick="rejectReview(this)">驳回</button>
+          </div>
+        </div>
+      </div>`;
+  } else if (text.includes('物流') || text.includes('快递') || text.includes('样品')) {
+    reply = `
+      <div class="msg-meta">${now} · Master</div>
+      查询物流状态...
+      <div class="artifact">
+        <div class="artifact-header"><span class="artifact-icon">📦</span><span class="artifact-title">物流跟踪</span><span class="rag-confidence high"><span class="rag-confidence-dot"></span>置信度 95%</span></div>
+        <div class="artifact-body">
+          <div class="artifact-row">
+            <span class="artifact-row-name">李佳琦Austin</span><span class="artifact-row-meta">精华套装 · SF1234567890 · 已签收</span>
+          </div>
+          <div class="artifact-row">
+            <span class="artifact-row-name">美妆小天才</span><span class="artifact-row-meta">面膜礼盒 · YT9876543210 · 运输中 · 预计 6月20日</span>
+          </div>
+          <div class="artifact-row">
+            <span class="artifact-row-name">小美今天化妆了吗</span><span class="artifact-row-meta" style="color:var(--color-warning-deep);">粉底液 · ZT5556667770 · 待发货</span>
+          </div>
+        </div>
+        <div class="artifact-actions">
+          <button class="artifact-btn primary" onclick="showToast('已安排发货')">安排发货</button>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:13px;color:var(--color-body);">1 件已签收，1 件在途，1 件待发货 <span class="rag-source" onmouseenter="showSourceTooltip(event,'物流跟踪 Agent · 快递鸟 API 实时查询 · 更新时间：2026-06-20 10:30')" onmouseleave="hideSourceTooltip()">[来源1]</span>。需要我帮你安排发货吗？</div>`;
+  } else if (text.includes('竞品')) {
+    reply = `
+      <div class="msg-meta">${now} · Master</div>
+      正在分析竞品...
+      <div class="artifact">
+        <div class="artifact-header"><span class="artifact-icon">🔎</span><span class="artifact-title">竞品达人投放分析</span><span class="rag-confidence medium"><span class="rag-confidence-dot"></span>置信度 72%</span></div>
+        <div class="artifact-body">
+          <div class="artifact-row"><span class="artifact-row-name">竞品 A · 花漾天然护肤</span><span class="artifact-row-meta">投放 28 位达人 · 均价 1.2万/位</span></div>
+          <div class="artifact-row"><span class="artifact-row-name">竞品 B · 自然美肌</span><span class="artifact-row-meta">投放 15 位达人 · 主攻小红书</span></div>
+          <div class="artifact-row"><span class="artifact-row-name">竞品 C · 肌本主义</span><span class="artifact-row-meta">投放 22 位达人 · 主攻抖音</span></div>
+        </div>
+        <div class="artifact-actions"><button class="artifact-btn primary" onclick="showToast('查看完整报告')">查看完整报告</button></div>
+      </div>
+      <div class="rag-low-confidence">⚠️ 部分竞品数据来自公开渠道，信息可能不完整，建议结合内部数据交叉验证 <span class="rag-source" onmouseenter="showSourceTooltip(event,'品牌商务 Agent · 竞品数据抓取 2026-06-17 · 公开数据源：抖音/小红书公开页面')" onmouseleave="hideSourceTooltip()">[来源1]</span> <span class="rag-source" onmouseenter="showSourceTooltip(event,'知识图谱 GraphRAG · 竞品关系推理 · 花漾天然护肤 → 竞品关联')" onmouseleave="hideSourceTooltip()">[来源2]</span></div>`;
+  } else if (text.includes('复盘') || text.includes('报告')) {
+    reply = `
+      <div class="msg-meta">${now} · Master</div>
+      正在生成复盘报告...
+      <div class="artifact">
+        <div class="artifact-header"><span class="artifact-icon">📋</span><span class="artifact-title">达人合作复盘报告</span><span class="rag-confidence high"><span class="rag-confidence-dot"></span>置信度 90%</span></div>
+        <div class="artifact-body">
+          <div class="artifact-row"><span class="artifact-row-name">总合作达人</span><span class="artifact-row-meta">12 位</span></div>
+          <div class="artifact-row"><span class="artifact-row-name">总 GMV</span><span class="artifact-row-meta">187.5 万</span></div>
+          <div class="artifact-row"><span class="artifact-row-name">平均 ROI</span><span class="artifact-row-meta">2.3</span></div>
+          <div class="artifact-row"><span class="artifact-row-name">互动率最高的达人</span><span class="artifact-row-meta">小美今天化妆了吗 · 9.1%</span></div>
+        </div>
+        <div class="artifact-actions"><button class="artifact-btn primary" onclick="showToast('已导出 PDF')">导出 PDF</button></div>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:var(--color-mute);">数据来源：达人合作历史数据库 <span class="rag-source" onmouseenter="showSourceTooltip(event,'品牌商务 Agent · 合作数据库 v4.2 · 统计周期：2026 Q2 · 12 条合作记录')" onmouseleave="hideSourceTooltip()">[来源1]</span> <span class="rag-source" onmouseenter="showSourceTooltip(event,'数据分析 Agent · ROI 计算模型 v2.0 · GMV/投放成本')" onmouseleave="hideSourceTooltip()">[来源2]</span></div>`;
+  } else if (text.includes('RAG') || text.includes('ROI') || text.includes('投放') || text.includes('预算') || text.includes('竞争对手')) {
+    reply = `
+      <div class="msg-meta">${now} · Master</div>
+      <div style="font-size:12px;color:var(--color-mute);margin-bottom:4px;">🔍 Query Rewrite: "竞争对手达人投放预算" → ["竞品达人投放预算", "竞品达人营销支出", "行业达人投放均价"]</div>
+      <div style="font-size:12px;color:var(--color-mute);margin-bottom:8px;">📊 检索链路: Hybrid Search (recall_top_k=50) → Rerank (rerank_top_n=8) → Context Engineering (context_top_n=4)</div>
+      根据知识库检索结果，目前关于竞品达人投放预算的信息有限：
+      <div class="artifact">
+        <div class="artifact-header"><span class="artifact-icon">📊</span><span class="artifact-title">达人投放行业参考</span><span class="rag-confidence medium"><span class="rag-confidence-dot"></span>置信度 58%</span></div>
+        <div class="artifact-body">
+          <div class="artifact-row"><span class="artifact-row-name">美妆赛道达人均价</span><span class="artifact-row-meta">8,000-15,000 元/条（抖音中腰部）</span></div>
+          <div class="artifact-row"><span class="artifact-row-name">行业平均投放预算</span><span class="artifact-row-meta">5-20 万/月（中小品牌）</span></div>
+          <div class="artifact-row"><span class="artifact-row-name">竞品 A 预估投放</span><span class="artifact-row-meta" style="color:var(--color-warning-deep);">数据缺失，仅公开渠道估算</span></div>
+        </div>
+      </div>
+      <div class="rag-low-confidence">⚠️ 信息可能不完整 — 竞品具体投放预算属于非公开数据，以上为行业参考值。建议通过商务渠道获取更准确信息 <span class="rag-source" onmouseenter="showSourceTooltip(event,'行业报告数据库 · 2026 美妆KOL营销白皮书 · 抖音/小红书达人报价区间')" onmouseleave="hideSourceTooltip()">[来源1]</span> <span class="rag-source" onmouseenter="showSourceTooltip(event,'公开渠道抓取 · 竞品达人合作列表 · 更新时间 2026-06-15 · 置信度较低')" onmouseleave="hideSourceTooltip()">[来源2]</span>。</div>`;
+  } else if (text.includes('无法') || text.includes('天气') || text.includes('股票') || text.includes('财务数据') || text.includes('内部') || text.includes('机密')) {
+    reply = `
+      <div class="msg-meta">${now} · Master</div>
+      <div style="font-size:12px;color:var(--color-mute);margin-bottom:4px;">🔍 Query Rewrite: 已执行 · 检索完成 · 未找到相关证据</div>
+      <div style="font-size:12px;color:var(--color-mute);margin-bottom:8px;">📊 检索结果置信度: <span class="rag-confidence low"><span class="rag-confidence-dot"></span>12%</span></div>
+      <div class="rag-rejection">
+        <div class="rag-rejection-header">⚠️ 无法回答</div>
+        <div class="rag-rejection-body">
+          根据当前知识库内容，我无法找到相关信息来回答你的问题。为避免提供不准确的答案，我不会编造任何内容。
+          <br><br>
+          <strong>可能的原因：</strong><br>
+          · 该问题超出了我的知识范围<br>
+          · 相关信息尚未录入知识库<br>
+          · 你需要的可能是非公开或实时数据
+        </div>
+        <div style="margin-bottom:8px;font-size:12px;color:var(--color-mute);">你可以尝试以下方式：</div>
+        <div class="rag-rejection-suggestions">
+          <button class="rag-rejection-chip" onclick="quickSend('帮我找美妆达人')">搜索达人</button>
+          <button class="rag-rejection-chip" onclick="quickSend('帮我分析达人数据')">分析数据</button>
+          <button class="rag-rejection-chip" onclick="quickSend('帮我查物流')">查物流</button>
+          <button class="rag-rejection-chip" onclick="showToast('已记录问题，后续将补充知识库')">补充知识库</button>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:13px;color:var(--color-body);">如果你需要这方面的信息，可以尝试换一种方式描述，或告诉我具体需要什么类型的资料，我看看是否有其他方式可以帮你。</div>`;
+  } else {
+    reply = `
+      <div class="msg-meta">${now} · Master</div>
+      收到。我具备以下能力，你可以直接对我说：
+      <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">
+        <button class="capability-chip" onclick="quickSend('帮我找美妆护肤类抖音达人')">🔍 搜索达人</button>
+        <button class="capability-chip" onclick="quickSend('帮我分析达人数据')">📊 分析数据</button>
+        <button class="capability-chip" onclick="quickSend('帮我策划直播脚本')">✍️ 策划脚本</button>
+        <button class="capability-chip" onclick="quickSend('查一下样品物流')">📦 查物流</button>
+        <button class="capability-chip" onclick="quickSend('竞品最新的达人投放ROI是多少')">🤖 RAG 检索问答</button>
+      </div>`;
+  }
+
+  // Add message to chat and stream content
+  chat.messages.push({ type: 'master', content: '', time: now });
+  renderMessages();
+
+  // Find the last message bubble and stream into it
+  const messagesEl = document.getElementById('chat-messages');
+  const lastMsg = messagesEl.lastElementChild;
+  const bubble = lastMsg.querySelector('.msg-bubble');
+
+  // Simulate output token estimation
+  const outputTokens = estimateTokens(reply.replace(/<[^>]*>/g, ''));
+  updateTokenBudget(tokenBudget.inputTokens, outputTokens);
+
+  streamTextInto(bubble, reply, 25, () => {
+    stopStreaming();
+    showToast('Master 回复完成');
+  });
+}
+
+function approveReview(el) {
+  const block = el.closest('.review-block');
+  block.innerHTML = '<div style="font-size:13px;color:var(--color-success);">✅ 已通过审核，已发送给达人。</div>';
+  showToast('审核已通过');
+}
+
+function rejectReview(el) {
+  const block = el.closest('.review-block');
+  block.innerHTML = '<div style="font-size:13px;color:var(--color-error);">❌ 已驳回。请告诉我需要怎么修改。</div>';
+  showToast('已驳回');
+}
+
+// ============================================================
+// UTILS
+// ============================================================
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._timeout);
+  el._timeout = setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+// ============================================================
+// TOKEN BUDGET
+// ============================================================
+function updateTokenBudget(inputTokens, outputTokens) {
+  const tb = tokenBudget;
+  tb.inputTokens = inputTokens;
+  tb.outputTokens = outputTokens;
+  const total = inputTokens + outputTokens;
+  const usage = Math.round((total / tb.maxWindow) * 100);
+  const available = tb.maxWindow - total;
+
+  // Update bar
+  const bar = document.getElementById('token-budget-bar');
+  bar.style.width = Math.min(usage, 100) + '%';
+  bar.className = 'token-budget-bar ' + (usage > 80 ? 'danger' : usage > 50 ? 'warn' : 'safe');
+
+  // Update text
+  document.getElementById('token-budget-text').textContent = `Token: ${total.toLocaleString()}/${tb.maxWindow.toLocaleString()}`;
+
+  // Update detail
+  document.getElementById('tb-input').textContent = inputTokens.toLocaleString();
+  document.getElementById('tb-output').textContent = outputTokens.toLocaleString();
+  document.getElementById('tb-total').textContent = `${total.toLocaleString()} / ${tb.maxWindow.toLocaleString()}`;
+  document.getElementById('tb-reserved').textContent = tb.reservedOutput.toLocaleString();
+  document.getElementById('tb-usage').textContent = usage + '%';
+
+  // Degrade level
+  const degradeEl = document.getElementById('tb-degrade');
+  const degradeLabels = ['未触发', 'L1: 删低相关片段', 'L2: 压缩历史', 'L3: 减少工具Schema', 'L4: 降低输出', 'L5: 切换模型', 'L6: 拒绝请求'];
+  if (tb.degradeLevel > 0) {
+    degradeEl.style.display = 'block';
+    degradeEl.textContent = '⚠️ 超预算降级: ' + degradeLabels[tb.degradeLevel];
+  } else {
+    degradeEl.style.display = 'none';
+  }
+
+  // Color the budget indicator
+  const budgetEl = document.getElementById('token-budget');
+  if (usage > 90) {
+    budgetEl.style.borderColor = 'var(--color-error)';
+  } else if (usage > 70) {
+    budgetEl.style.borderColor = 'var(--color-warning)';
+  } else {
+    budgetEl.style.borderColor = 'var(--color-hairline)';
+  }
+}
+
+function estimateTokens(text) {
+  // Rough estimation: ~1.5 chars per token for Chinese, ~4 chars per token for English
+  return Math.ceil(text.length / 1.8);
+}
+
+function resetTokenBudget() {
+  tokenBudget.inputTokens = 0;
+  tokenBudget.outputTokens = 0;
+  tokenBudget.degradeLevel = 0;
+  updateTokenBudget(0, 0);
+}
+
+// ============================================================
+// STREAMING OUTPUT
+// ============================================================
+function startStreaming() {
+  document.getElementById('streaming-status').classList.remove('hidden');
+  document.getElementById('streaming-text').textContent = '流式输出中';
+}
+
+function updateStreamingTTFT(ms) {
+  document.getElementById('streaming-text').innerHTML = `流式输出中 <span class="ttft-badge">TTFT ${ms}ms</span>`;
+}
+
+function stopStreaming() {
+  document.getElementById('streaming-status').classList.add('hidden');
+}
+
+function streamTextInto(containerEl, fullHtml, speedMs, onComplete) {
+  // For complex HTML, we stream by progressively revealing content
+  // Simple approach: add content chunk by chunk
+  let charIndex = 0;
+  const textContent = fullHtml.replace(/<[^>]*>/g, ''); // strip tags for length estimation
+  const totalChars = textContent.length;
+  const chunkSize = Math.max(3, Math.ceil(totalChars / 40)); // ~40 chunks
+
+  function streamChunk() {
+    if (charIndex >= fullHtml.length) {
+      if (onComplete) onComplete();
+      return;
+    }
+    const chunk = fullHtml.substring(charIndex, charIndex + chunkSize);
+    charIndex += chunkSize;
+    containerEl.innerHTML += chunk;
+    const messagesEl = document.getElementById('chat-messages');
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    setTimeout(streamChunk, speedMs);
+  }
+
+  streamChunk();
+}
+
+// ============================================================
+// RAG SOURCE TOOLTIP
+// ============================================================
+function showSourceTooltip(event, text) {
+  const tooltip = document.getElementById('rag-source-tooltip');
+  tooltip.textContent = text;
+  tooltip.style.display = 'block';
+  const rect = event.target.getBoundingClientRect();
+  tooltip.style.left = rect.left + 'px';
+  tooltip.style.top = (rect.bottom + 6) + 'px';
+}
+
+function hideSourceTooltip() {
+  const tooltip = document.getElementById('rag-source-tooltip');
+  tooltip.style.display = 'none';
+}
+
+// ============================================================
+// INIT
+// ============================================================
+window.addEventListener('DOMContentLoaded', () => {
+  navigateTo('login');
+});
+</script>
+</body>
+</html>

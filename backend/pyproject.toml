@@ -1,0 +1,59 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",     # pyflakes + pycodestyle
+    "I",                # isort
+    "B",                # flake8-bugbear
+    "C4",               # flake8-comprehensions
+    "UP",               # pyupgrade
+    "SIM",              # flake8-simplify
+]
+ignore = [
+    "E501",             # line too long (handled by formatter)
+    "B008",             # do not perform function calls in argument defaults
+    "B904",             # raise from in except
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "langchain_core.*",
+    "langchain_openai.*",
+    "pymilvus.*",
+    "chromadb.*",
+    "sentence_transformers.*",
+    "networkx.*",
+    "fastmcp.*",
+    "bcrypt.*",
+    "redis.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+markers = [
+    "p0: Core flow tests (auth, basic chat, review)",
+    "p1: Important feature tests (other agents, dashboard)",
+    "p2: Advanced feature tests (remaining agents, cost API)",
+    "p3: Basic feature tests (settings, task list, edge cases)",
+]

@@ -1,0 +1,75 @@
+﻿name: Public Demo Quick Gates
+
+on:
+  push:
+    branches:
+      - codex/public-demo-20260810
+  pull_request:
+    branches:
+      - main
+    paths:
+      - README.md
+      - backend/**
+      - frontend/**
+      - tests/**
+      - docs/**
+      - .github/workflows/public-demo-quick-gates.yml
+  workflow_dispatch:
+
+jobs:
+  backend-quick-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: backend
+      ENVIRONMENT: ci
+      ENV: test
+      JWT_SECRET_KEY: test-secret-key-for-public-demo-ci-only
+      COOKIE_SECURE: "false"
+      ENABLE_PUBLIC_DOCS: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip install pytest pytest-asyncio
+
+      - name: Trusted-path API gate
+        run: |
+          python -m pytest tests/api/test_openapi_contract.py backend/tests/test_platform_mock_fallback_policy.py backend/tests/test_health_readiness.py tests/api/test_kol_search.py tests/api/test_production_issue_regressions.py backend/tests/test_rate_limiter_cookie.py backend/tests/test_admin_production_mock_policy.py -q
+
+      - name: Schema/model/runtime/readiness gate
+        run: |
+          python -m pytest backend/tests/test_postgres_migration.py backend/tests/test_model_gateway_tokenrhythm.py backend/tests/test_runtime_eval_mode.py backend/tests/test_public_demo_route_scope.py tests/performance/test_deployment_readiness_check.py tests/performance/test_public_demo_smoke.py tests/performance/test_public_demo_pre_push_audit.py tests/performance/test_public_demo_security_audit.py tests/performance/test_public_demo_completion_audit.py -q
+
+  frontend-quick-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Vitest
+        run: npm run test -- --run
+
+      - name: Production build
+        run: npm run build
+
