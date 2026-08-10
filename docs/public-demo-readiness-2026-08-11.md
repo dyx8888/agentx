@@ -207,7 +207,22 @@ Do not mix these into the public demo branch without separate review:
 
 ## Next Recommended Step
 
-README is now present. The next recommended step is to choose one deployment path and perform a narrow deployment setup review before any real cloud changes.
+The local public-demo baseline is ready to push from the sanitized worktree.
+The selected deployment path is Vercel frontend, Render backend, and Neon
+Postgres.
+
+Next required external step:
+
+1. Push `codex/public-demo-20260810` and `public-demo-local-20260811` to
+   `https://github.com/dyx8888/agentx.git`.
+2. Confirm GitHub Actions runs `.github/workflows/public-demo-quick-gates.yml`.
+3. Create/configure Vercel, Render, and Neon resources.
+4. Run public smoke after HTTPS URLs exist.
+
+Codex attempted a local `git push --dry-run` precheck on 2026-08-11. The
+command produced no remote result after about 90 seconds and was aborted,
+consistent with local GitHub credential or network interaction waiting. No
+remote writes were made by that dry-run attempt.
 
 Do not describe the project as fully complete until a public URL, HTTPS configuration, and public smoke test are verified.
 

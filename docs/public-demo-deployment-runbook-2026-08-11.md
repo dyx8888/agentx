@@ -8,6 +8,7 @@ filled environment files.
 
 - Branch: `codex/public-demo-20260810`
 - Local baseline tag: `public-demo-local-20260811`
+- Current local baseline commit: `36c40fc`
 - Verify local HEAD before remote push with `git rev-parse --short HEAD`
 - Local worktree status: clean
 - Selected deployment path: Vercel frontend, Render backend, Neon Postgres
@@ -28,6 +29,17 @@ python tests/performance/public_demo_pre_push_audit.py
 git push -u origin codex/public-demo-20260810
 git push origin public-demo-local-20260811
 ```
+
+Optional non-mutating precheck:
+
+```powershell
+$env:GIT_TERMINAL_PROMPT = "0"
+git push --dry-run origin codex/public-demo-20260810 public-demo-local-20260811
+```
+
+If the dry-run hangs or fails because GitHub credentials are unavailable, stop
+and authenticate GitHub in a normal PowerShell session before running the real
+push. Do not change branches or push the original dirty worktree.
 
 If `public_demo_pre_push_audit.py` fails with `runtime artifacts not reachable
 in branch history`, stop. Do not push the history-preserving branch to a public
