@@ -226,6 +226,22 @@ second non-mutating dry-run with `GIT_TERMINAL_PROMPT=0` failed with
 'https://github.com': terminal prompts disabled`. No remote writes were made by
 either dry-run attempt.
 
+Additional GitHub connectivity diagnostics on 2026-08-11:
+
+- `Test-NetConnection github.com -Port 443`: TCP succeeded.
+- `git ls-remote --heads origin`: failed with `Empty reply from server`.
+- `git -c http.version=HTTP/1.1 ls-remote --heads origin`: failed to connect.
+- `git ls-remote --heads https://github.com/git/git.git`: failed to connect.
+- `Invoke-WebRequest https://github.com`: timed out.
+- `Test-NetConnection github.com -Port 22`: TCP succeeded.
+- `Test-NetConnection ssh.github.com -Port 443`: TCP succeeded.
+- `gh` CLI is not installed in the Codex environment.
+- `%USERPROFILE%\.ssh` is not present in the Codex environment.
+
+This means the next push attempt should be performed from a normal PowerShell
+session with working GitHub credentials, or via an SSH remote after a GitHub
+SSH key has been configured outside the repository.
+
 Do not describe the project as fully complete until a public URL, HTTPS configuration, and public smoke test are verified.
 
 

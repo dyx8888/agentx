@@ -8,8 +8,8 @@ filled environment files.
 
 - Branch: `codex/public-demo-20260810`
 - Local baseline tag: `public-demo-local-20260811`
-- Current local baseline commit: `7f52294`
 - Verify local HEAD before remote push with `git rev-parse --short HEAD`
+- Verify the tag points to the same commit with `git rev-list -n 1 --abbrev-commit public-demo-local-20260811`
 - Local worktree status: clean
 - Selected deployment path: Vercel frontend, Render backend, Neon Postgres
 - Docker full smoke: not run
@@ -43,6 +43,38 @@ push. In the Codex environment on 2026-08-11, the non-mutating dry-run failed
 with `fatal: User cancelled dialog.` and `fatal: could not read Username for
 'https://github.com': terminal prompts disabled`. Do not change branches or
 push the original dirty worktree.
+
+HTTPS troubleshooting:
+
+```powershell
+Test-NetConnection github.com -Port 443
+$env:GIT_TERMINAL_PROMPT = "0"
+git ls-remote --heads origin
+git ls-remote --heads https://github.com/git/git.git
+```
+
+If TCP 443 succeeds but both `ls-remote` commands fail with `Empty reply from
+server`, `Failed to connect`, or a timeout, treat it as a local network,
+proxy, or GitHub HTTPS transport issue rather than a repository-content issue.
+
+SSH fallback:
+
+```powershell
+Test-NetConnection github.com -Port 22
+Test-NetConnection ssh.github.com -Port 443
+```
+
+If SSH is reachable, configure a GitHub SSH key in a normal PowerShell session
+or GitHub Desktop, then use an SSH remote only for this sanitized worktree:
+
+```powershell
+git remote set-url origin git@github.com:dyx8888/agentx.git
+git push -u origin codex/public-demo-20260810
+git push origin public-demo-local-20260811
+```
+
+Only do this after the SSH key is added to the GitHub account. Do not create or
+commit private keys in this repository.
 
 If `public_demo_pre_push_audit.py` fails with `runtime artifacts not reachable
 in branch history`, stop. Do not push the history-preserving branch to a public
