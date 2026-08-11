@@ -53,9 +53,17 @@ jobs:
         run: |
           python -m pytest backend/tests/test_postgres_migration.py -q
 
-      - name: Model/runtime public-demo gate
+      - name: Model gateway TokenRhythm gate
         run: |
-          python -m pytest backend/tests/test_model_gateway_tokenrhythm.py backend/tests/test_runtime_eval_mode.py backend/tests/test_public_demo_route_scope.py -q
+          python -m pytest backend/tests/test_model_gateway_tokenrhythm.py -q
+
+      - name: Runtime eval-mode gate
+        run: |
+          python -m pytest backend/tests/test_runtime_eval_mode.py -q
+
+      - name: Public-demo route scope gate
+        run: |
+          python -m pytest backend/tests/test_public_demo_route_scope.py -q
 
       - name: Public-demo readiness audit gate
         run: |
