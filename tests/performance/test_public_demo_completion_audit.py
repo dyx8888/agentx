@@ -106,7 +106,7 @@ def _fake_git(
             return GitResult(0, dirty, "")
         if key == ("rev-parse", "HEAD"):
             return GitResult(0, head, "")
-        if key == ("rev-list", "-n", "1", "public-demo-local-20260811-v9"):
+        if key == ("rev-list", "-n", "1", "public-demo-local-20260811-v10"):
             return GitResult(0, tag_target, "")
         if key == ("rev-list", "--objects", "HEAD"):
             return GitResult(0, "abc123 README.md\nabc124 backend/app/main.py", "")
@@ -114,9 +114,9 @@ def _fake_git(
             if remote_pushed:
                 return GitResult(0, f"{head}\trefs/heads/codex/public-demo-20260810", "")
             return GitResult(2, "", "remote branch missing")
-        if key == ("ls-remote", "--tags", "origin", "public-demo-local-20260811-v9"):
+        if key == ("ls-remote", "--tags", "origin", "public-demo-local-20260811-v10"):
             if remote_pushed:
-                return GitResult(0, f"{tag_target}\trefs/tags/public-demo-local-20260811-v9", "")
+                return GitResult(0, f"{tag_target}\trefs/tags/public-demo-local-20260811-v10", "")
             return GitResult(2, "", "remote tag missing")
         return GitResult(0, "", "")
 
@@ -135,7 +135,7 @@ def _reader(texts=None):
 def test_completion_audit_passes_local_ready_with_external_pending():
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811-v9",
+        baseline_tag="public-demo-local-20260811-v10",
         git=_fake_git(),
         read_text=_reader(),
     )
@@ -152,7 +152,7 @@ def test_completion_audit_passes_local_ready_with_external_pending():
 def test_completion_audit_keeps_push_pending_when_remote_refs_are_missing():
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811-v9",
+        baseline_tag="public-demo-local-20260811-v10",
         git=_fake_git(remote_pushed=False),
         read_text=_reader(),
     )
@@ -167,7 +167,7 @@ def test_completion_audit_fails_missing_required_artifact():
 
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811-v9",
+        baseline_tag="public-demo-local-20260811-v10",
         git=_fake_git(files=files),
         read_text=_reader(),
     )
@@ -180,7 +180,7 @@ def test_completion_audit_fails_missing_required_artifact():
 def test_completion_audit_fails_dirty_worktree():
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811-v9",
+        baseline_tag="public-demo-local-20260811-v10",
         git=_fake_git(dirty=" M README.md"),
         read_text=_reader(),
     )
@@ -196,7 +196,7 @@ def test_completion_audit_fails_when_debug_or_generated_file_is_tracked():
 
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811-v9",
+        baseline_tag="public-demo-local-20260811-v10",
         git=_fake_git(files=files),
         read_text=_reader(),
     )
@@ -215,7 +215,7 @@ def test_completion_audit_fails_when_runtime_artifact_is_reachable_in_history():
 
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811-v9",
+        baseline_tag="public-demo-local-20260811-v10",
         git=git,
         read_text=_reader(),
     )
@@ -235,7 +235,7 @@ def test_completion_audit_fails_when_render_template_is_unsafe():
 
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811-v9",
+        baseline_tag="public-demo-local-20260811-v10",
         git=_fake_git(),
         read_text=_reader(texts),
     )
@@ -250,7 +250,7 @@ def test_completion_audit_fails_when_vercel_template_is_invalid():
 
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811-v9",
+        baseline_tag="public-demo-local-20260811-v10",
         git=_fake_git(),
         read_text=_reader(texts),
     )

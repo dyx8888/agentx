@@ -44,6 +44,7 @@ REQUIRED_TRACKED_FILES = {
     "frontend/.env.example",
     "frontend/vercel.json",
     "tests/performance/deployment_readiness_check.py",
+    "tests/performance/public_demo_deployment_template_audit.py",
     "tests/performance/public_demo_pre_push_audit.py",
     "tests/performance/public_demo_security_audit.py",
     "tests/performance/public_demo_smoke.py",
@@ -508,7 +509,7 @@ def run_audit(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-branch", default="codex/public-demo-20260810")
-    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v9")
+    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v10")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     args = parser.parse_args()
 

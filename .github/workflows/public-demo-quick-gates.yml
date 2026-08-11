@@ -67,7 +67,7 @@ jobs:
 
       - name: Public-demo readiness audit gate
         run: |
-          python -m pytest tests/performance/test_deployment_readiness_check.py tests/performance/test_public_demo_smoke.py tests/performance/test_public_demo_pre_push_audit.py tests/performance/test_public_demo_security_audit.py tests/performance/test_public_demo_completion_audit.py -q
+          python -m pytest tests/performance/test_deployment_readiness_check.py tests/performance/test_public_demo_smoke.py tests/performance/test_public_demo_deployment_template_audit.py tests/performance/test_public_demo_pre_push_audit.py tests/performance/test_public_demo_security_audit.py tests/performance/test_public_demo_completion_audit.py -q
 
   frontend-quick-gates:
     runs-on: ubuntu-latest

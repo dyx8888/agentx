@@ -1,4 +1,4 @@
-# Public Demo Cloud Handoff - 2026-08-11
+﻿# Public Demo Cloud Handoff - 2026-08-11
 
 This document records the exact handoff needed to move the verified public-demo
 branch from local/CI readiness into a real hosted demo. It does not contain
@@ -7,10 +7,10 @@ secrets, tokens, production database URLs, or account credentials.
 ## Verified Input Baseline
 
 - Branch: `codex/public-demo-20260810`
-- Current local baseline tag for the next push: `public-demo-local-20260811-v9`
-- Last verified remote baseline: `public-demo-local-20260811-v8`
-- Last verified remote commit before this handoff: `7468af6`
-- GitHub Actions run `31451807722`: success
+- Current local baseline tag for the next push: `public-demo-local-20260811-v10`
+- Last verified remote baseline: `public-demo-local-20260811-v9`
+- Last verified remote commit before this deployment-audit handoff: `23b3a84`
+- GitHub Actions run `31452401665`: success
   - `backend-quick-gates`: success
   - `frontend-quick-gates`: success
 - Render backend Blueprint: `render.yaml`

@@ -7,7 +7,7 @@ AgentX is an AI digital-employee demo for ecommerce teams, covering chat, KOL se
 - Online demo: not deployed yet.
 - Public smoke test: not verified yet.
 - Current display branch: `codex/public-demo-20260810`.
-- Local baseline tag: `public-demo-local-20260811-v9`.
+- Local baseline tag: `public-demo-local-20260811-v10`.
 - Selected first deployment path: Vercel frontend, Render backend, Neon Postgres.
 - Current scope: reproducible local/public-demo baseline without local runtime data or real credentials.
 
@@ -97,7 +97,7 @@ python -m pytest tests/api/test_openapi_contract.py backend/tests/test_platform_
 Backend schema/model/runtime/readiness/public-demo audit gate:
 
 ```powershell
-python -m pytest backend/tests/test_postgres_migration.py backend/tests/test_model_gateway_tokenrhythm.py backend/tests/test_runtime_eval_mode.py backend/tests/test_public_demo_route_scope.py tests/performance/test_deployment_readiness_check.py tests/performance/test_public_demo_smoke.py tests/performance/test_public_demo_pre_push_audit.py tests/performance/test_public_demo_security_audit.py tests/performance/test_public_demo_completion_audit.py -q
+python -m pytest backend/tests/test_postgres_migration.py backend/tests/test_model_gateway_tokenrhythm.py backend/tests/test_runtime_eval_mode.py backend/tests/test_public_demo_route_scope.py tests/performance/test_deployment_readiness_check.py tests/performance/test_public_demo_smoke.py tests/performance/test_public_demo_deployment_template_audit.py tests/performance/test_public_demo_pre_push_audit.py tests/performance/test_public_demo_security_audit.py tests/performance/test_public_demo_completion_audit.py -q
 ```
 
 Frontend gate:
@@ -136,7 +136,12 @@ Latest recorded clean-worktree evidence:
   - `frontend-quick-gates`: success
   - `backend-quick-gates`: success
 - Remote display branch before this cloud-handoff refresh: `origin/codex/public-demo-20260810 -> 7468af6`
-- Previous remote baseline tag: `public-demo-local-20260811-v8 -> 7468af6`; current local baseline is `public-demo-local-20260811-v9`
+- Previous remote baseline tag: `public-demo-local-20260811-v8 -> 7468af6`; then-current local baseline was `public-demo-local-20260811-v9`
+- GitHub Actions `Public Demo Quick Gates`: passed on run `31452401665` for code baseline `23b3a84`
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
+- Remote display branch before this deployment-audit refresh: `origin/codex/public-demo-20260810 -> 23b3a84`
+- Previous remote baseline tag: `public-demo-local-20260811-v9 -> 23b3a84`; current local baseline is `public-demo-local-20260811-v10`
 - Backend trusted-path/API regression gate: `39 passed, 85 skipped, 1 warning`
 - Backend schema/model/runtime/readiness/public-demo audit gate: `38 passed, 5 skipped, 1 warning`
 - Frontend install: `npm.cmd ci` succeeded, installed `374 packages`
@@ -212,6 +217,7 @@ Do not mix these into the public-demo branch without separate review:
 - `.github/workflows/public-demo-quick-gates.yml`
 - `docs/public-security-review-2026-08-11.md`
 - `docs/deferred-worktree-triage-2026-08-11.md`
+- `tests/performance/public_demo_deployment_template_audit.py`
 - `frontend/vercel.json`
 - `deploy/render.example.yaml`
 - `render.yaml`
