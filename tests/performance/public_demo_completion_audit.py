@@ -43,6 +43,7 @@ REQUIRED_TRACKED_FILES = {
     "docs/trusted-path-local-closure-2026-08-10.md",
     "frontend/.env.example",
     "frontend/vercel.json",
+    "tests/performance/public_demo_cloud_prereq_audit.py",
     "tests/performance/deployment_readiness_check.py",
     "tests/performance/public_demo_deployment_template_audit.py",
     "tests/performance/public_demo_pre_push_audit.py",
@@ -273,7 +274,7 @@ def check_readme_status(read_text: TextReader) -> list[CompletionCheck]:
             marker in readme
             for marker in (
                 "39 passed, 85 skipped",
-                "38 passed, 5 skipped, 1 warning",
+                "48 passed, 5 skipped, 1 warning",
                 "12 passed files / 71 passed tests",
                 "Filled sensitive config placeholder count: `0`",
             )
@@ -509,7 +510,7 @@ def run_audit(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-branch", default="codex/public-demo-20260810")
-    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v11")
+    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v12")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     args = parser.parse_args()
 
