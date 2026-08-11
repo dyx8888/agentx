@@ -237,10 +237,12 @@ Additional GitHub connectivity diagnostics on 2026-08-11:
 - `Test-NetConnection ssh.github.com -Port 443`: TCP succeeded.
 - `gh` CLI is not installed in the Codex environment.
 - `%USERPROFILE%\.ssh` is not present in the Codex environment.
+- A normal PowerShell SSH push attempt accepted GitHub's ED25519 host key but
+  failed with `git@github.com: Permission denied (publickey).`
 
 This means the next push attempt should be performed from a normal PowerShell
-session with working GitHub credentials, or via an SSH remote after a GitHub
-SSH key has been configured outside the repository.
+session with working GitHub HTTPS credentials, or via the SSH remote after a
+valid SSH public key has been added to the GitHub account.
 
 Do not describe the project as fully complete until a public URL, HTTPS configuration, and public smoke test are verified.
 

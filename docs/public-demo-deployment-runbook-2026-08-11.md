@@ -76,6 +76,15 @@ git push origin public-demo-local-20260811
 Only do this after the SSH key is added to the GitHub account. Do not create or
 commit private keys in this repository.
 
+If GitHub replies with `Permission denied (publickey)`, the SSH transport is
+reachable but the account does not have an accepted SSH public key for this
+machine. Add the machine's public key to GitHub, or switch back to HTTPS after
+fixing Git credential/network access:
+
+```powershell
+git remote set-url origin https://github.com/dyx8888/agentx.git
+```
+
 If `public_demo_pre_push_audit.py` fails with `runtime artifacts not reachable
 in branch history`, stop. Do not push the history-preserving branch to a public
 remote. Create or use a sanitized snapshot branch with the same tree and a
