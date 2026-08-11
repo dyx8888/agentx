@@ -6,8 +6,8 @@ This document records the current public-demo readiness state for AgentX.
 
 - Display branch: `codex/public-demo-20260810`
 - Sanitized snapshot is a clean-root public display branch; verify the current commit with `git rev-parse --short HEAD`
-- Current local baseline anchor: `public-demo-local-20260811-v5`
-- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v5`
+- Current local baseline anchor: `public-demo-local-20260811-v6`
+- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v6`
 - Latest backend/frontend gate evidence: sanitized snapshot candidate
 - Latest local audit evidence: sanitized snapshot candidate
 - Goal: a public, reproducible, job-demo-ready AgentX demo without local runtime data or real credentials.
@@ -213,7 +213,7 @@ Postgres.
 
 Next required external step:
 
-1. Push `codex/public-demo-20260810` and `public-demo-local-20260811-v5` to
+1. Push `codex/public-demo-20260810` and `public-demo-local-20260811-v6` to
    `https://github.com/dyx8888/agentx.git`.
 2. Confirm GitHub Actions runs `.github/workflows/public-demo-quick-gates.yml`.
 3. Create/configure Vercel, Render, and Neon resources.
