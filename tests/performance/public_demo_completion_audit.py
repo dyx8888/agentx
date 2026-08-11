@@ -17,9 +17,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUT = PROJECT_ROOT / "tests" / "reports" / "public_demo_completion_audit.json"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from tests.performance.public_demo_cloud_prereq_audit import run_audit as run_cloud_prereq_audit
 
 REQUIRED_TRACKED_FILES = {
     ".github/workflows/public-demo-quick-gates.yml",
@@ -97,6 +100,7 @@ class GitResult:
 
 GitRunner = Callable[[list[str]], GitResult]
 TextReader = Callable[[str], str]
+CloudPrereqRunner = Callable[[], dict]
 
 
 def run_git(args: list[str]) -> GitResult:
@@ -274,7 +278,7 @@ def check_readme_status(read_text: TextReader) -> list[CompletionCheck]:
             marker in readme
             for marker in (
                 "39 passed, 85 skipped",
-                "48 passed, 5 skipped, 1 warning",
+                "49 passed, 5 skipped, 1 warning",
                 "12 passed files / 71 passed tests",
                 "Filled sensitive config placeholder count: `0`",
             )
@@ -463,12 +467,29 @@ def check_deployment_templates(read_text: TextReader) -> list[CompletionCheck]:
     return checks
 
 
+def check_cloud_prerequisites(cloud_prereq: CloudPrereqRunner) -> CompletionCheck:
+    try:
+        report = cloud_prereq()
+    except Exception as exc:  # pragma: no cover - defensive boundary for CLI use
+        return fail_check("cloud prerequisites", f"cloud prerequisite audit failed: {type(exc).__name__}")
+
+    checks = report.get("checks", [])
+    failures = [check.get("name", "<unnamed>") for check in checks if check.get("status") == "fail"]
+    pending = [check.get("name", "<unnamed>") for check in checks if check.get("status") == "pending_external"]
+    if failures:
+        return fail_check("cloud prerequisites", ", ".join(failures))
+    if pending:
+        return pending_check("cloud prerequisites", ", ".join(pending))
+    return pass_check("cloud prerequisites", "provider access and required runtime variables are available")
+
+
 def run_audit(
     *,
     expected_branch: str,
     baseline_tag: str,
     git: GitRunner = run_git,
     read_text: TextReader = read_tracked_text,
+    cloud_prereq: CloudPrereqRunner = run_cloud_prereq_audit,
 ) -> dict:
     tracked = list_tracked(git)
     checks = [
@@ -482,6 +503,7 @@ def run_audit(
         *check_docs(read_text),
         *check_deployment_templates(read_text),
         check_remote_push(git, expected_branch, baseline_tag),
+        check_cloud_prerequisites(cloud_prereq),
         pending_check("managed Postgres migration", "requires Neon or another managed Postgres database"),
         pending_check("cloud deployment", "requires Vercel, Render, and Neon resources"),
         pending_check("browser screenshots and recording", "capture after local/public smoke; do not commit generated media"),
@@ -510,7 +532,7 @@ def run_audit(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-branch", default="codex/public-demo-20260810")
-    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v12")
+    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v13")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     args = parser.parse_args()
 

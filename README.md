@@ -7,7 +7,7 @@ AgentX is an AI digital-employee demo for ecommerce teams, covering chat, KOL se
 - Online demo: not deployed yet.
 - Public smoke test: not verified yet.
 - Current display branch: `codex/public-demo-20260810`.
-- Local baseline tag: `public-demo-local-20260811-v12`.
+- Local baseline tag: `public-demo-local-20260811-v13`.
 - Selected first deployment path: Vercel frontend, Render backend, Neon Postgres.
 - Current scope: reproducible local/public-demo baseline without local runtime data or real credentials.
 
@@ -151,9 +151,14 @@ Latest recorded clean-worktree evidence:
   - `frontend-quick-gates`: success
   - `backend-quick-gates`: success
 - Remote display branch before this cloud-prereq refresh: `origin/codex/public-demo-20260810 -> 9ade535`
-- Previous remote baseline tag: `public-demo-local-20260811-v11 -> 9ade535`; current local baseline is `public-demo-local-20260811-v12`
+- Previous remote baseline tag: `public-demo-local-20260811-v11 -> 9ade535`; then-current local baseline was `public-demo-local-20260811-v12`
+- GitHub Actions `Public Demo Quick Gates`: passed on run `31454883332` for code baseline `30cee95`
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
+- Remote display branch before this completion-prereq refresh: `origin/codex/public-demo-20260810 -> 30cee95`
+- Previous remote baseline tag: `public-demo-local-20260811-v12 -> 30cee95`; current local baseline is `public-demo-local-20260811-v13`
 - Backend trusted-path/API regression gate: `39 passed, 85 skipped, 1 warning`
-- Backend schema/model/runtime/readiness/public-demo audit gate: `48 passed, 5 skipped, 1 warning`
+- Backend schema/model/runtime/readiness/public-demo audit gate: `49 passed, 5 skipped, 1 warning`
 - Frontend install: `npm.cmd ci` succeeded, installed `374 packages`
 - Frontend tests: `12 passed files / 71 passed tests`
 - Frontend production build: succeeded
@@ -161,7 +166,7 @@ Latest recorded clean-worktree evidence:
 - High-confidence secret pattern hits: `0`
 - Filled sensitive config placeholder count: `0`
 - Completion boundary audit is included in the backend gate and separates local readiness from pending public deployment work.
-- Latest completion boundary audit: `local_ready=True`, `public_complete=False`, with pending external work limited to public URL, public smoke, managed Postgres migration, cloud deployment, and browser evidence.
+- Latest completion boundary audit: `local_ready=True`, `public_complete=False`, with pending external work limited to public URL, public smoke, cloud prerequisites, managed Postgres migration, cloud deployment, and browser evidence.
 - Cloud prerequisite audit is included in the backend gate. Missing Vercel, Render, Neon, or production runtime credentials are reported as `pending_external` without printing secret values.
 
 Docker low-risk precheck was rerun on 2026-08-11 without starting containers:

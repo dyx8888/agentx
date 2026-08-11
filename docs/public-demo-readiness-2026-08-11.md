@@ -6,8 +6,8 @@ This document records the current public-demo readiness state for AgentX.
 
 - Display branch: `codex/public-demo-20260810`
 - Sanitized snapshot is a clean-root public display branch; verify the current commit with `git rev-parse --short HEAD`
-- Current local baseline anchor: `public-demo-local-20260811-v12`
-- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v12`
+- Current local baseline anchor: `public-demo-local-20260811-v13`
+- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v13`
 - Latest backend/frontend gate evidence: sanitized snapshot candidate
 - Latest local audit evidence: sanitized snapshot candidate
 - Goal: a public, reproducible, job-demo-ready AgentX demo without local runtime data or real credentials.
@@ -132,6 +132,11 @@ Remote public-demo evidence:
 - GitHub Actions run `31454147313` completed successfully on code baseline `9ade535`.
   - `frontend-quick-gates`: success
   - `backend-quick-gates`: success
+- Before this completion-prereq refresh, branch `origin/codex/public-demo-20260810` pointed to `30cee95`.
+- Previous tag `public-demo-local-20260811-v12` pointed to `30cee95`; current local baseline tag is `public-demo-local-20260811-v13`.
+- GitHub Actions run `31454883332` completed successfully on code baseline `30cee95`.
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
 - `tests/performance/public_demo_completion_audit.py` now reports the display
   branch push check as `PASS`, while keeping public URL, public smoke, managed
   Postgres migration, cloud deployment, and browser evidence as external
@@ -142,15 +147,15 @@ Clean backend verification evidence in `agentdianshang-public-demo`:
 - `python -m pytest tests/api/test_openapi_contract.py backend/tests/test_platform_mock_fallback_policy.py backend/tests/test_health_readiness.py tests/api/test_kol_search.py tests/api/test_production_issue_regressions.py backend/tests/test_rate_limiter_cookie.py backend/tests/test_admin_production_mock_policy.py -q`
   - Result on sanitized snapshot: `39 passed, 85 skipped, 1 warning`
 - `python -m pytest backend/tests/test_postgres_migration.py backend/tests/test_model_gateway_tokenrhythm.py backend/tests/test_runtime_eval_mode.py backend/tests/test_public_demo_route_scope.py tests/performance/test_deployment_readiness_check.py tests/performance/test_public_demo_smoke.py tests/performance/test_public_demo_deployment_template_audit.py tests/performance/test_public_demo_cloud_prereq_audit.py tests/performance/test_public_demo_pre_push_audit.py tests/performance/test_public_demo_security_audit.py tests/performance/test_public_demo_completion_audit.py -q`
-  - Result on sanitized snapshot: `48 passed, 5 skipped, 1 warning`
+  - Result on sanitized snapshot: `49 passed, 5 skipped, 1 warning`
 - `tests/performance/public_demo_completion_audit.py` separates `local_ready`
-  from `public_complete`, so public URL, managed Postgres, cloud deployment,
-  public smoke, and screenshot/recording evidence remain explicit pending
-  external items.
+  from `public_complete`, so public URL, cloud prerequisites, managed Postgres,
+  cloud deployment, public smoke, and screenshot/recording evidence remain
+  explicit pending external items.
 - `tests/performance/public_demo_deployment_template_audit.py` checks `render.yaml`, `frontend/vercel.json`, `backend/.env.production.example`, and `frontend/.env.example`.
   - It verifies Render build/start/health settings, production safety toggles, `sync:false` runtime secrets, Vercel SPA rewrites, blank production secrets, and disabled frontend demo password.
 - `tests/performance/public_demo_cloud_prereq_audit.py` checks local cloud deployment prerequisites without provider API calls.
-  - Missing Vercel, Render, Neon, or production runtime credentials are recorded as `pending_external`; unsafe public CORS fails the audit.
+  - Missing Vercel, Render, Neon, or production runtime credentials are recorded as `pending_external`; unsafe public CORS fails both the cloud prerequisite audit and the completion boundary audit.
 - Deployment readiness preflight on `1605264`:
   - `tests/performance/deployment_readiness_check.py` now probes `/health`, matching the backend and Render template
   - Redis, Milvus, SMTP, OAuth, platform API, and model-provider keys are optional/degraded checks, not P0 blockers when intentionally unconfigured for the public demo

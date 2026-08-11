@@ -7,10 +7,10 @@ secrets, tokens, production database URLs, or account credentials.
 ## Verified Input Baseline
 
 - Branch: `codex/public-demo-20260810`
-- Current local baseline tag for the next push: `public-demo-local-20260811-v12`
-- Last verified remote baseline: `public-demo-local-20260811-v11`
-- Last verified remote commit before this cloud-prereq handoff: `9ade535`
-- GitHub Actions run `31454147313`: success
+- Current local baseline tag for the next push: `public-demo-local-20260811-v13`
+- Last verified remote baseline: `public-demo-local-20260811-v12`
+- Last verified remote commit before this completion-prereq handoff: `30cee95`
+- GitHub Actions run `31454883332`: success
   - `backend-quick-gates`: success
   - `frontend-quick-gates`: success
 - Render backend Blueprint: `render.yaml`
