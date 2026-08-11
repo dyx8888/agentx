@@ -6,8 +6,8 @@ This document records the current public-demo readiness state for AgentX.
 
 - Display branch: `codex/public-demo-20260810`
 - Sanitized snapshot is a clean-root public display branch; verify the current commit with `git rev-parse --short HEAD`
-- Current local baseline anchor: `public-demo-local-20260811-v7`
-- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v7`
+- Current local baseline anchor: `public-demo-local-20260811-v8`
+- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v8`
 - Latest backend/frontend gate evidence: sanitized snapshot candidate
 - Latest local audit evidence: sanitized snapshot candidate
 - Goal: a public, reproducible, job-demo-ready AgentX demo without local runtime data or real credentials.
@@ -93,14 +93,20 @@ Out of scope for the first public demo:
 - `7e7b8b9 ci: split backend public demo gates`
 - `bc7153d ci: isolate backend runtime gate steps`
 - `4d2665b test: make public demo route scope gate deterministic`
+- `2523d49 docs: record public demo ci push evidence`
 
 ## Verified Evidence
 
 Remote public-demo evidence:
 
 - Before this docs refresh, branch `origin/codex/public-demo-20260810` pointed to `4d2665b`.
-- Previous tag `public-demo-local-20260811-v6` pointed to `4d2665b`; current local baseline tag is `public-demo-local-20260811-v7`.
+- Previous tag `public-demo-local-20260811-v6` pointed to `4d2665b`; then-current local baseline tag was `public-demo-local-20260811-v7`.
 - GitHub Actions run `31449945919` completed successfully on code baseline `4d2665b`.
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
+- Before this deployment-blueprint refresh, branch `origin/codex/public-demo-20260810` pointed to `2523d49`.
+- Previous tag `public-demo-local-20260811-v7` pointed to `2523d49`; current local baseline tag is `public-demo-local-20260811-v8`.
+- GitHub Actions run `31450691331` completed successfully on code baseline `2523d49`.
   - `frontend-quick-gates`: success
   - `backend-quick-gates`: success
 - `tests/performance/public_demo_completion_audit.py` now reports the display
@@ -194,6 +200,7 @@ deleted.
   - `backend/docker-compose.yml`: present
   - `frontend/vercel.json`: present
   - `deploy/render.example.yaml`: present
+  - `render.yaml`: present as the root Render Blueprint for the backend web service
 
 ## Not Yet Proven
 

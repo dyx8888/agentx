@@ -74,6 +74,7 @@ SENSITIVE_CONFIG_FILES = {
     "backend/config/.env.example",
     "backend/docker-compose.yml",
     "deploy/render.example.yaml",
+    "render.yaml",
     "frontend/.env.example",
 }
 

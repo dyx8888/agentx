@@ -26,6 +26,7 @@ REQUIRED_TRACKED_FILES = {
     "README.md",
     "backend/.env.production.example",
     "deploy/render.example.yaml",
+    "render.yaml",
     "docs/db-migration-readiness-2026-08-11.md",
     "docs/deferred-worktree-triage-2026-08-11.md",
     "docs/demo-data/README.md",
@@ -374,6 +375,29 @@ def check_deployment_templates(read_text: TextReader) -> list[CompletionCheck]:
         ),
         _check_text_markers(
             read_text,
+            "render.yaml",
+            "deployment template: Render blueprint",
+            (
+                "runtime: python",
+                "rootDir: .",
+                "buildCommand: python -m pip install --upgrade pip && python -m pip install -r backend/requirements.txt",
+                "startCommand: PYTHONPATH=backend uvicorn app.main:app --host 0.0.0.0 --port $PORT",
+                "healthCheckPath: /health",
+                "autoDeploy: false",
+                "key: DATABASE_URL",
+                "key: JWT_SECRET_KEY",
+                "key: FRONTEND_URL",
+                "key: CORS_ORIGINS",
+                "key: COOKIE_SECURE",
+                'value: "true"',
+                "key: ENABLE_PUBLIC_DOCS",
+                'value: "false"',
+                "key: ENABLE_EVOLUTION_API",
+                'value: "false"',
+            ),
+        ),
+        _check_text_markers(
+            read_text,
             "backend/.env.production.example",
             "deployment template: backend env",
             (
@@ -475,7 +499,7 @@ def run_audit(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-branch", default="codex/public-demo-20260810")
-    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v7")
+    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v8")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     args = parser.parse_args()
 

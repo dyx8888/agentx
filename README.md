@@ -7,7 +7,7 @@ AgentX is an AI digital-employee demo for ecommerce teams, covering chat, KOL se
 - Online demo: not deployed yet.
 - Public smoke test: not verified yet.
 - Current display branch: `codex/public-demo-20260810`.
-- Local baseline tag: `public-demo-local-20260811-v7`.
+- Local baseline tag: `public-demo-local-20260811-v8`.
 - Selected first deployment path: Vercel frontend, Render backend, Neon Postgres.
 - Current scope: reproducible local/public-demo baseline without local runtime data or real credentials.
 
@@ -126,7 +126,12 @@ Latest recorded clean-worktree evidence:
   - `frontend-quick-gates`: success
   - `backend-quick-gates`: success
 - Remote display branch before this docs refresh: `origin/codex/public-demo-20260810 -> 4d2665b`
-- Previous remote baseline tag: `public-demo-local-20260811-v6 -> 4d2665b`; current local baseline is `public-demo-local-20260811-v7`
+- Previous remote baseline tag: `public-demo-local-20260811-v6 -> 4d2665b`; then-current local baseline was `public-demo-local-20260811-v7`
+- GitHub Actions `Public Demo Quick Gates`: passed on run `31450691331` for code baseline `2523d49`
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
+- Remote display branch before this deployment-blueprint refresh: `origin/codex/public-demo-20260810 -> 2523d49`
+- Previous remote baseline tag: `public-demo-local-20260811-v7 -> 2523d49`; current local baseline is `public-demo-local-20260811-v8`
 - Backend trusted-path/API regression gate: `39 passed, 85 skipped, 1 warning`
 - Backend schema/model/runtime/readiness/public-demo audit gate: `38 passed, 5 skipped, 1 warning`
 - Frontend install: `npm.cmd ci` succeeded, installed `374 packages`
@@ -203,5 +208,6 @@ Do not mix these into the public-demo branch without separate review:
 - `docs/deferred-worktree-triage-2026-08-11.md`
 - `frontend/vercel.json`
 - `deploy/render.example.yaml`
+- `render.yaml`
 
 

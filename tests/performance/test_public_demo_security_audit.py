@@ -38,6 +38,16 @@ BASE_FILES = {
             "  sync: false",
         ]
     ),
+    "render.yaml": "\n".join(
+        [
+            "- key: DATABASE_URL",
+            "  sync: false",
+            "- key: JWT_SECRET_KEY",
+            "  sync: false",
+            "- key: COOKIE_SECURE",
+            '  value: "true"',
+        ]
+    ),
     "frontend/.env.example": "\n".join(
         [
             "VITE_API_BASE_URL=/api",
