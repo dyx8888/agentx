@@ -7,7 +7,7 @@ AgentX is an AI digital-employee demo for ecommerce teams, covering chat, KOL se
 - Online demo: not deployed yet.
 - Public smoke test: not verified yet.
 - Current display branch: `codex/public-demo-20260810`.
-- Local baseline tag: `public-demo-local-20260811-v2`.
+- Local baseline tag: `public-demo-local-20260811-v3`.
 - Selected first deployment path: Vercel frontend, Render backend, Neon Postgres.
 - Current scope: reproducible local/public-demo baseline without local runtime data or real credentials.
 
