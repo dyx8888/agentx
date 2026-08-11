@@ -35,6 +35,7 @@ REQUIRED_TRACKED_FILES = {
     "docs/interview-demo-guide-2026-08-11.md",
     "docs/public-demo-deployment-plan-2026-08-11.md",
     "docs/public-demo-deployment-runbook-2026-08-11.md",
+    "docs/public-demo-cloud-handoff-2026-08-11.md",
     "docs/public-demo-readiness-2026-08-11.md",
     "docs/public-demo-smoke-template-2026-08-11.md",
     "docs/public-demo-visual-evidence-plan-2026-08-11.md",
@@ -305,6 +306,14 @@ def check_docs(read_text: TextReader) -> list[CompletionCheck]:
             "docs/public-demo-visual-evidence-plan-2026-08-11.md",
             "60-90 second recording",
         ),
+        "docs/public-demo-cloud-handoff-2026-08-11.md": (
+            "Verified Input Baseline",
+            "Access Required",
+            "User-Side Cloud Steps",
+            "Migration Verification",
+            "Codex Verification After URLs Exist",
+            "Stop Conditions",
+        ),
         "docs/public-demo-smoke-template-2026-08-11.md": (
             "Frontend URL: `TBD`",
             "Backend URL: `TBD`",
@@ -499,7 +508,7 @@ def run_audit(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-branch", default="codex/public-demo-20260810")
-    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v8")
+    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v9")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     args = parser.parse_args()
 

@@ -51,7 +51,7 @@ def _base_mapping(overrides=None):
         ("branch", "--show-current"): EXPECTED_BRANCH,
         ("status", "--porcelain=v1"): "",
         ("rev-parse", "HEAD"): "abc123",
-        ("rev-list", "-n", "1", "public-demo-local-20260811-v8"): "abc123",
+        ("rev-list", "-n", "1", "public-demo-local-20260811-v9"): "abc123",
         ("ls-files",): "README.md\nbackend/app/main.py",
         ("rev-list", "--objects", "HEAD"): "abc123 README.md\nabc124 backend/app/main.py",
         SECRET_SCAN_ARGS: GitResult(1, "", ""),
@@ -70,7 +70,7 @@ def test_pre_push_audit_passes_clean_public_demo_branch():
 
     report = run_audit(
         expected_branch=EXPECTED_BRANCH,
-        baseline_tag="public-demo-local-20260811-v8",
+        baseline_tag="public-demo-local-20260811-v9",
         git=git,
     )
 
@@ -79,12 +79,12 @@ def test_pre_push_audit_passes_clean_public_demo_branch():
 
 def test_pre_push_audit_fails_when_tag_does_not_match_head():
     git = _fake_git(
-        _base_mapping({("rev-list", "-n", "1", "public-demo-local-20260811-v8"): "def456"})
+        _base_mapping({("rev-list", "-n", "1", "public-demo-local-20260811-v9"): "def456"})
     )
 
     report = run_audit(
         expected_branch=EXPECTED_BRANCH,
-        baseline_tag="public-demo-local-20260811-v8",
+        baseline_tag="public-demo-local-20260811-v9",
         git=git,
     )
 
@@ -99,7 +99,7 @@ def test_pre_push_audit_fails_when_runtime_artifact_is_tracked():
 
     report = run_audit(
         expected_branch=EXPECTED_BRANCH,
-        baseline_tag="public-demo-local-20260811-v8",
+        baseline_tag="public-demo-local-20260811-v9",
         git=git,
     )
 
@@ -114,7 +114,7 @@ def test_pre_push_audit_fails_when_debug_or_generated_file_is_tracked():
 
     report = run_audit(
         expected_branch=EXPECTED_BRANCH,
-        baseline_tag="public-demo-local-20260811-v8",
+        baseline_tag="public-demo-local-20260811-v9",
         git=git,
     )
 
@@ -129,7 +129,7 @@ def test_pre_push_audit_fails_when_runtime_artifact_is_in_history():
 
     report = run_audit(
         expected_branch=EXPECTED_BRANCH,
-        baseline_tag="public-demo-local-20260811-v8",
+        baseline_tag="public-demo-local-20260811-v9",
         git=git,
     )
 
@@ -146,7 +146,7 @@ def test_pre_push_audit_fails_when_public_demo_workflow_uses_docker():
 
     report = run_audit(
         expected_branch=EXPECTED_BRANCH,
-        baseline_tag="public-demo-local-20260811-v8",
+        baseline_tag="public-demo-local-20260811-v9",
         git=git,
     )
 
@@ -163,7 +163,7 @@ def test_pre_push_audit_fails_when_legacy_workflow_targets_display_branch():
 
     report = run_audit(
         expected_branch=EXPECTED_BRANCH,
-        baseline_tag="public-demo-local-20260811-v8",
+        baseline_tag="public-demo-local-20260811-v9",
         git=git,
     )
 

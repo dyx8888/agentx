@@ -7,7 +7,7 @@ AgentX is an AI digital-employee demo for ecommerce teams, covering chat, KOL se
 - Online demo: not deployed yet.
 - Public smoke test: not verified yet.
 - Current display branch: `codex/public-demo-20260810`.
-- Local baseline tag: `public-demo-local-20260811-v8`.
+- Local baseline tag: `public-demo-local-20260811-v9`.
 - Selected first deployment path: Vercel frontend, Render backend, Neon Postgres.
 - Current scope: reproducible local/public-demo baseline without local runtime data or real credentials.
 
@@ -131,7 +131,12 @@ Latest recorded clean-worktree evidence:
   - `frontend-quick-gates`: success
   - `backend-quick-gates`: success
 - Remote display branch before this deployment-blueprint refresh: `origin/codex/public-demo-20260810 -> 2523d49`
-- Previous remote baseline tag: `public-demo-local-20260811-v7 -> 2523d49`; current local baseline is `public-demo-local-20260811-v8`
+- Previous remote baseline tag: `public-demo-local-20260811-v7 -> 2523d49`; then-current local baseline was `public-demo-local-20260811-v8`
+- GitHub Actions `Public Demo Quick Gates`: passed on run `31451807722` for code baseline `7468af6`
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
+- Remote display branch before this cloud-handoff refresh: `origin/codex/public-demo-20260810 -> 7468af6`
+- Previous remote baseline tag: `public-demo-local-20260811-v8 -> 7468af6`; current local baseline is `public-demo-local-20260811-v9`
 - Backend trusted-path/API regression gate: `39 passed, 85 skipped, 1 warning`
 - Backend schema/model/runtime/readiness/public-demo audit gate: `38 passed, 5 skipped, 1 warning`
 - Frontend install: `npm.cmd ci` succeeded, installed `374 packages`
@@ -198,6 +203,7 @@ Do not mix these into the public-demo branch without separate review:
 - `docs/public-demo-readiness-2026-08-11.md`
 - `docs/public-demo-deployment-plan-2026-08-11.md`
 - `docs/public-demo-deployment-runbook-2026-08-11.md`
+- `docs/public-demo-cloud-handoff-2026-08-11.md`
 - `docs/public-demo-visual-evidence-plan-2026-08-11.md`
 - `docs/public-demo-smoke-template-2026-08-11.md`
 - `docs/interview-demo-guide-2026-08-11.md`

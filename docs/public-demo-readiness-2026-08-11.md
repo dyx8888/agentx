@@ -6,8 +6,8 @@ This document records the current public-demo readiness state for AgentX.
 
 - Display branch: `codex/public-demo-20260810`
 - Sanitized snapshot is a clean-root public display branch; verify the current commit with `git rev-parse --short HEAD`
-- Current local baseline anchor: `public-demo-local-20260811-v8`
-- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v8`
+- Current local baseline anchor: `public-demo-local-20260811-v9`
+- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v9`
 - Latest backend/frontend gate evidence: sanitized snapshot candidate
 - Latest local audit evidence: sanitized snapshot candidate
 - Goal: a public, reproducible, job-demo-ready AgentX demo without local runtime data or real credentials.
@@ -94,6 +94,7 @@ Out of scope for the first public demo:
 - `bc7153d ci: isolate backend runtime gate steps`
 - `4d2665b test: make public demo route scope gate deterministic`
 - `2523d49 docs: record public demo ci push evidence`
+- `7468af6 chore: add render blueprint for public demo`
 
 ## Verified Evidence
 
@@ -105,8 +106,13 @@ Remote public-demo evidence:
   - `frontend-quick-gates`: success
   - `backend-quick-gates`: success
 - Before this deployment-blueprint refresh, branch `origin/codex/public-demo-20260810` pointed to `2523d49`.
-- Previous tag `public-demo-local-20260811-v7` pointed to `2523d49`; current local baseline tag is `public-demo-local-20260811-v8`.
+- Previous tag `public-demo-local-20260811-v7` pointed to `2523d49`; then-current local baseline tag was `public-demo-local-20260811-v8`.
 - GitHub Actions run `31450691331` completed successfully on code baseline `2523d49`.
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
+- Before this cloud-handoff refresh, branch `origin/codex/public-demo-20260810` pointed to `7468af6`.
+- Previous tag `public-demo-local-20260811-v8` pointed to `7468af6`; current local baseline tag is `public-demo-local-20260811-v9`.
+- GitHub Actions run `31451807722` completed successfully on code baseline `7468af6`.
   - `frontend-quick-gates`: success
   - `backend-quick-gates`: success
 - `tests/performance/public_demo_completion_audit.py` now reports the display
@@ -201,6 +207,7 @@ deleted.
   - `frontend/vercel.json`: present
   - `deploy/render.example.yaml`: present
   - `render.yaml`: present as the root Render Blueprint for the backend web service
+  - `docs/public-demo-cloud-handoff-2026-08-11.md`: present as the secret-safe handoff checklist for provider setup
 
 ## Not Yet Proven
 
