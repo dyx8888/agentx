@@ -7,10 +7,10 @@ secrets, tokens, production database URLs, or account credentials.
 ## Verified Input Baseline
 
 - Branch: `codex/public-demo-20260810`
-- Current local baseline tag for the next push: `public-demo-local-20260811-v10`
-- Last verified remote baseline: `public-demo-local-20260811-v9`
-- Last verified remote commit before this deployment-audit handoff: `23b3a84`
-- GitHub Actions run `31452401665`: success
+- Current local baseline tag for the next push: `public-demo-local-20260811-v11`
+- Last verified remote baseline: `public-demo-local-20260811-v10`
+- Last verified remote commit before this Docker-precheck handoff: `b1f51ec`
+- GitHub Actions run `31453473994`: success
   - `backend-quick-gates`: success
   - `frontend-quick-gates`: success
 - Render backend Blueprint: `render.yaml`
@@ -122,4 +122,3 @@ Stop before sharing the demo URL if any of these occur:
 - Missing external platform credentials return fake success.
 - A high-risk action claims execution instead of draft or human review.
 - Any local database, runtime report, screenshot, or secret file appears in Git.
-

@@ -7,9 +7,9 @@ filled environment files.
 ## Current Local Baseline
 
 - Branch: `codex/public-demo-20260810`
-- Local baseline tag: `public-demo-local-20260811-v10`
+- Local baseline tag: `public-demo-local-20260811-v11`
 - Verify local HEAD before remote push with `git rev-parse --short HEAD`
-- Verify the tag points to the same commit with `git rev-list -n 1 --abbrev-commit public-demo-local-20260811-v10`
+- Verify the tag points to the same commit with `git rev-list -n 1 --abbrev-commit public-demo-local-20260811-v11`
 - Last verified remote branch before this docs refresh: `origin/codex/public-demo-20260810 -> 4d2665b`
 - Previous remote baseline tag: `public-demo-local-20260811-v6 -> 4d2665b`; then-current local baseline was `public-demo-local-20260811-v7`
 - GitHub Actions `Public Demo Quick Gates`: passed on run `31449945919`
@@ -20,8 +20,11 @@ filled environment files.
 - Previous remote baseline tag: `public-demo-local-20260811-v8 -> 7468af6`; then-current local baseline was `public-demo-local-20260811-v9`
 - GitHub Actions `Public Demo Quick Gates`: passed on run `31451807722`
 - Last verified remote branch before this deployment-audit refresh: `origin/codex/public-demo-20260810 -> 23b3a84`
-- Previous remote baseline tag: `public-demo-local-20260811-v9 -> 23b3a84`; current local baseline is `public-demo-local-20260811-v10`
+- Previous remote baseline tag: `public-demo-local-20260811-v9 -> 23b3a84`; then-current local baseline was `public-demo-local-20260811-v10`
 - GitHub Actions `Public Demo Quick Gates`: passed on run `31452401665`
+- Last verified remote branch before this Docker-precheck refresh: `origin/codex/public-demo-20260810 -> b1f51ec`
+- Previous remote baseline tag: `public-demo-local-20260811-v10 -> b1f51ec`; current local baseline is `public-demo-local-20260811-v11`
+- GitHub Actions `Public Demo Quick Gates`: passed on run `31453473994`
 - Local worktree status: clean
 - Selected deployment path: Vercel frontend, Render backend, Neon Postgres
 - Docker full smoke: not run
@@ -35,18 +38,18 @@ to `https://github.com/dyx8888/agentx.git`.
 ```powershell
 git status -sb
 git rev-parse --short HEAD
-git rev-list -n 1 public-demo-local-20260811-v10
+git rev-list -n 1 public-demo-local-20260811-v11
 python tests/performance/public_demo_security_audit.py
 python tests/performance/public_demo_pre_push_audit.py
 git push -u origin codex/public-demo-20260810
-git push origin public-demo-local-20260811-v10
+git push origin public-demo-local-20260811-v11
 ```
 
 Optional non-mutating precheck:
 
 ```powershell
 $env:GIT_TERMINAL_PROMPT = "0"
-git push --dry-run origin codex/public-demo-20260810 public-demo-local-20260811-v10
+git push --dry-run origin codex/public-demo-20260810 public-demo-local-20260811-v11
 ```
 
 If the dry-run hangs or fails because GitHub credentials are unavailable, stop
@@ -82,7 +85,7 @@ or GitHub Desktop, then use an SSH remote only for this sanitized worktree:
 ```powershell
 git remote set-url origin git@github.com:dyx8888/agentx.git
 git push -u origin codex/public-demo-20260810
-git push origin public-demo-local-20260811-v10
+git push origin public-demo-local-20260811-v11
 ```
 
 Only do this after the SSH key is added to the GitHub account. Do not create or
@@ -105,7 +108,7 @@ clean root history, then rerun the same security and pre-push audits there.
 Expected result:
 
 - The remote branch `origin/codex/public-demo-20260810` exists.
-- The remote tag `public-demo-local-20260811-v10` exists.
+- The remote tag `public-demo-local-20260811-v11` exists.
 - GitHub Actions can run `.github/workflows/public-demo-quick-gates.yml`.
 - No runtime data, reports, screenshots, or `perf_*` artifacts are pushed.
 
@@ -119,6 +122,8 @@ Current result on 2026-08-11:
 - GitHub Actions run `31451807722` passed with both frontend and backend quick gates green.
 - Remote branch and `public-demo-local-20260811-v9` existed and both pointed to `23b3a84` before this deployment-audit refresh.
 - GitHub Actions run `31452401665` passed with both frontend and backend quick gates green.
+- Remote branch and `public-demo-local-20260811-v10` existed and both pointed to `b1f51ec` before this Docker-precheck refresh.
+- GitHub Actions run `31453473994` passed with both frontend and backend quick gates green.
 
 ## Step 2 - Backend Service
 

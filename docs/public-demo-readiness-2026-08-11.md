@@ -6,8 +6,8 @@ This document records the current public-demo readiness state for AgentX.
 
 - Display branch: `codex/public-demo-20260810`
 - Sanitized snapshot is a clean-root public display branch; verify the current commit with `git rev-parse --short HEAD`
-- Current local baseline anchor: `public-demo-local-20260811-v10`
-- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v10`
+- Current local baseline anchor: `public-demo-local-20260811-v11`
+- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v11`
 - Latest backend/frontend gate evidence: sanitized snapshot candidate
 - Latest local audit evidence: sanitized snapshot candidate
 - Goal: a public, reproducible, job-demo-ready AgentX demo without local runtime data or real credentials.
@@ -95,6 +95,8 @@ Out of scope for the first public demo:
 - `4d2665b test: make public demo route scope gate deterministic`
 - `2523d49 docs: record public demo ci push evidence`
 - `7468af6 chore: add render blueprint for public demo`
+- `23b3a84 docs: add public demo cloud handoff`
+- `b1f51ec test: add deployment template audit`
 
 ## Verified Evidence
 
@@ -113,6 +115,16 @@ Remote public-demo evidence:
 - Before this cloud-handoff refresh, branch `origin/codex/public-demo-20260810` pointed to `7468af6`.
 - Previous tag `public-demo-local-20260811-v8` pointed to `7468af6`; then-current local baseline tag was `public-demo-local-20260811-v9`.
 - GitHub Actions run `31451807722` completed successfully on code baseline `7468af6`.
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
+- Before this deployment-audit refresh, branch `origin/codex/public-demo-20260810` pointed to `23b3a84`.
+- Previous tag `public-demo-local-20260811-v9` pointed to `23b3a84`; then-current local baseline tag was `public-demo-local-20260811-v10`.
+- GitHub Actions run `31452401665` completed successfully on code baseline `23b3a84`.
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
+- Before this Docker-precheck refresh, branch `origin/codex/public-demo-20260810` pointed to `b1f51ec`.
+- Previous tag `public-demo-local-20260811-v10` pointed to `b1f51ec`; current local baseline tag is `public-demo-local-20260811-v11`.
+- GitHub Actions run `31453473994` completed successfully on code baseline `b1f51ec`.
   - `frontend-quick-gates`: success
   - `backend-quick-gates`: success
 - `tests/performance/public_demo_completion_audit.py` now reports the display
@@ -183,7 +195,7 @@ Production config behavior:
 
 ## Docker Low-Risk Precheck
 
-Low-risk precheck was rerun on `2026-08-11` at `6362ae4`.
+Low-risk precheck was rerun on `2026-08-11` before the v11 baseline.
 No containers were started, no images were built, and no Docker volumes were
 deleted.
 
@@ -191,16 +203,18 @@ deleted.
   - Docker daemon connection was not available: `docker_engine` pipe not found
   - Current user also cannot read `C:\Users\win\.docker\config.json`
 - `docker compose version`: Compose `v5.3.1`
-- `docker compose -f backend/docker-compose.yml config`: passed without starting
+- `docker --config $env:TEMP compose -f backend/docker-compose.yml config`: passed without starting
   containers
   - Rendered `DEEPSEEK_API_KEY` values are blank, so host shell API keys are not
     leaked by low-risk precheck output
   - Warning: Compose `version` field is obsolete
   - Warning: Docker config file access warning in the current user environment
 - Port check:
-  - `3000`, `5173`, `8000`, `5432`, `6379`, `19530`, `9091` not listening
+  - `3000`, `5173`, `8000`, `5432`, `6379`, `8101`, `8104`, `9001`, `19530` not listening
 - Disk check:
-  - Current worktree drive has about `92.71 GB` free
+  - `C:\`: `85.56 GB` free
+  - `D:\`: `21.25 GB` free
+  - `Q:\`: `37.50 GB` free
 - Environment/template existence check:
   - `backend/.env` and `frontend/.env`: ignored local files, not tracked
   - `backend/.env.production.example`: present

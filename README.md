@@ -7,7 +7,7 @@ AgentX is an AI digital-employee demo for ecommerce teams, covering chat, KOL se
 - Online demo: not deployed yet.
 - Public smoke test: not verified yet.
 - Current display branch: `codex/public-demo-20260810`.
-- Local baseline tag: `public-demo-local-20260811-v10`.
+- Local baseline tag: `public-demo-local-20260811-v11`.
 - Selected first deployment path: Vercel frontend, Render backend, Neon Postgres.
 - Current scope: reproducible local/public-demo baseline without local runtime data or real credentials.
 
@@ -141,7 +141,12 @@ Latest recorded clean-worktree evidence:
   - `frontend-quick-gates`: success
   - `backend-quick-gates`: success
 - Remote display branch before this deployment-audit refresh: `origin/codex/public-demo-20260810 -> 23b3a84`
-- Previous remote baseline tag: `public-demo-local-20260811-v9 -> 23b3a84`; current local baseline is `public-demo-local-20260811-v10`
+- Previous remote baseline tag: `public-demo-local-20260811-v9 -> 23b3a84`; then-current local baseline was `public-demo-local-20260811-v10`
+- GitHub Actions `Public Demo Quick Gates`: passed on run `31453473994` for code baseline `b1f51ec`
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
+- Remote display branch before this Docker-precheck refresh: `origin/codex/public-demo-20260810 -> b1f51ec`
+- Previous remote baseline tag: `public-demo-local-20260811-v10 -> b1f51ec`; current local baseline is `public-demo-local-20260811-v11`
 - Backend trusted-path/API regression gate: `39 passed, 85 skipped, 1 warning`
 - Backend schema/model/runtime/readiness/public-demo audit gate: `38 passed, 5 skipped, 1 warning`
 - Frontend install: `npm.cmd ci` succeeded, installed `374 packages`
@@ -153,14 +158,17 @@ Latest recorded clean-worktree evidence:
 - Completion boundary audit is included in the backend gate and separates local readiness from pending public deployment work.
 - Latest completion boundary audit: `local_ready=True`, `public_complete=False`, with pending external work limited to public URL, public smoke, managed Postgres migration, cloud deployment, and browser evidence.
 
-Docker low-risk precheck was performed without starting containers:
+Docker low-risk precheck was rerun on 2026-08-11 without starting containers:
 
 - Docker CLI: `29.6.2`
 - Docker Compose: `v5.3.1`
-- `docker compose -f backend/docker-compose.yml config`: passed without starting containers
+- `docker --config $env:TEMP compose -f backend/docker-compose.yml config`: passed without starting containers
 - Compose precheck renders `DEEPSEEK_API_KEY` as blank, so local shell API keys are not written into precheck output
-- Docker daemon: not connected during low-risk precheck; no containers were started
-- Ports `3000`, `5173`, `8000`, `5432`, `6379`, `19530`, and `9091`: not listening during the precheck
+- Docker daemon: not connected during low-risk precheck; `docker_engine` pipe was not present, so no containers were started
+- Docker config warning: current user could not read `C:\Users\win\.docker\config.json`
+- Ports `3000`, `5173`, `8000`, `5432`, `6379`, `8101`, `8104`, `9001`, and `19530`: not listening during the precheck
+- Disk free space: `C:\` 85.56 GB, `D:\` 21.25 GB, `Q:\` 37.50 GB
+- Env/template check: `backend/.env` and `frontend/.env` absent; `.env.example`, `.env.production.example`, `render.yaml`, and `frontend/vercel.json` present
 
 ## Public Security Posture
 
