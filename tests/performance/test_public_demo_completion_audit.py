@@ -11,7 +11,7 @@ BASE_TEXT = {
             "- Public smoke test: not verified yet.",
             "- Selected first deployment path: Vercel frontend, Render backend, Neon Postgres.",
             "- Backend trusted-path/API regression gate: `39 passed, 85 skipped`",
-            "- Backend schema/model/runtime/readiness/public-demo audit gate: `37 passed, 5 skipped, 1 warning`",
+            "- Backend schema/model/runtime/readiness/public-demo audit gate: `38 passed, 5 skipped, 1 warning`",
             "- Frontend tests: `12 passed files / 71 passed tests`",
             "- Filled sensitive config placeholder count: `0`",
         ]
@@ -65,7 +65,14 @@ BASE_TEXT = {
 }
 
 
-def _fake_git(files=None, dirty="", branch="codex/public-demo-20260810", head="abc123", tag_target="abc123"):
+def _fake_git(
+    files=None,
+    dirty="",
+    branch="codex/public-demo-20260810",
+    head="abc123",
+    tag_target="abc123",
+    remote_pushed=True,
+):
     tracked = sorted(files or REQUIRED_TRACKED_FILES)
 
     def run(args):
@@ -78,10 +85,18 @@ def _fake_git(files=None, dirty="", branch="codex/public-demo-20260810", head="a
             return GitResult(0, dirty, "")
         if key == ("rev-parse", "HEAD"):
             return GitResult(0, head, "")
-        if key == ("rev-list", "-n", "1", "public-demo-local-20260811"):
+        if key == ("rev-list", "-n", "1", "public-demo-local-20260811-v2"):
             return GitResult(0, tag_target, "")
         if key == ("rev-list", "--objects", "HEAD"):
             return GitResult(0, "abc123 README.md\nabc124 backend/app/main.py", "")
+        if key == ("ls-remote", "--heads", "origin", "codex/public-demo-20260810"):
+            if remote_pushed:
+                return GitResult(0, f"{head}\trefs/heads/codex/public-demo-20260810", "")
+            return GitResult(2, "", "remote branch missing")
+        if key == ("ls-remote", "--tags", "origin", "public-demo-local-20260811-v2"):
+            if remote_pushed:
+                return GitResult(0, f"{tag_target}\trefs/tags/public-demo-local-20260811-v2", "")
+            return GitResult(2, "", "remote tag missing")
         return GitResult(0, "", "")
 
     return run
@@ -99,7 +114,7 @@ def _reader(texts=None):
 def test_completion_audit_passes_local_ready_with_external_pending():
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811",
+        baseline_tag="public-demo-local-20260811-v2",
         git=_fake_git(),
         read_text=_reader(),
     )
@@ -107,6 +122,20 @@ def test_completion_audit_passes_local_ready_with_external_pending():
     assert report["summary"]["local_ready"] is True
     assert report["summary"]["public_complete"] is False
     assert report["summary"]["pending_external_count"] > 0
+    pending = {check["name"] for check in report["checks"] if check["status"] == "pending_external"}
+    assert "display branch push" not in pending
+    passed = {check["name"] for check in report["checks"] if check["status"] == "pass"}
+    assert "display branch push" in passed
+
+
+def test_completion_audit_keeps_push_pending_when_remote_refs_are_missing():
+    report = run_audit(
+        expected_branch="codex/public-demo-20260810",
+        baseline_tag="public-demo-local-20260811-v2",
+        git=_fake_git(remote_pushed=False),
+        read_text=_reader(),
+    )
+
     pending = {check["name"] for check in report["checks"] if check["status"] == "pending_external"}
     assert "display branch push" in pending
 
@@ -117,7 +146,7 @@ def test_completion_audit_fails_missing_required_artifact():
 
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811",
+        baseline_tag="public-demo-local-20260811-v2",
         git=_fake_git(files=files),
         read_text=_reader(),
     )
@@ -130,7 +159,7 @@ def test_completion_audit_fails_missing_required_artifact():
 def test_completion_audit_fails_dirty_worktree():
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811",
+        baseline_tag="public-demo-local-20260811-v2",
         git=_fake_git(dirty=" M README.md"),
         read_text=_reader(),
     )
@@ -146,7 +175,7 @@ def test_completion_audit_fails_when_debug_or_generated_file_is_tracked():
 
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811",
+        baseline_tag="public-demo-local-20260811-v2",
         git=_fake_git(files=files),
         read_text=_reader(),
     )
@@ -165,7 +194,7 @@ def test_completion_audit_fails_when_runtime_artifact_is_reachable_in_history():
 
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811",
+        baseline_tag="public-demo-local-20260811-v2",
         git=git,
         read_text=_reader(),
     )
@@ -185,7 +214,7 @@ def test_completion_audit_fails_when_render_template_is_unsafe():
 
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811",
+        baseline_tag="public-demo-local-20260811-v2",
         git=_fake_git(),
         read_text=_reader(texts),
     )
@@ -200,7 +229,7 @@ def test_completion_audit_fails_when_vercel_template_is_invalid():
 
     report = run_audit(
         expected_branch="codex/public-demo-20260810",
-        baseline_tag="public-demo-local-20260811",
+        baseline_tag="public-demo-local-20260811-v2",
         git=_fake_git(),
         read_text=_reader(texts),
     )

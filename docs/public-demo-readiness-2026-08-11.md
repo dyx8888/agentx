@@ -6,8 +6,8 @@ This document records the current public-demo readiness state for AgentX.
 
 - Display branch: `codex/public-demo-20260810`
 - Sanitized snapshot is a clean-root public display branch; verify the current commit with `git rev-parse --short HEAD`
-- Current local baseline anchor: `public-demo-local-20260811`
-- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811`
+- Current local baseline anchor: `public-demo-local-20260811-v2`
+- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v2`
 - Latest backend/frontend gate evidence: sanitized snapshot candidate
 - Latest local audit evidence: sanitized snapshot candidate
 - Goal: a public, reproducible, job-demo-ready AgentX demo without local runtime data or real credentials.
@@ -95,7 +95,7 @@ Clean backend verification evidence in `agentdianshang-public-demo`:
 - `python -m pytest tests/api/test_openapi_contract.py backend/tests/test_platform_mock_fallback_policy.py backend/tests/test_health_readiness.py tests/api/test_kol_search.py tests/api/test_production_issue_regressions.py backend/tests/test_rate_limiter_cookie.py backend/tests/test_admin_production_mock_policy.py -q`
   - Result on sanitized snapshot: `39 passed, 85 skipped, 1 warning`
 - `python -m pytest backend/tests/test_postgres_migration.py backend/tests/test_model_gateway_tokenrhythm.py backend/tests/test_runtime_eval_mode.py backend/tests/test_public_demo_route_scope.py tests/performance/test_deployment_readiness_check.py tests/performance/test_public_demo_smoke.py tests/performance/test_public_demo_pre_push_audit.py tests/performance/test_public_demo_security_audit.py tests/performance/test_public_demo_completion_audit.py -q`
-  - Result on sanitized snapshot: `37 passed, 5 skipped, 1 warning`
+  - Result on sanitized snapshot: `38 passed, 5 skipped, 1 warning`
 - `tests/performance/public_demo_completion_audit.py` separates `local_ready`
   from `public_complete`, so public URL, managed Postgres, cloud deployment,
   public smoke, and screenshot/recording evidence remain explicit pending
@@ -213,7 +213,7 @@ Postgres.
 
 Next required external step:
 
-1. Push `codex/public-demo-20260810` and `public-demo-local-20260811` to
+1. Push `codex/public-demo-20260810` and `public-demo-local-20260811-v2` to
    `https://github.com/dyx8888/agentx.git`.
 2. Confirm GitHub Actions runs `.github/workflows/public-demo-quick-gates.yml`.
 3. Create/configure Vercel, Render, and Neon resources.

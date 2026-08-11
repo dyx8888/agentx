@@ -159,6 +159,46 @@ def check_tag(git: GitRunner, tag: str) -> CompletionCheck:
     return fail_check("baseline tag", f"{tag} does not point to HEAD")
 
 
+def _ls_remote_sha(result: GitResult) -> str:
+    if result.returncode != 0:
+        return ""
+    first_line = next((line.strip() for line in result.stdout.splitlines() if line.strip()), "")
+    if not first_line:
+        return ""
+    return first_line.split(maxsplit=1)[0]
+
+
+def check_remote_push(git: GitRunner, expected_branch: str, tag: str) -> CompletionCheck:
+    head = git(["rev-parse", "HEAD"])
+    tag_target = git(["rev-list", "-n", "1", tag])
+    branch_ref = git(["ls-remote", "--heads", "origin", expected_branch])
+    tag_ref = git(["ls-remote", "--tags", "origin", tag])
+
+    if branch_ref.returncode != 0 or tag_ref.returncode != 0:
+        return pending_check(
+            "display branch push",
+            "remote branch/tag could not be verified; push or remote access still pending",
+        )
+
+    branch_sha = _ls_remote_sha(branch_ref)
+    tag_sha = _ls_remote_sha(tag_ref)
+    head_sha = head.stdout.strip()
+    tag_target_sha = tag_target.stdout.strip()
+    if (
+        head.returncode == 0
+        and tag_target.returncode == 0
+        and branch_sha == head_sha
+        and tag_sha == tag_target_sha
+        and tag_target_sha == head_sha
+    ):
+        return pass_check("display branch push", f"remote branch and {tag} point to HEAD {head_sha[:12]}")
+
+    return pending_check(
+        "display branch push",
+        "remote branch/tag exists but does not match the current local baseline",
+    )
+
+
 def check_required_files(tracked: set[str]) -> CompletionCheck:
     missing = sorted(REQUIRED_TRACKED_FILES - tracked)
     if not missing:
@@ -230,7 +270,7 @@ def check_readme_status(read_text: TextReader) -> list[CompletionCheck]:
             marker in readme
             for marker in (
                 "39 passed, 85 skipped",
-                "37 passed, 5 skipped, 1 warning",
+                "38 passed, 5 skipped, 1 warning",
                 "12 passed files / 71 passed tests",
                 "Filled sensitive config placeholder count: `0`",
             )
@@ -406,7 +446,7 @@ def run_audit(
         *check_readme_status(read_text),
         *check_docs(read_text),
         *check_deployment_templates(read_text),
-        pending_check("display branch push", "requires pushing branch and baseline tag to the public GitHub remote"),
+        check_remote_push(git, expected_branch, baseline_tag),
         pending_check("managed Postgres migration", "requires Neon or another managed Postgres database"),
         pending_check("cloud deployment", "requires Vercel, Render, and Neon resources"),
         pending_check("browser screenshots and recording", "capture after local/public smoke; do not commit generated media"),
@@ -435,7 +475,7 @@ def run_audit(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-branch", default="codex/public-demo-20260810")
-    parser.add_argument("--baseline-tag", default="public-demo-local-20260811")
+    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v2")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     args = parser.parse_args()
 
