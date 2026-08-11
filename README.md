@@ -7,7 +7,7 @@ AgentX is an AI digital-employee demo for ecommerce teams, covering chat, KOL se
 - Online demo: not deployed yet.
 - Public smoke test: not verified yet.
 - Current display branch: `codex/public-demo-20260810`.
-- Local baseline tag: `public-demo-local-20260811-v6`.
+- Local baseline tag: `public-demo-local-20260811-v7`.
 - Selected first deployment path: Vercel frontend, Render backend, Neon Postgres.
 - Current scope: reproducible local/public-demo baseline without local runtime data or real credentials.
 
@@ -122,6 +122,11 @@ python tests/performance/public_demo_smoke.py --frontend https://<frontend-publi
 
 Latest recorded clean-worktree evidence:
 
+- GitHub Actions `Public Demo Quick Gates`: passed on run `31449945919` for code baseline `4d2665b`
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
+- Remote display branch before this docs refresh: `origin/codex/public-demo-20260810 -> 4d2665b`
+- Previous remote baseline tag: `public-demo-local-20260811-v6 -> 4d2665b`; current local baseline is `public-demo-local-20260811-v7`
 - Backend trusted-path/API regression gate: `39 passed, 85 skipped, 1 warning`
 - Backend schema/model/runtime/readiness/public-demo audit gate: `38 passed, 5 skipped, 1 warning`
 - Frontend install: `npm.cmd ci` succeeded, installed `374 packages`
@@ -131,6 +136,7 @@ Latest recorded clean-worktree evidence:
 - High-confidence secret pattern hits: `0`
 - Filled sensitive config placeholder count: `0`
 - Completion boundary audit is included in the backend gate and separates local readiness from pending public deployment work.
+- Latest completion boundary audit: `local_ready=True`, `public_complete=False`, with pending external work limited to public URL, public smoke, managed Postgres migration, cloud deployment, and browser evidence.
 
 Docker low-risk precheck was performed without starting containers:
 

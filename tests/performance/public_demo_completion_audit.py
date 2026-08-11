@@ -475,7 +475,7 @@ def run_audit(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-branch", default="codex/public-demo-20260810")
-    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v6")
+    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v7")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     args = parser.parse_args()
 

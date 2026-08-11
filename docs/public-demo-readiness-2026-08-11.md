@@ -6,8 +6,8 @@ This document records the current public-demo readiness state for AgentX.
 
 - Display branch: `codex/public-demo-20260810`
 - Sanitized snapshot is a clean-root public display branch; verify the current commit with `git rev-parse --short HEAD`
-- Current local baseline anchor: `public-demo-local-20260811-v6`
-- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v6`
+- Current local baseline anchor: `public-demo-local-20260811-v7`
+- Verify tag target before push: `git rev-list -n 1 public-demo-local-20260811-v7`
 - Latest backend/frontend gate evidence: sanitized snapshot candidate
 - Latest local audit evidence: sanitized snapshot candidate
 - Goal: a public, reproducible, job-demo-ready AgentX demo without local runtime data or real credentials.
@@ -87,8 +87,26 @@ Out of scope for the first public demo:
 - `6362ae4 chore: prevent compose precheck secret leakage`
 - `ccb9227 docs: refresh public demo precheck evidence`
 - `9ba3c3f docs: clarify public demo precheck evidence anchor`
+- `d74088d docs: record ssh push publickey blocker`
+- `b24292c ci: stabilize public demo quick gates`
+- `324119c ci: align public demo quick gates runtime`
+- `7e7b8b9 ci: split backend public demo gates`
+- `bc7153d ci: isolate backend runtime gate steps`
+- `4d2665b test: make public demo route scope gate deterministic`
 
 ## Verified Evidence
+
+Remote public-demo evidence:
+
+- Before this docs refresh, branch `origin/codex/public-demo-20260810` pointed to `4d2665b`.
+- Previous tag `public-demo-local-20260811-v6` pointed to `4d2665b`; current local baseline tag is `public-demo-local-20260811-v7`.
+- GitHub Actions run `31449945919` completed successfully on code baseline `4d2665b`.
+  - `frontend-quick-gates`: success
+  - `backend-quick-gates`: success
+- `tests/performance/public_demo_completion_audit.py` now reports the display
+  branch push check as `PASS`, while keeping public URL, public smoke, managed
+  Postgres migration, cloud deployment, and browser evidence as external
+  pending items.
 
 Clean backend verification evidence in `agentdianshang-public-demo`:
 
@@ -207,26 +225,26 @@ Do not mix these into the public demo branch without separate review:
 
 ## Next Recommended Step
 
-The local public-demo baseline is ready to push from the sanitized worktree.
-The selected deployment path is Vercel frontend, Render backend, and Neon
-Postgres.
+The sanitized display branch is pushed and GitHub Actions quick gates are
+green. The selected deployment path remains Vercel frontend, Render backend,
+and Neon Postgres.
 
 Next required external step:
 
-1. Push `codex/public-demo-20260810` and `public-demo-local-20260811-v6` to
-   `https://github.com/dyx8888/agentx.git`.
-2. Confirm GitHub Actions runs `.github/workflows/public-demo-quick-gates.yml`.
-3. Create/configure Vercel, Render, and Neon resources.
-4. Run public smoke after HTTPS URLs exist.
+1. Create/configure Neon Postgres and run the managed database migration.
+2. Deploy the Render backend with production environment variables.
+3. Deploy the Vercel frontend with `VITE_API_BASE_URL` pointing to Render.
+4. Run `tests/performance/public_demo_smoke.py` after HTTPS URLs exist.
+5. Capture browser screenshots/recording according to the visual evidence plan.
 
-Codex attempted local `git push --dry-run` prechecks on 2026-08-11. The first
+Historical GitHub connectivity diagnostics before the successful SSH push:
+
+- Codex attempted local `git push --dry-run` prechecks on 2026-08-11. The first
 attempt produced no remote result after about 90 seconds and was aborted. A
 second non-mutating dry-run with `GIT_TERMINAL_PROMPT=0` failed with
 `fatal: User cancelled dialog.` and `fatal: could not read Username for
 'https://github.com': terminal prompts disabled`. No remote writes were made by
 either dry-run attempt.
-
-Additional GitHub connectivity diagnostics on 2026-08-11:
 
 - `Test-NetConnection github.com -Port 443`: TCP succeeded.
 - `git ls-remote --heads origin`: failed with `Empty reply from server`.
@@ -239,10 +257,8 @@ Additional GitHub connectivity diagnostics on 2026-08-11:
 - `%USERPROFILE%\.ssh` is not present in the Codex environment.
 - A normal PowerShell SSH push attempt accepted GitHub's ED25519 host key but
   failed with `git@github.com: Permission denied (publickey).`
-
-This means the next push attempt should be performed from a normal PowerShell
-session with working GitHub HTTPS credentials, or via the SSH remote after a
-valid SSH public key has been added to the GitHub account.
+- A later normal PowerShell SSH push succeeded after SSH access was available;
+  the current remote is `git@github.com:dyx8888/agentx.git`.
 
 Do not describe the project as fully complete until a public URL, HTTPS configuration, and public smoke test are verified.
 

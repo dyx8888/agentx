@@ -7,9 +7,12 @@ filled environment files.
 ## Current Local Baseline
 
 - Branch: `codex/public-demo-20260810`
-- Local baseline tag: `public-demo-local-20260811-v6`
+- Local baseline tag: `public-demo-local-20260811-v7`
 - Verify local HEAD before remote push with `git rev-parse --short HEAD`
-- Verify the tag points to the same commit with `git rev-list -n 1 --abbrev-commit public-demo-local-20260811-v6`
+- Verify the tag points to the same commit with `git rev-list -n 1 --abbrev-commit public-demo-local-20260811-v7`
+- Last verified remote branch before this docs refresh: `origin/codex/public-demo-20260810 -> 4d2665b`
+- Previous remote baseline tag: `public-demo-local-20260811-v6 -> 4d2665b`; current local baseline is `public-demo-local-20260811-v7`
+- GitHub Actions `Public Demo Quick Gates`: passed on run `31449945919`
 - Local worktree status: clean
 - Selected deployment path: Vercel frontend, Render backend, Neon Postgres
 - Docker full smoke: not run
@@ -23,18 +26,18 @@ to `https://github.com/dyx8888/agentx.git`.
 ```powershell
 git status -sb
 git rev-parse --short HEAD
-git rev-list -n 1 public-demo-local-20260811-v6
+git rev-list -n 1 public-demo-local-20260811-v7
 python tests/performance/public_demo_security_audit.py
 python tests/performance/public_demo_pre_push_audit.py
 git push -u origin codex/public-demo-20260810
-git push origin public-demo-local-20260811-v6
+git push origin public-demo-local-20260811-v7
 ```
 
 Optional non-mutating precheck:
 
 ```powershell
 $env:GIT_TERMINAL_PROMPT = "0"
-git push --dry-run origin codex/public-demo-20260810 public-demo-local-20260811-v6
+git push --dry-run origin codex/public-demo-20260810 public-demo-local-20260811-v7
 ```
 
 If the dry-run hangs or fails because GitHub credentials are unavailable, stop
@@ -70,7 +73,7 @@ or GitHub Desktop, then use an SSH remote only for this sanitized worktree:
 ```powershell
 git remote set-url origin git@github.com:dyx8888/agentx.git
 git push -u origin codex/public-demo-20260810
-git push origin public-demo-local-20260811-v6
+git push origin public-demo-local-20260811-v7
 ```
 
 Only do this after the SSH key is added to the GitHub account. Do not create or
@@ -93,9 +96,14 @@ clean root history, then rerun the same security and pre-push audits there.
 Expected result:
 
 - The remote branch `origin/codex/public-demo-20260810` exists.
-- The remote tag `public-demo-local-20260811-v6` exists.
+- The remote tag `public-demo-local-20260811-v7` exists.
 - GitHub Actions can run `.github/workflows/public-demo-quick-gates.yml`.
 - No runtime data, reports, screenshots, or `perf_*` artifacts are pushed.
+
+Current result on 2026-08-11:
+
+- Remote branch and `public-demo-local-20260811-v6` existed and both pointed to `4d2665b` before this docs refresh.
+- GitHub Actions run `31449945919` passed with both frontend and backend quick gates green.
 
 ## Step 2 - Backend Service
 
