@@ -159,3 +159,25 @@ def test_public_demo_logging_middleware_hides_exception_detail():
 
     assert '{"error": "Internal server error"}' in source
     assert '"detail": str(e)' not in source
+
+
+def test_public_demo_core_logging_redacts_user_payload_fields():
+    from app.core.logging import _redact_sensitive
+
+    event_dict = {
+        "event": "model_response",
+        "prompt": "customer secret request",
+        "raw_content": "internal chain trace",
+        "assistant_message": "visible answer",
+        "api_key": "provider-key",
+        "safe_count": 3,
+    }
+
+    redacted = _redact_sensitive(None, None, event_dict)
+
+    assert redacted["event"] == "model_response"
+    assert redacted["prompt"] == "[REDACTED]"
+    assert redacted["raw_content"] == "[REDACTED]"
+    assert redacted["assistant_message"] == "[REDACTED]"
+    assert redacted["api_key"] == "[REDACTED]"
+    assert redacted["safe_count"] == 3

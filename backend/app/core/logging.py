@@ -27,6 +27,8 @@ File logging (optional, for non-Docker deployments):
 Sensitive data protection:
   Fields named password, token, api_key, secret, credential, authorization
   are automatically redacted to [REDACTED] in all log output.
+  User/model payload fields such as prompt, content, message, and raw_content
+  are also redacted by default so production logs do not store conversation text.
 """
 
 import logging
@@ -41,12 +43,38 @@ SERVICE_NAME = os.getenv("SERVICE_NAME", "agentx-backend")
 ENV_NAME = os.getenv("ENV", "dev").lower()
 
 _sensitive_field_names = {"password", "token", "api_key", "secret", "credential", "authorization"}
+_sensitive_payload_field_names = {
+    "content",
+    "contents",
+    "final_response",
+    "messages",
+    "prompt",
+    "prompts",
+    "raw_content",
+    "response_content",
+    "system_message",
+    "system_prompt",
+    "user_content",
+    "user_message",
+    "user_prompt",
+}
+_payload_field_suffixes = ("_content", "_message", "_messages", "_prompt", "_prompts")
+
+
+def _is_sensitive_payload_field(key_lower: str) -> bool:
+    if key_lower == "event":
+        return False
+    if key_lower in _sensitive_payload_field_names:
+        return True
+    return key_lower.endswith(_payload_field_suffixes)
 
 def _redact_sensitive(logger, method_name, event_dict):
     """Structlog processor: replaces sensitive field values with [REDACTED]"""
     for key in list(event_dict.keys()):
         key_lower = key.lower()
-        if any(s in key_lower for s in _sensitive_field_names):
+        if any(s in key_lower for s in _sensitive_field_names) or _is_sensitive_payload_field(
+            key_lower
+        ):
             event_dict[key] = "[REDACTED]"
     return event_dict
 
