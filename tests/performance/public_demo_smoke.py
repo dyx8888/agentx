@@ -146,6 +146,27 @@ def check_auth_failure(backend_url: str, timeout: float) -> ProbeResult:
     return ProbeResult("auth invalid login", url, passed, response["status_code"], response["ms"], detail)
 
 
+def check_protected_api_rejects(
+    backend_url: str,
+    *,
+    name: str,
+    path: str,
+    method: str = "GET",
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: float,
+) -> ProbeResult:
+    url = _path(backend_url, path)
+    try:
+        response = _request(url, method=method, data=data, headers=headers, timeout=timeout)
+    except (URLError, TimeoutError, OSError) as exc:
+        return _network_failure(name, url, exc)
+
+    passed = response["status_code"] in {401, 403} and bool(response["body"].strip())
+    detail = "protected API rejected unauthenticated public request" if passed else "expected 401/403, not public success"
+    return ProbeResult(name, url, passed, response["status_code"], response["ms"], detail)
+
+
 def check_docs_disabled(backend_url: str, timeout: float) -> list[ProbeResult]:
     results: list[ProbeResult] = []
     for path in ("/docs", "/openapi.json"):
@@ -194,6 +215,21 @@ def run_smoke(frontend_url: str, backend_url: str, *, allow_http: bool = False, 
         check_frontend_shell(frontend_url, "/settings", timeout),
         check_backend_health(backend_url, timeout),
         check_auth_failure(backend_url, timeout),
+        check_protected_api_rejects(
+            backend_url,
+            name="KOL search unauthenticated",
+            path="/api/kol/search",
+            method="POST",
+            data=json.dumps({"query": "demo", "platform": "all", "limit": 1}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            timeout=timeout,
+        ),
+        check_protected_api_rejects(
+            backend_url,
+            name="Knowledge search unauthenticated",
+            path="/api/knowledge/search?query=demo&company_id=1",
+            timeout=timeout,
+        ),
         check_cors(backend_url, frontend_url, timeout),
         *check_docs_disabled(backend_url, timeout),
     ]

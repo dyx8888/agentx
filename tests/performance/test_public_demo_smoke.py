@@ -42,6 +42,11 @@ def test_public_demo_smoke_passes_for_expected_public_contract(monkeypatch):
             return _Response(200, json.dumps({"overall": "healthy", "database": {"status": "healthy"}}))
         if url == "https://api.example.com/api/auth/token":
             raise _http_error(url, 401, json.dumps({"detail": "Incorrect username or password"}))
+        if url in {
+            "https://api.example.com/api/kol/search",
+            "https://api.example.com/api/knowledge/search?query=demo&company_id=1",
+        }:
+            raise _http_error(url, 401, json.dumps({"detail": "Not authenticated"}))
         if url == "https://api.example.com/api/auth/users/me" and method == "OPTIONS":
             return _Response(200, "", {"access-control-allow-origin": "https://app.example.com"})
         if url in {"https://api.example.com/docs", "https://api.example.com/openapi.json"}:
@@ -55,6 +60,8 @@ def test_public_demo_smoke_passes_for_expected_public_contract(monkeypatch):
     assert report["summary"]["passed"] is True
     assert report["summary"]["failure_count"] == 0
     assert any(check["name"] == "frontend /settings" for check in report["checks"])
+    assert any(check["name"] == "KOL search unauthenticated" for check in report["checks"])
+    assert any(check["name"] == "Knowledge search unauthenticated" for check in report["checks"])
 
 
 def test_public_demo_smoke_rejects_http_without_override(monkeypatch):
@@ -76,6 +83,11 @@ def test_public_demo_smoke_fails_when_docs_are_public(monkeypatch):
             return _Response(200, json.dumps({"overall": "healthy", "database": {"status": "healthy"}}))
         if url == "https://api.example.com/api/auth/token":
             raise _http_error(url, 401, "bad credentials")
+        if url in {
+            "https://api.example.com/api/kol/search",
+            "https://api.example.com/api/knowledge/search?query=demo&company_id=1",
+        }:
+            raise _http_error(url, 401, "not authenticated")
         if url == "https://api.example.com/api/auth/users/me" and method == "OPTIONS":
             return _Response(200, "", {"access-control-allow-origin": "https://app.example.com"})
         if url in {"https://api.example.com/docs", "https://api.example.com/openapi.json"}:
@@ -101,6 +113,11 @@ def test_public_demo_smoke_fails_on_cors_mismatch(monkeypatch):
             return _Response(200, json.dumps({"overall": "healthy", "database": {"status": "healthy"}}))
         if url == "https://api.example.com/api/auth/token":
             raise _http_error(url, 401, "bad credentials")
+        if url in {
+            "https://api.example.com/api/kol/search",
+            "https://api.example.com/api/knowledge/search?query=demo&company_id=1",
+        }:
+            raise _http_error(url, 401, "not authenticated")
         if url == "https://api.example.com/api/auth/users/me" and method == "OPTIONS":
             return _Response(200, "", {"access-control-allow-origin": "https://other.example.com"})
         if url in {"https://api.example.com/docs", "https://api.example.com/openapi.json"}:
@@ -127,6 +144,11 @@ def test_public_demo_smoke_fails_when_settings_route_is_not_rewritten(monkeypatc
             return _Response(200, json.dumps({"overall": "healthy", "database": {"status": "healthy"}}))
         if url == "https://api.example.com/api/auth/token":
             raise _http_error(url, 401, "bad credentials")
+        if url in {
+            "https://api.example.com/api/kol/search",
+            "https://api.example.com/api/knowledge/search?query=demo&company_id=1",
+        }:
+            raise _http_error(url, 401, "not authenticated")
         if url == "https://api.example.com/api/auth/users/me" and method == "OPTIONS":
             return _Response(200, "", {"access-control-allow-origin": "https://app.example.com"})
         if url in {"https://api.example.com/docs", "https://api.example.com/openapi.json"}:
@@ -139,3 +161,59 @@ def test_public_demo_smoke_fails_when_settings_route_is_not_rewritten(monkeypatc
     failed = {check["name"] for check in report["checks"] if not check["passed"]}
 
     assert "frontend /settings" in failed
+
+
+def test_public_demo_smoke_fails_when_kol_search_returns_public_fake_success(monkeypatch):
+    def fake_urlopen(req, timeout):
+        url = req.full_url
+        method = req.get_method()
+        if url in {"https://app.example.com/", "https://app.example.com/login", "https://app.example.com/settings"}:
+            return _Response(200, "<html></html>")
+        if url == "https://api.example.com/health":
+            return _Response(200, json.dumps({"overall": "healthy", "database": {"status": "healthy"}}))
+        if url == "https://api.example.com/api/auth/token":
+            raise _http_error(url, 401, "bad credentials")
+        if url == "https://api.example.com/api/kol/search":
+            return _Response(200, json.dumps({"total": 1, "results": [{"name": "fake public success"}]}))
+        if url == "https://api.example.com/api/knowledge/search?query=demo&company_id=1":
+            raise _http_error(url, 401, "not authenticated")
+        if url == "https://api.example.com/api/auth/users/me" and method == "OPTIONS":
+            return _Response(200, "", {"access-control-allow-origin": "https://app.example.com"})
+        if url in {"https://api.example.com/docs", "https://api.example.com/openapi.json"}:
+            raise _http_error(url, 404, "not found")
+        raise AssertionError(url)
+
+    monkeypatch.setattr(smoke, "urlopen", fake_urlopen)
+
+    report = smoke.run_smoke("https://app.example.com", "https://api.example.com")
+    failed = {check["name"] for check in report["checks"] if not check["passed"]}
+
+    assert "KOL search unauthenticated" in failed
+
+
+def test_public_demo_smoke_fails_when_knowledge_search_returns_public_fake_success(monkeypatch):
+    def fake_urlopen(req, timeout):
+        url = req.full_url
+        method = req.get_method()
+        if url in {"https://app.example.com/", "https://app.example.com/login", "https://app.example.com/settings"}:
+            return _Response(200, "<html></html>")
+        if url == "https://api.example.com/health":
+            return _Response(200, json.dumps({"overall": "healthy", "database": {"status": "healthy"}}))
+        if url == "https://api.example.com/api/auth/token":
+            raise _http_error(url, 401, "bad credentials")
+        if url == "https://api.example.com/api/kol/search":
+            raise _http_error(url, 401, "not authenticated")
+        if url == "https://api.example.com/api/knowledge/search?query=demo&company_id=1":
+            return _Response(200, json.dumps([{"content": "fake public success"}]))
+        if url == "https://api.example.com/api/auth/users/me" and method == "OPTIONS":
+            return _Response(200, "", {"access-control-allow-origin": "https://app.example.com"})
+        if url in {"https://api.example.com/docs", "https://api.example.com/openapi.json"}:
+            raise _http_error(url, 404, "not found")
+        raise AssertionError(url)
+
+    monkeypatch.setattr(smoke, "urlopen", fake_urlopen)
+
+    report = smoke.run_smoke("https://app.example.com", "https://api.example.com")
+    failed = {check["name"] for check in report["checks"] if not check["passed"]}
+
+    assert "Knowledge search unauthenticated" in failed

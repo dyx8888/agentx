@@ -30,8 +30,10 @@ python tests/performance/public_demo_smoke.py `
 | Chat page opens | Chat surface loads after auth | `TBD` | Pending |
 | Backend health | `GET /health` returns JSON | `TBD` | Pending |
 | Auth failure | Invalid credentials return a clear 401/403-style error | `TBD` | Pending |
-| KOL search page | Shows result, empty, or demo/configuration state without fake success | `TBD` | Pending |
-| Knowledge page | Shows upload/read-only/demo/configuration state without blank page | `TBD` | Pending |
+| KOL search API unauthenticated | Public unauthenticated request returns 401/403, never fake results | `TBD` | Pending |
+| Knowledge search API unauthenticated | Public unauthenticated request returns 401/403, never fake results | `TBD` | Pending |
+| KOL search page | Shows result, empty, or demo/configuration state without fake success after approved auth | `TBD` | Pending |
+| Knowledge page | Shows upload/read-only/demo/configuration state without blank page after approved auth | `TBD` | Pending |
 | Settings / OAuth page | Shows platform status as `not connected` when credentials are absent | `TBD` | Pending |
 | External platform action | Missing credentials do not produce fake execution success | `TBD` | Pending |
 | High-risk action | Produces draft or human-review state, not executed-state claim | `TBD` | Pending |
