@@ -14,6 +14,8 @@ def _build_app(monkeypatch, *, user_limit=2, llm_limit=10, ip_limit=100):
     def fake_decode(token):
         if token == "header-token":
             return {"sub": "header-user", "company_id": 43}
+        if token == "cookie-token":
+            return {"sub": "cookie-user", "company_id": 44}
         return None
 
     monkeypatch.setattr("app.auth.decode_access_token", fake_decode)
@@ -70,6 +72,30 @@ def test_bearer_access_token_is_used_for_llm_company_rate_limit(monkeypatch):
 
     first = client.post("/api/chat/", headers=headers)
     second = client.post("/api/chat/", headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.json()["detail"] == "LLM调用过于频繁，请稍后再试"
+
+
+def test_cookie_access_token_is_used_for_user_rate_limit(monkeypatch):
+    app = _build_app(monkeypatch, user_limit=2)
+    client = TestClient(app)
+    cookies = {"access_token": "cookie-token"}
+
+    responses = [client.get("/private", cookies=cookies) for _ in range(3)]
+
+    assert [response.status_code for response in responses] == [200, 200, 429]
+    assert responses[0].headers["X-RateLimit-Limit"] == "2"
+
+
+def test_cookie_access_token_is_used_for_llm_company_rate_limit(monkeypatch):
+    app = _build_app(monkeypatch, user_limit=10, llm_limit=1)
+    client = TestClient(app)
+    cookies = {"access_token": "cookie-token"}
+
+    first = client.post("/api/chat/", cookies=cookies)
+    second = client.post("/api/chat/", cookies=cookies)
 
     assert first.status_code == 200
     assert second.status_code == 429

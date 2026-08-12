@@ -190,6 +190,26 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         # 多级限流器 - 文档依据: 2.docx
         self._multi_level_limiter = MultiLevelRateLimiter()
 
+    @staticmethod
+    def _extract_access_token(request: Request) -> str | None:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header.split(" ", 1)[1].strip()
+            if token:
+                return token
+        return request.cookies.get("access_token")
+
+    @staticmethod
+    def _decode_access_payload(token: str | None) -> dict | None:
+        if not token:
+            return None
+        try:
+            from app.auth import decode_access_token
+
+            return decode_access_token(token)
+        except Exception:
+            return None
+
     async def dispatch(self, request: Request, call_next):
         import os
 
@@ -224,31 +244,25 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
 
         if path in self.LLM_ENDPOINTS:
             try:
-                token = request.headers.get("Authorization", "").replace("Bearer ", "")
-                if token:
-                    from app.auth import decode_access_token
-                    payload = decode_access_token(token)
-                    if payload:
-                        company_id = payload.get("company_id", 0)
-                        allowed, _ = self._llm_limiter.is_allowed(f"llm:company:{company_id}")
-                        if not allowed:
-                            logger.warning("rate_limit_llm_blocked", company_id=company_id)
-                            return JSONResponse(
-                                status_code=429,
-                                content={"detail": "LLM调用过于频繁，请稍后再试"},
-                                headers={"Retry-After": str(self.WINDOW_SECONDS)},
-                            )
+                payload = self._decode_access_payload(self._extract_access_token(request))
+                if payload:
+                    company_id = payload.get("company_id", 0)
+                    allowed, _ = self._llm_limiter.is_allowed(f"llm:company:{company_id}")
+                    if not allowed:
+                        logger.warning("rate_limit_llm_blocked", company_id=company_id)
+                        return JSONResponse(
+                            status_code=429,
+                            content={"detail": "LLM调用过于频繁，请稍后再试"},
+                            headers={"Retry-After": str(self.WINDOW_SECONDS)},
+                        )
             except Exception:
                 pass
 
         user_id = None
         try:
-            token = request.headers.get("Authorization", "").replace("Bearer ", "")
-            if token:
-                from app.auth import decode_access_token
-                payload = decode_access_token(token)
-                if payload:
-                    user_id = payload.get("sub", str(client_ip))
+            payload = self._decode_access_payload(self._extract_access_token(request))
+            if payload:
+                user_id = payload.get("sub", str(client_ip))
         except Exception:
             pass
 
