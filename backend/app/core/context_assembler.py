@@ -29,7 +29,6 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional, Set
 
 from app.core.logging import get_logger
 
@@ -62,7 +61,7 @@ class ContextZone(Enum):
 # 每个区域对应的 XML 边界标记
 # ---------------------------------------------------------------------------
 
-_ZONE_BOUNDARY_TEMPLATES: Dict[ContextZone, str] = {
+_ZONE_BOUNDARY_TEMPLATES: dict[ContextZone, str] = {
     ContextZone.USER_BACKGROUND: "<!-- USER_BACKGROUND_START -->\n{content}\n<!-- USER_BACKGROUND_END -->",
     ContextZone.EVIDENCE: "<!-- EVIDENCE_START -->\n{content}\n<!-- EVIDENCE_END -->",
     ContextZone.TOOL_RESULT: "<!-- TOOL_RESULT_START -->\n{content}\n<!-- TOOL_RESULT_END -->",
@@ -95,7 +94,7 @@ class ContextFragment:
     source: str
     timestamp: datetime = field(default_factory=datetime.now)
     confidence: float = 0.5
-    permission_scope: Set[str] = field(default_factory=set)
+    permission_scope: set[str] = field(default_factory=set)
 
     def __post_init__(self):
         """合法性校验。"""
@@ -147,9 +146,9 @@ class ContextAssemblyResult:
     """
 
     assembled_text: str
-    zone_stats: List[ZoneStats] = field(default_factory=list)
+    zone_stats: list[ZoneStats] = field(default_factory=list)
     total_tokens_estimated: int = 0
-    trimmed_fragments: List[ContextFragment] = field(default_factory=list)
+    trimmed_fragments: list[ContextFragment] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -194,9 +193,7 @@ class ContextAssembler:
             token_budget: 最大 token 预算，超出时将触发裁剪。
         """
         self.token_budget = token_budget
-        logger.info(
-            "ContextAssembler initialized with token_budget=%d", self.token_budget
-        )
+        logger.info("ContextAssembler initialized with token_budget=%d", self.token_budget)
 
     # ------------------------------------------------------------------
     # 公开 API
@@ -204,11 +201,11 @@ class ContextAssembler:
 
     def assemble(
         self,
-        memory_fragments: Optional[List[ContextFragment]] = None,
-        rag_fragments: Optional[List[ContextFragment]] = None,
-        tool_fragments: Optional[List[ContextFragment]] = None,
-        system_instruction: Optional[str] = None,
-        active_permissions: Optional[Set[str]] = None,
+        memory_fragments: list[ContextFragment] | None = None,
+        rag_fragments: list[ContextFragment] | None = None,
+        tool_fragments: list[ContextFragment] | None = None,
+        system_instruction: str | None = None,
+        active_permissions: set[str] | None = None,
     ) -> ContextAssemblyResult:
         """
         执行上下文组装。
@@ -243,7 +240,7 @@ class ContextAssembler:
         tool_fragments = self._filter_by_permission(tool_fragments, active_permissions)
 
         # --- 第 2 步：按区域分组 ---
-        zone_fragments: Dict[ContextZone, List[ContextFragment]] = {
+        zone_fragments: dict[ContextZone, list[ContextFragment]] = {
             ContextZone.USER_BACKGROUND: memory_fragments,
             ContextZone.EVIDENCE: rag_fragments,
             ContextZone.TOOL_RESULT: tool_fragments,
@@ -254,9 +251,9 @@ class ContextAssembler:
             zone_fragments[zone] = self._deduplicate(fragments)
 
         # --- 第 4 步：组装（按 Memory → RAG → Tool 顺序）---
-        assembled_parts: List[str] = []
-        zone_stats: List[ZoneStats] = []
-        trimmed_fragments: List[ContextFragment] = []
+        assembled_parts: list[str] = []
+        zone_stats: list[ZoneStats] = []
+        trimmed_fragments: list[ContextFragment] = []
 
         # 系统指令区（可选）
         if system_instruction:
@@ -339,9 +336,9 @@ class ContextAssembler:
 
     def _filter_by_permission(
         self,
-        fragments: List[ContextFragment],
-        active_permissions: Optional[Set[str]],
-    ) -> List[ContextFragment]:
+        fragments: list[ContextFragment],
+        active_permissions: set[str] | None,
+    ) -> list[ContextFragment]:
         """
         权限过滤。
 
@@ -353,7 +350,7 @@ class ContextAssembler:
             # 未指定权限范围时不进行过滤
             return fragments
 
-        kept: List[ContextFragment] = []
+        kept: list[ContextFragment] = []
         for f in fragments:
             if not f.permission_scope:
                 # 无权限限制，公开可访问
@@ -370,9 +367,7 @@ class ContextAssembler:
                 )
         return kept
 
-    def _deduplicate(
-        self, fragments: List[ContextFragment]
-    ) -> List[ContextFragment]:
+    def _deduplicate(self, fragments: list[ContextFragment]) -> list[ContextFragment]:
         """
         同一区域内去重。
 
@@ -385,8 +380,8 @@ class ContextAssembler:
             return list(fragments)
 
         # 计算每个碎片的 shingle 指纹集合
-        fingerprints: List[Set[str]] = [self._compute_shingle_set(f.content) for f in fragments]
-        kept_indices: List[int] = []
+        fingerprints: list[set[str]] = [self._compute_shingle_set(f.content) for f in fragments]
+        kept_indices: list[int] = []
         removed = set()
 
         for i in range(len(fragments)):
@@ -417,7 +412,7 @@ class ContextAssembler:
 
     def _apply_token_budget(
         self,
-        fragments: List[ContextFragment],
+        fragments: list[ContextFragment],
         budget: int,
     ) -> tuple:
         """
@@ -434,8 +429,8 @@ class ContextAssembler:
         # 按置信度降序排列
         sorted_fragments = sorted(fragments, key=lambda f: f.confidence, reverse=True)
 
-        kept: List[ContextFragment] = []
-        trimmed: List[ContextFragment] = []
+        kept: list[ContextFragment] = []
+        trimmed: list[ContextFragment] = []
         current_tokens = 0
 
         for f in sorted_fragments:
@@ -461,9 +456,7 @@ class ContextAssembler:
 
         return kept, trimmed
 
-    def _wrap_zone(
-        self, zone: ContextZone, fragments: List[ContextFragment]
-    ) -> str:
+    def _wrap_zone(self, zone: ContextZone, fragments: list[ContextFragment]) -> str:
         """
         用 XML 边界标记包裹一个区域的所有碎片。
 
@@ -474,12 +467,12 @@ class ContextAssembler:
 
         # 拼接碎片内容，碎片之间用空行分隔
         content = "\n\n".join(f.content for f in fragments)
-        template = _ZONE_BOUNDARY_TEMPLATES.get(zone, "<!-- {zone} -->\n{content}\n<!-- /{zone} -->")
+        template = _ZONE_BOUNDARY_TEMPLATES.get(
+            zone, "<!-- {zone} -->\n{content}\n<!-- /{zone} -->"
+        )
         return template.format(content=content)
 
-    def _trim_text_to_budget(
-        self, text: str, budget: int
-    ) -> tuple:
+    def _trim_text_to_budget(self, text: str, budget: int) -> tuple:
         """
         当组装后的完整文本仍超出预算时，做最终裁剪。
 
@@ -490,13 +483,13 @@ class ContextAssembler:
         if estimated <= budget:
             return text, []
 
-        trimmed_fragments: List[ContextFragment] = []
+        trimmed_fragments: list[ContextFragment] = []
 
         # 按区域边界标记拆分
         zone_pattern = re.compile(
-            r'<!-- (USER_BACKGROUND|EVIDENCE|TOOL_RESULT|SYSTEM_INSTRUCTION)_START -->'
-            r'(.*?)'
-            r'<!-- \1_END -->',
+            r"<!-- (USER_BACKGROUND|EVIDENCE|TOOL_RESULT|SYSTEM_INSTRUCTION)_START -->"
+            r"(.*?)"
+            r"<!-- \1_END -->",
             re.DOTALL,
         )
 
@@ -539,13 +532,13 @@ class ContextAssembler:
     def _remove_zone_from_text(self, text: str, zone_name: str) -> str:
         """从文本中移除指定区域块。"""
         pattern = re.compile(
-            rf'<!-- {zone_name}_START -->.*?<!-- {zone_name}_END -->',
+            rf"<!-- {zone_name}_START -->.*?<!-- {zone_name}_END -->",
             re.DOTALL,
         )
         # 移除该区域块及其前后的多余空白
         result = pattern.sub("", text)
         # 清理多余的连续空行
-        result = re.sub(r'\n{3,}', '\n\n', result)
+        result = re.sub(r"\n{3,}", "\n\n", result)
         return result.strip()
 
     # ------------------------------------------------------------------
@@ -560,7 +553,7 @@ class ContextAssembler:
         return max(1, int(len(text) / _CHARS_PER_TOKEN))
 
     @staticmethod
-    def _compute_shingle_set(text: str, shingle_size: int = 3) -> Set[str]:
+    def _compute_shingle_set(text: str, shingle_size: int = 3) -> set[str]:
         """
         计算文本的 shingle（字符 n-gram）哈希指纹集合。
 
@@ -571,15 +564,15 @@ class ContextAssembler:
         # 标准化：去除多余空白，统一小写
         normalized = " ".join(text.lower().split())
         if len(normalized) < shingle_size:
-            return {hashlib.md5(normalized.encode("utf-8")).hexdigest()}
+            return {hashlib.md5(normalized.encode("utf-8"), usedforsecurity=False).hexdigest()}
         shingles = set()
         for i in range(len(normalized) - shingle_size + 1):
             shingle = normalized[i : i + shingle_size]
-            shingles.add(hashlib.md5(shingle.encode("utf-8")).hexdigest())
+            shingles.add(hashlib.md5(shingle.encode("utf-8"), usedforsecurity=False).hexdigest())
         return shingles
 
     @staticmethod
-    def _jaccard_similarity(set_a: Set[str], set_b: Set[str]) -> float:
+    def _jaccard_similarity(set_a: set[str], set_b: set[str]) -> float:
         """计算两个集合的 Jaccard 相似度。"""
         if not set_a and not set_b:
             return 1.0

@@ -12,7 +12,9 @@ Agent 提示词健壮性增强模块
 """
 # 设计原因：将所有健壮性规则定义为模块级字符串常量，而非分散在各自 Agent 的 Prompt 中，确保规则一致性且维护点单一
 
-from app.core.output_spec import OUTPUT_SPEC  # 导入输出规范模块，将格式约束独立管理以便跨 Agent 复用
+from app.core.output_spec import (
+    OUTPUT_SPEC,  # 导入输出规范模块，将格式约束独立管理以便跨 Agent 复用
+)
 
 PROMPT_VERSION = "1.0.0"  # 语义化版本号，便于在日志中追踪当前生效的提示词版本
 PROMPT_UPDATED = "2026-05-29"  # 最近更新时间，方便快速判断是否需要同步更新下游依赖
@@ -91,7 +93,9 @@ SECURITY_COMPLIANCE = """  # 安全合规放在最末尾注入，因为末尾内
 # 安全合规使用具体判断条件而非笼统原则：LLM 对"不得包含XX类内容"的指令理解远好于"请遵守法律"，模糊指令会被 LLM 自行解释从而绕过
 
 
-def enrich_system_prompt(prompt: str) -> str:  # 单一注入入口：所有 Agent 调用此函数即可获得完整的健壮性增强，避免遗漏
+def enrich_system_prompt(
+    prompt: str,
+) -> str:  # 单一注入入口：所有 Agent 调用此函数即可获得完整的健壮性增强，避免遗漏
     return f"""
 {PRIORITY_HEADER}
 

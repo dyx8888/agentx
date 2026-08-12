@@ -51,7 +51,7 @@ class FeatureFlagManager:
             return
 
         try:
-            with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+            with open(_CONFIG_PATH, encoding="utf-8") as f:
                 config = yaml.safe_load(f)
             raw_features = config.get("features", {}) if isinstance(config, dict) else {}
             self._flags = dict(raw_features)
@@ -75,7 +75,7 @@ class FeatureFlagManager:
             return False
         return bool(flag.get("enabled", False))
 
-    def get_phase(self, feature_name: str) -> Optional[int]:
+    def get_phase(self, feature_name: str) -> int | None:
         """获取特性的上线阶段"""
         flag = self._flags.get(feature_name)
         if flag is None:

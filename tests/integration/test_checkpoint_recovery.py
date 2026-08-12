@@ -2,8 +2,8 @@
 16.2.2 集成测试：Agent执行中断 → checkpoint恢复 → 继续执行
 验证完整的 checkpoint 保存/恢复链路
 """
-import json
-from unittest.mock import MagicMock, patch
+
+from unittest.mock import patch
 
 import pytest
 
@@ -15,10 +15,11 @@ class TestCheckpointRecoveryFlow:
     def saver(self):
         """创建隔离的 RedisSaver（仅内存模式）"""
         import app.core.checkpoint as cp_mod
-        from unittest.mock import patch
         from collections import defaultdict
 
-        with patch.object(cp_mod.RedisSaver, '__init__', lambda self, *args, **kwargs: None):
+        with patch.object(
+            cp_mod.RedisSaver, "__init__", lambda self, *args, **kwargs: None
+        ):
             s = cp_mod.RedisSaver.__new__(cp_mod.RedisSaver)
             s._connected = False
             s._redis_client = None
@@ -78,7 +79,10 @@ class TestCheckpointRecoveryFlow:
             "channel_versions": {"messages": "1", "plan": "1"},
             "messages": [
                 {"role": "user", "content": "生成周报"},
-                {"role": "assistant", "tool_calls": [{"name": "query_data", "args": {}}]},
+                {
+                    "role": "assistant",
+                    "tool_calls": [{"name": "query_data", "args": {}}],
+                },
             ],
             "plan": {
                 "steps": [
@@ -124,7 +128,12 @@ class TestCheckpointRecoveryFlow:
                 "checkpoint_id": "ckpt_mid",
             }
         }
-        saver.put(config_with_parent, continue_checkpoint, {"step": 3}, {"messages": "2", "plan": "2"})
+        saver.put(
+            config_with_parent,
+            continue_checkpoint,
+            {"step": 3},
+            {"messages": "2", "plan": "2"},
+        )
 
         # 最终恢复：使用完整 config 指定 checkpoint_id
         final_config = {
@@ -136,7 +145,9 @@ class TestCheckpointRecoveryFlow:
         final = saver.get_tuple(final_config)
         assert final is not None
         assert final.checkpoint["id"] == "ckpt_continue"
-        assert all(s["status"] == "completed" for s in final.checkpoint["plan"]["steps"])
+        assert all(
+            s["status"] == "completed" for s in final.checkpoint["plan"]["steps"]
+        )
 
     # ── 场景3: 部分写入（pending writes）恢复 ────────────────────
 
@@ -217,8 +228,7 @@ class TestCheckpointRecoveryFlow:
             "id": "ckpt_context",
             "channel_versions": {"messages": "1"},
             "messages": [
-                {"role": role, "content": content}
-                for role, content in conversation
+                {"role": role, "content": content} for role, content in conversation
             ],
             "plan": {"current_step": "answer_pricing"},
         }

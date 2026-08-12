@@ -2,7 +2,6 @@
 16.2.3 集成测试：PerceptionPipeline → Agent接收结构化上下文
 验证完整的感知管道链路：输入 → 过滤 → 改写 → 意图提取 → RAG检索 → 结构化上下文
 """
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -14,6 +13,7 @@ class TestPerceptionPipelineIntegration:
     def pipeline(self):
         """创建 PerceptionPipeline 实例"""
         from app.perception.pipeline import PerceptionPipeline
+
         return PerceptionPipeline()
 
     # ── 场景1: 完整管道执行（跳过 RAG） ──────────────────────────

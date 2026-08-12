@@ -122,6 +122,32 @@ class TestSensitiveDataRedaction(unittest.TestCase):
         self.assertEqual(result["API_KEY"], "[REDACTED]")
         self.assertEqual(result["Token"], "[REDACTED]")
 
+    def test_prompt_and_content_payloads_redacted(self):
+        event = {
+            "event": "llm_request",
+            "prompt": "system prompt should not be logged",
+            "user_message": "customer phone 13800000000",
+            "raw_content": "model output with private details",
+            "messages": [{"role": "user", "content": "private"}],
+        }
+        result = _redact_sensitive(None, None, event)
+        self.assertEqual(result["event"], "llm_request")
+        self.assertEqual(result["prompt"], "[REDACTED]")
+        self.assertEqual(result["user_message"], "[REDACTED]")
+        self.assertEqual(result["raw_content"], "[REDACTED]")
+        self.assertEqual(result["messages"], "[REDACTED]")
+
+    def test_payload_suffix_redacted_without_redacting_ids(self):
+        event = {
+            "message_id": "msg_123",
+            "assistant_content": "private answer",
+            "system_prompt": "private system prompt",
+        }
+        result = _redact_sensitive(None, None, event)
+        self.assertEqual(result["message_id"], "msg_123")
+        self.assertEqual(result["assistant_content"], "[REDACTED]")
+        self.assertEqual(result["system_prompt"], "[REDACTED]")
+
 
 class TestFileLogging(unittest.TestCase):
     """清单 (6): 文件日志输出"""

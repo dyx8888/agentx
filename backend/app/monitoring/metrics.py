@@ -6,49 +6,48 @@
 import time
 
 from fastapi import FastAPI, Request, Response
-from prometheus_client import Counter, Histogram, generate_latest
+from prometheus_client import Counter, Gauge, Histogram, generate_latest
 
 # 全局指标对象
 REQUESTS_TOTAL = Counter(
-    'agentx_requests_total',
-    'Total HTTP requests',
-    ['method', 'endpoint', 'status_code']
+    "agentx_requests_total", "Total HTTP requests", ["method", "endpoint", "status_code"]
 )
 
 REQUEST_LATENCY = Histogram(
-    'agentx_request_latency_seconds',
-    'HTTP request latency in seconds',
-    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+    "agentx_request_latency_seconds",
+    "HTTP request latency in seconds",
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
 )
 
 AGENT_TASKS_TOTAL = Counter(
-    'agentx_agent_tasks_total',
-    'Total agent tasks executed',
-    ['agent_name', 'status']
+    "agentx_agent_tasks_total", "Total agent tasks executed", ["agent_name", "status"]
 )
 
-TOOL_CALLS_TOTAL = Counter(
-    'agentx_tool_calls_total',
-    'Total MCP tool calls',
-    ['tool_name']
-)
+TOOL_CALLS_TOTAL = Counter("agentx_tool_calls_total", "Total MCP tool calls", ["tool_name"])
 
-LLM_TOKENS_TOTAL = Counter(
-    'agentx_llm_tokens_total',
-    'Total LLM tokens consumed',
-    ['model']
+LLM_TOKENS_TOTAL = Counter("agentx_llm_tokens_total", "Total LLM tokens consumed", ["model"])
+
+# 变更③ T3.2 — 熔断器状态指标
+# 值映射：0=CLOSED(正常), 1=OPEN(熔断), 2=HALF_OPEN(试探)
+# 文档依据：03-安全与韧性.md 2.2 节
+CIRCUIT_BREAKER_STATE = Gauge(
+    "agentx_circuit_breaker_state",
+    "Circuit breaker state (0=closed, 1=open, 2=half_open)",
+    ["name"],
 )
 
 # 全局中间件状态
 _start_time = None
 
+
 def setup_metrics(app: FastAPI):
     """
     设置监控指标和中间件
-    
+
     Args:
         app: FastAPI 应用实例
     """
+
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):
         global _start_time
@@ -63,11 +62,7 @@ def setup_metrics(app: FastAPI):
         status_code = response.status_code
 
         # 增加请求计数
-        REQUESTS_TOTAL.labels(
-            method=method,
-            endpoint=endpoint,
-            status_code=status_code
-        ).inc()
+        REQUESTS_TOTAL.labels(method=method, endpoint=endpoint, status_code=status_code).inc()
 
         # 记录请求耗时
         if _start_time is not None:
@@ -80,52 +75,45 @@ def setup_metrics(app: FastAPI):
     async def metrics_endpoint():
         """Prometheus 指标端点"""
         try:
-            # 生成 Prometheus 格式的指标数据
-            metrics_data = generate_latest(
-                REQUESTS_TOTAL,
-                REQUEST_LATENCY,
-                AGENT_TASKS_TOTAL,
-                TOOL_CALLS_TOTAL,
-                LLM_TOKENS_TOTAL
-            )
+            # generate_latest() 不传参数时使用默认 REGISTRY，
+            # 其中包含所有已注册的指标对象（REQUESTS_TOTAL / CIRCUIT_BREAKER_STATE 等）。
+            # 新版 prometheus_client 不再接受多个 positional args。
+            metrics_data = generate_latest()
 
-            return Response(
-                content=metrics_data,
-                media_type="text/plain; version=0.0.4"
-            )
+            return Response(content=metrics_data, media_type="text/plain; version=0.0.4")
         except Exception as e:
             return Response(
                 content=f"Error generating metrics: {str(e)}",
                 status_code=500,
-                media_type="text/plain"
+                media_type="text/plain",
             )
+
 
 def record_agent_task(agent_name: str, status: str):
     """
     记录数字员工任务执行
-    
+
     Args:
         agent_name: Agent 名称
         status: 任务状态
     """
-    AGENT_TASKS_TOTAL.labels(
-        agent_name=agent_name,
-        status=status
-    ).inc()
+    AGENT_TASKS_TOTAL.labels(agent_name=agent_name, status=status).inc()
+
 
 def record_tool_call(tool_name: str):
     """
     记录 MCP 工具调用
-    
+
     Args:
         tool_name: 工具名称
     """
     TOOL_CALLS_TOTAL.labels(tool_name=tool_name).inc()
 
+
 def record_llm_tokens(model: str, input_tokens: int, output_tokens: int):
     """
     记录 LLM token 消耗
-    
+
     Args:
         model: 模型名称
         input_tokens: 输入 token 数量

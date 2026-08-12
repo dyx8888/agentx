@@ -4,9 +4,22 @@
 """
 # 两个核心能力（补全省略、口语转结构化）直接影响下游意图提取和 RAG 检索的准确率
 
+import os
+import re
+
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _normalize_company_id(company_id: str | int | None) -> int | None:
+    if company_id in (None, ""):
+        return None
+    try:
+        return int(company_id)
+    except (TypeError, ValueError):
+        return None
+
 
 REWRITE_SYSTEM_PROMPT = """你是一个查询改写助手。你的任务是将用户的自然语言查询改写为更清晰、更结构化的表达。
 
@@ -21,6 +34,18 @@ REWRITE_SYSTEM_PROMPT = """你是一个查询改写助手。你的任务是将�
 # 在 prompt 中预设 <previous_*> 标签规则，让 LLM 自己识别上下文标记，而不用在代码中解析标签结构
 
 
+def _looks_like_direct_knowledge_query(text: str) -> bool:
+    """Return True for already-specific RAG/knowledge-base probes."""
+    normalized = text.strip()
+    if not normalized:
+        return False
+    if re.search(r"\bRAGLIVE-[A-Z0-9-]+\b", normalized):
+        return True
+    return "知识库" in normalized and any(
+        marker in normalized for marker in ("唯一标记", "只根据", "根据知识")
+    )
+
+
 class QueryRewriter:
     """使用 LLM 改写用户查询，补全省略 + 口语转结构化"""
 
@@ -31,13 +56,23 @@ class QueryRewriter:
         """
         self._model_gateway = model_gateway
 
-    def _get_llm(self):  # 与 IntentExtractor 相同的延迟加载模式，保持模块间一致性
+    @staticmethod
+    def _llm_enabled() -> bool:
+        override = os.getenv("PERCEPTION_LLM_ENABLED")
+        if override is not None:
+            return override.strip().lower() in {"1", "true", "yes", "on"}
+        return os.getenv("ENV", "dev").strip().lower() == "prod"
+
+    def _get_llm(
+        self, company_id: str | int | None = None
+    ):  # 与 IntentExtractor 相同的延迟加载模式，保持模块间一致性
         if self._model_gateway is None:
             from app.services.model_gateway import get_global_model_gateway  # 延迟导入防止循环依赖
-            self._model_gateway = get_global_model_gateway()
-        return self._model_gateway.get_llm()
 
-    def rewrite(self, text: str) -> str:
+            self._model_gateway = get_global_model_gateway()
+        return self._model_gateway.get_llm(company_id=_normalize_company_id(company_id))
+
+    def rewrite(self, text: str, company_id: str | int | None = None) -> str:
         """
         改写用户查询
 
@@ -52,23 +87,34 @@ class QueryRewriter:
 
         if len(text.strip()) < 4:  # 极短输入（如"你好"）改写无意义，直接返回
             return text.strip()
+        if _looks_like_direct_knowledge_query(text):
+            logger.info("query_rewrite_skipped_direct_knowledge_query")
+            return text.strip()
+        if not self._llm_enabled():
+            return text.strip()
 
         try:
-            llm = self._get_llm()
-            from langchain_core.messages import HumanMessage, SystemMessage  # 延迟导入，与 intent_extractor 保持一致
+            llm = self._get_llm(company_id=company_id)
+            from langchain_core.messages import HumanMessage, SystemMessage  # noqa: I001  # 延迟导入，与 intent_extractor 保持一致
 
             messages = [
                 SystemMessage(content=REWRITE_SYSTEM_PROMPT),  # SystemMessage 设定改写规则角色
                 HumanMessage(content=text),
             ]
             response = llm.invoke(messages)
-            rewritten = response.content.strip() if hasattr(response, 'content') else str(response).strip()  # 兼容不同 LLM 响应结构
+            rewritten = (
+                response.content.strip() if hasattr(response, "content") else str(response).strip()
+            )  # 兼容不同 LLM 响应结构
 
             if not rewritten:  # LLM 可能返回空，此时用原文兜底
                 return text
 
-            logger.info("query_rewritten", original_length=len(text), rewritten_length=len(rewritten))  # info 级别追踪改写效果
+            logger.info(
+                "query_rewritten", original_length=len(text), rewritten_length=len(rewritten)
+            )  # info 级别追踪改写效果
             return rewritten
         except Exception as e:
-            logger.warning("query_rewrite_failed", error=str(e))  # warning 而非 error，改写失败不影响管线继续
+            logger.warning(
+                "query_rewrite_failed", error=str(e)
+            )  # warning 而非 error，改写失败不影响管线继续
             return text  # 返回原文保证降级可用性

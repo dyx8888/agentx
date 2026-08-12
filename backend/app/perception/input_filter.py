@@ -10,11 +10,16 @@ from app.core.logging import get_logger  # 使用项目统一日志门面，确�
 
 logger = get_logger(__name__)  # 模块级 logger，使用 __name__ 确保日志来源可追溯到本模块
 
-MAX_INPUT_LENGTH = 16000  # 限制在 16k 字符，既覆盖绝大多数合法输入，又能防止恶意超长字符串耗尽 LLM token 预算
+MAX_INPUT_LENGTH = (
+    16000  # 限制在 16k 字符，既覆盖绝大多数合法输入，又能防止恶意超长字符串耗尽 LLM token 预算
+)
 HARMFUL_PATTERNS = [  # 用列表而非字典存储模式，是为了支持后续扩展时只需 append 即可，无需考虑键冲突
     (r"<script[^>]*>.*?</script>", "script_tag"),  # XSS 攻击最常见的载体，必须优先过滤
     (r"javascript\s*:", "javascript_uri"),  # 伪协议注入，即使没有 script 标签也能执行恶意代码
-    (r"on\w+\s*=\s*[\"'][^\"']*[\"']", "inline_event_handler"),  # 内联事件处理器也是 XSS 变体，不可遗漏
+    (
+        r"on\w+\s*=\s*[\"'][^\"']*[\"']",
+        "inline_event_handler",
+    ),  # 内联事件处理器也是 XSS 变体，不可遗漏
     (r"<iframe[^>]*>", "iframe_tag"),  # iframe 可用于嵌入钓鱼页面，属于高风险标签
     (r"<object[^>]*>", "object_tag"),  # object 标签可加载外部插件，潜在攻击面
     (r"<embed[^>]*>", "embed_tag"),  # embed 类似 object，同样有外部内容加载风险
@@ -55,15 +60,17 @@ class InputFilter:
             raise ValueError("输入不能为空字符串")
 
         if len(text) > MAX_INPUT_LENGTH:  # 长度检查放在有害内容之前，因为超长输入先拒绝更高效
-            raise ValueError(
-                f"输入长度超过限制 ({len(text)} > {MAX_INPUT_LENGTH})，请缩短后重试"
-            )
+            raise ValueError(f"输入长度超过限制 ({len(text)} > {MAX_INPUT_LENGTH})，请缩短后重试")
 
-        text = cls._remove_harmful_content(text)  # 先清有害再规范空白，因为有害内容可能包含刻意构造的空白
+        text = cls._remove_harmful_content(
+            text
+        )  # 先清有害再规范空白，因为有害内容可能包含刻意构造的空白
 
         text = cls._normalize_whitespace(text)  # 空白规范放到最后，确保前面的操作不受不规范空白干扰
 
-        logger.debug("input_filtered", original_length=len(text), filtered_length=len(text))  # debug 级别避免生产环境日志洪水
+        logger.debug(
+            "input_filtered", original_length=len(text), filtered_length=len(text)
+        )  # debug 级别避免生产环境日志洪水
 
         return text
 
@@ -71,7 +78,9 @@ class InputFilter:
     def _remove_harmful_content(cls, text: str) -> str:  # 私有方法，外部只应通过 filter() 调用
         """移除有害内容模式"""
         for pattern_data in HARMFUL_PATTERNS:  # 遍历所有模式，每个希望命中的都会被替换为空字符串
-            if isinstance(pattern_data, tuple):  # 三元组 (pattern, name, flags)，二元组 (pattern, name)
+            if isinstance(
+                pattern_data, tuple
+            ):  # 三元组 (pattern, name, flags)，二元组 (pattern, name)
                 if len(pattern_data) == 3:  # 有三元组才有 flags，用长度判断更简洁
                     pattern, _, flags = pattern_data  # 解包时忽略 name 标签，因为这里只关心匹配逻辑
                 else:  # 二元组没有 flags 参数
@@ -80,14 +89,20 @@ class InputFilter:
             else:  # 兼容纯字符串模式，虽然当前列表全是元组，但保留扩展性
                 pattern = pattern_data
                 flags = 0
-            text = re.sub(pattern, "", text, flags=flags)  # 替换为空字符串而非标记，因为有害内容不应留存任何痕迹
+            text = re.sub(
+                pattern, "", text, flags=flags
+            )  # 替换为空字符串而非标记，因为有害内容不应留存任何痕迹
         return text
 
     @classmethod
     def _normalize_whitespace(cls, text: str) -> str:  # 独立方法便于单元测试单独验证空白处理逻辑
         """规范化空白字符"""
-        text = text.replace("\r\n", "\n").replace("\r", "\n")  # 统一换行符为 \n，Windows/Mac/Linux 三种风格都要覆盖
-        text = re.sub(r"\n{3,}", "\n\n", text)  # 超过 2 个连续换行压缩为 2 个，保留段落间距但避免大片空白
+        text = text.replace("\r\n", "\n").replace(
+            "\r", "\n"
+        )  # 统一换行符为 \n，Windows/Mac/Linux 三种风格都要覆盖
+        text = re.sub(
+            r"\n{3,}", "\n\n", text
+        )  # 超过 2 个连续换行压缩为 2 个，保留段落间距但避免大片空白
         text = re.sub(r" {2,}", " ", text)  # 多个空格压缩为单个，减少 LLM 的 token 浪费
         text = re.sub(r"\t+", " ", text)  # 制表符转为空格，因为 LLM 对 tab 的处理不一致
         return text.strip()  # 结尾再次 strip，确保规范化过程中不会引入首尾空白

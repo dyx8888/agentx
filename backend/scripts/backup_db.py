@@ -14,9 +14,9 @@
 """
 
 import os
+import subprocess
 import sys
 import time
-import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -62,6 +62,7 @@ def backup_sqlite(retention_days: int = DEFAULT_RETENTION_DAYS):
         backup_path = backup_dir / backup_filename
 
         import shutil
+
         shutil.copy2(db_path, backup_path)
 
         file_size_kb = backup_path.stat().st_size / 1024
@@ -90,51 +91,50 @@ def backup_postgresql(retention_days: int = DEFAULT_RETENTION_DAYS):
         backup_filename = f"agentx_{timestamp}.sql"
         backup_path = backup_dir / backup_filename
 
-        try:
-            import re
-            match = re.match(r'postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)',
-                               database_url)
-            if not match:
-                print("PostgreSQL 连接 URL 格式无效")
-                return False
+        import re
 
-            user, password, host, port, database = match.groups()
-
-            cmd = [
-                "pg_dump",
-                f"--host={host}",
-                f"--port={port}",
-                f"--username={user}",
-                f"--dbname={database}",
-                "--no-password",
-                "--verbose",
-                "--clean",
-                "--no-acl",
-                "--no-owner",
-                f"--file={backup_path}",
-            ]
-
-            env = os.environ.copy()
-            env["PGPASSWORD"] = password
-
-            print(f"开始 PostgreSQL 备份...")
-            result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-
-            if result.returncode == 0:
-                file_size_kb = backup_path.stat().st_size / 1024
-                print(f"PostgreSQL 备份完成: {backup_path} ({file_size_kb:.1f} KB)")
-                cleanup_old_backups(backup_dir, retention_days)
-                return True
-            else:
-                print(f"pg_dump 失败: {result.stderr}")
-                return False
-
-        except FileNotFoundError:
-            print("pg_dump 未找到，请安装 PostgreSQL 客户端工具")
+        match = re.match(r"postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)", database_url)
+        if not match:
+            print("PostgreSQL 连接 URL 格式无效")
             return False
-        except Exception as e:
-            print(f"PostgreSQL 备份失败: {e}")
+
+        user, password, host, port, database = match.groups()
+
+        cmd = [
+            "pg_dump",
+            f"--host={host}",
+            f"--port={port}",
+            f"--username={user}",
+            f"--dbname={database}",
+            "--no-password",
+            "--verbose",
+            "--clean",
+            "--no-acl",
+            "--no-owner",
+            f"--file={backup_path}",
+        ]
+
+        env = os.environ.copy()
+        env["PGPASSWORD"] = password
+
+        print("开始 PostgreSQL 备份...")
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            file_size_kb = backup_path.stat().st_size / 1024
+            print(f"PostgreSQL 备份完成: {backup_path} ({file_size_kb:.1f} KB)")
+            cleanup_old_backups(backup_dir, retention_days)
+            return True
+        else:
+            print(f"pg_dump 失败: {result.stderr}")
             return False
+
+    except FileNotFoundError:
+        print("pg_dump 未找到，请安装 PostgreSQL 客户端工具")
+        return False
+    except Exception as e:
+        print(f"PostgreSQL 备份失败: {e}")
+        return False
 
 
 def backup_now(retention_days: int = DEFAULT_RETENTION_DAYS):
@@ -155,8 +155,7 @@ def backup_now(retention_days: int = DEFAULT_RETENTION_DAYS):
     return success
 
 
-def backup_schedule(retention_days: int = DEFAULT_RETENTION_DAYS,
-                    interval_hours: int = 24):
+def backup_schedule(retention_days: int = DEFAULT_RETENTION_DAYS, interval_hours: int = 24):
     """定时备份循环"""
     print(f"定时备份已启动（间隔: {interval_hours}h，保留: {retention_days}天）")
     print("按 Ctrl+C 停止")
@@ -176,18 +175,19 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="AgentX 数据库备份工具")
-    parser.add_argument("--schedule", action="store_true",
-                         help="启动定时备份模式")
-    parser.add_argument("--interval", type=int, default=24,
-                         help="定时备份间隔（小时），默认 24")
-    parser.add_argument("--retention", type=int, default=DEFAULT_RETENTION_DAYS,
-                         help=f"备份保留天数，默认 {DEFAULT_RETENTION_DAYS}")
+    parser.add_argument("--schedule", action="store_true", help="启动定时备份模式")
+    parser.add_argument("--interval", type=int, default=24, help="定时备份间隔（小时），默认 24")
+    parser.add_argument(
+        "--retention",
+        type=int,
+        default=DEFAULT_RETENTION_DAYS,
+        help=f"备份保留天数，默认 {DEFAULT_RETENTION_DAYS}",
+    )
 
     args = parser.parse_args()
 
     if args.schedule:
-        backup_schedule(retention_days=args.retention,
-                         interval_hours=args.interval)
+        backup_schedule(retention_days=args.retention, interval_hours=args.interval)
     else:
         success = backup_now(retention_days=args.retention)
         sys.exit(0 if success else 1)

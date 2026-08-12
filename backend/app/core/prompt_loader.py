@@ -28,6 +28,7 @@ v1.0.0 (2026-05-29): 初始版本，PromptMeta + PromptRegistry + PromptLoader
 
 class PromptEnvironment(StrEnum):
     """发布环境"""
+
     DEV = "dev"
     STAGING = "staging"
     PRODUCTION = "production"
@@ -35,6 +36,7 @@ class PromptEnvironment(StrEnum):
 
 class PromptStatus(StrEnum):
     """Prompt状态"""
+
     DRAFT = "draft"
     REVIEW = "review"
     PUBLISHED = "published"
@@ -44,10 +46,11 @@ class PromptStatus(StrEnum):
 
 class ReleaseStrategy(StrEnum):
     """发布策略"""
-    ALL = "all"               # 全量发布
-    CANARY = "canary"         # 灰度发布(按比例)
-    BY_TENANT = "by_tenant"   # 按租户发布
-    BY_SCENE = "by_scene"     # 按场景发布
+
+    ALL = "all"  # 全量发布
+    CANARY = "canary"  # 灰度发布(按比例)
+    BY_TENANT = "by_tenant"  # 按租户发布
+    BY_SCENE = "by_scene"  # 按场景发布
 
 
 # ============ 5对象版本模型 ============
@@ -60,10 +63,11 @@ class PromptTemplate:
 
     文档依据: 4.docx - prompt_template 核心表
     """
-    template_id: str         # 模板唯一ID
-    name: str                # 模板名称
-    scene: str               # 适用场景
-    type: str                # 类型: system/user/assistant
+
+    template_id: str  # 模板唯一ID
+    name: str  # 模板名称
+    scene: str  # 适用场景
+    type: str  # 类型: system/user/assistant
     status: PromptStatus = PromptStatus.DRAFT
     description: str = ""
     tags: list[str] = field(default_factory=list)
@@ -77,13 +81,14 @@ class PromptVersion:
 
     文档依据: 4.docx - prompt_version 核心表
     """
-    version_id: str          # 版本唯一ID
-    template_id: str         # 关联模板ID
-    version_number: str      # 版本号 (如: 1.2.0)
-    content: str             # Prompt内容(含变量占位符)
+
+    version_id: str  # 版本唯一ID
+    template_id: str  # 关联模板ID
+    version_number: str  # 版本号 (如: 1.2.0)
+    content: str  # Prompt内容(含变量占位符)
     variables_schema: dict = field(default_factory=dict)  # 变量定义JSON Schema
-    model_params: dict = field(default_factory=dict)       # 模型参数(temperature, max_tokens等)
-    created_by: str = ""     # 创建人
+    model_params: dict = field(default_factory=dict)  # 模型参数(temperature, max_tokens等)
+    created_by: str = ""  # 创建人
     change_description: str = ""  # 变更说明
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -95,9 +100,10 @@ class PromptRelease:
     文档依据: 4.docx - prompt_release 核心表
     支持灰度发布: 按租户/用户比例/场景开关选择 Prompt 版本
     """
-    release_id: str          # 发布唯一ID
-    version_id: str          # 关联版本ID
-    template_id: str         # 关联模板ID
+
+    release_id: str  # 发布唯一ID
+    version_id: str  # 关联版本ID
+    template_id: str  # 关联模板ID
     environment: PromptEnvironment = PromptEnvironment.DEV
     strategy: ReleaseStrategy = ReleaseStrategy.ALL
     traffic_ratio: float = 1.0  # 流量比例(0.0~1.0), 灰度发布时使用
@@ -115,14 +121,15 @@ class PromptRun:
     文档依据: 4.docx - prompt_run 核心表
     注意: 仅存变量摘要、Hash、Token和关联ID，不含完整用户输入(安全考量)
     """
-    run_id: str              # 调用唯一ID
-    template_id: str         # 关联模板ID
-    version_id: str          # 关联版本ID
-    release_id: str = ""     # 关联发布ID
-    variables_hash: str = "" # 变量摘要的MD5 Hash
-    input_tokens: int = 0    # 输入Token数
-    output_tokens: int = 0   # 输出Token数
-    model_name: str = ""     # 使用的模型名称
+
+    run_id: str  # 调用唯一ID
+    template_id: str  # 关联模板ID
+    version_id: str  # 关联版本ID
+    release_id: str = ""  # 关联发布ID
+    variables_hash: str = ""  # 变量摘要的MD5 Hash
+    input_tokens: int = 0  # 输入Token数
+    output_tokens: int = 0  # 输出Token数
+    model_name: str = ""  # 使用的模型名称
     latency_ms: float = 0.0  # 调用延迟
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
@@ -133,15 +140,16 @@ class PromptEvalResult:
 
     文档依据: 4.docx - prompt_eval_result 核心表
     """
-    eval_id: str             # 评测结果唯一ID
-    version_id: str          # 关联版本ID
-    eval_dataset: str        # 评测数据集名称
+
+    eval_id: str  # 评测结果唯一ID
+    version_id: str  # 关联版本ID
+    eval_dataset: str  # 评测数据集名称
     metrics: dict = field(default_factory=dict)  # 评测指标(Context Recall, Faithfulness等)
-    total_cases: int = 0     # 总用例数
-    passed_cases: int = 0    # 通过用例数
-    pass_rate: float = 0.0   # 通过率
+    total_cases: int = 0  # 总用例数
+    passed_cases: int = 0  # 通过用例数
+    pass_rate: float = 0.0  # 通过率
     avg_latency_ms: float = 0.0  # 平均延迟
-    avg_cost_usd: float = 0.0    # 平均成本
+    avg_cost_usd: float = 0.0  # 平均成本
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
@@ -155,6 +163,7 @@ class PromptMeta:
 
 class PromptRegistry:
     """Prompt注册中心 - 支持5对象版本模型查询"""
+
     _prompts: dict[str, PromptMeta] = field(default_factory=dict)
 
     def __init__(self):
@@ -162,8 +171,8 @@ class PromptRegistry:
         # 5对象版本模型存储
         self._templates: dict[str, PromptTemplate] = {}
         self._versions: dict[str, list[PromptVersion]] = {}  # template_id → versions
-        self._releases: dict[str, list[PromptRelease]] = {}   # template_id → releases
-        self._runs: dict[str, list[PromptRun]] = {}           # template_id → recent runs
+        self._releases: dict[str, list[PromptRelease]] = {}  # template_id → releases
+        self._runs: dict[str, list[PromptRun]] = {}  # template_id → recent runs
         self._eval_results: dict[str, list[PromptEvalResult]] = {}  # version_id → results
 
     def register(self, module_name: str, version: str, updated: str, changelog: str) -> None:
@@ -183,11 +192,13 @@ class PromptRegistry:
     def get_version_summary(self) -> dict[str, Any]:
         items = []
         for meta in self._prompts.values():
-            items.append({
-                "module": meta.module_name,
-                "version": meta.version,
-                "updated": meta.updated,
-            })
+            items.append(
+                {
+                    "module": meta.module_name,
+                    "version": meta.version,
+                    "updated": meta.updated,
+                }
+            )
         return {"prompts": sorted(items, key=lambda x: x["module"])}
 
     # ============ 5对象版本模型操作 ============
@@ -228,9 +239,9 @@ class PromptRegistry:
         self._releases[release.template_id].append(release)
         return release.release_id
 
-    def get_active_release(self, template_id: str,
-                            tenant_id: str = "",
-                            scene_code: str = "") -> PromptRelease | None:
+    def get_active_release(
+        self, template_id: str, tenant_id: str = "", scene_code: str = ""
+    ) -> PromptRelease | None:
         """获取当前生效的发布 - 支持灰度路由
 
         文档依据: 4.docx - 灰度发布: 按租户/场景选择版本
@@ -310,9 +321,13 @@ class PromptLoader:
         return result
 
     @staticmethod
-    def render_prompt(template: PromptTemplate, version: PromptVersion,
-                      variables: dict, rag_context: str = "",
-                      memory_context: str = "") -> str:
+    def render_prompt(
+        template: PromptTemplate,
+        version: PromptVersion,
+        variables: dict,
+        rag_context: str = "",
+        memory_context: str = "",
+    ) -> str:
         """渲染完整Prompt - 文档依据: 4.docx
 
         按顺序注入:

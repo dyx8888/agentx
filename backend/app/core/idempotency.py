@@ -10,7 +10,7 @@ import json  # 参数序列化，sort_keys 确保相同参数生成相同哈希
 import os  # 读取环境变量 REDIS_URL
 import threading  # 本地缓存需要线程锁保护，因为多线程并发下 dict 操作不是线程安全的
 import time  # 本地缓存的 TTL 过期判断
-from typing import Any, Optional
+from typing import Any
 
 from app.core.logging import get_logger
 
@@ -24,7 +24,9 @@ except ImportError:  # 不抛异常：幂等性检查不能因为依赖缺失而
 logger = get_logger(__name__)  # 幂等性日志独立，便于审计哪些操作被重复请求
 
 # 默认幂等 TTL（24 小时）
-DEFAULT_IDEMPOTENT_TTL = 86400  # 24小时：电商场景中同一请求的幂等窗口通常不超过一天，过期后自动释放存储
+DEFAULT_IDEMPOTENT_TTL = (
+    86400  # 24小时：电商场景中同一请求的幂等窗口通常不超过一天，过期后自动释放存储
+)
 # 本地缓存最大条目数
 MAX_LOCAL_CACHE_SIZE = 1000  # 限制内存用量：本地缓存是 Redis 的降级方案，不应无限增长导致 OOM
 
@@ -39,13 +41,19 @@ class IdempotencyManager:
       - 降级：Redis 不可用时回退到本地内存缓存
     """
 
-    def __init__(self, redis_url: Optional[str] = None):
-        self._redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")  # 优先级：参数 > 环境变量 > 默认值
-        self._redis_client: Optional[redis.Redis] = None  # 延迟初始化连接
-        self._connection_pool: Optional[ConnectionPool] = None
+    def __init__(self, redis_url: str | None = None):
+        self._redis_url = redis_url or os.getenv(
+            "REDIS_URL", "redis://localhost:6379/0"
+        )  # 优先级：参数 > 环境变量 > 默认值
+        self._redis_client: redis.Redis | None = None  # 延迟初始化连接
+        self._connection_pool: ConnectionPool | None = None
         self._connected: bool = False
-        self._local_cache: dict[str, dict[str, Any]] = {}  # 本地缓存 value 包含 data 和 expires_at，支持 TTL 淘汰
-        self._lock = threading.Lock()  # 线程锁保护本地缓存的读写，因为幂等性检查可能被多线程并发调用
+        self._local_cache: dict[
+            str, dict[str, Any]
+        ] = {}  # 本地缓存 value 包含 data 和 expires_at，支持 TTL 淘汰
+        self._lock = (
+            threading.Lock()
+        )  # 线程锁保护本地缓存的读写，因为幂等性检查可能被多线程并发调用
 
         self._connect()  # 构造时自动连接
 
@@ -79,13 +87,29 @@ class IdempotencyManager:
         agent_name: str,
         tool_name: str,
         params: dict,
+        idempotency_key: str | None = None,
     ) -> str:  # staticmethod 不需要实例状态，纯函数式计算
         """生成幂等键
 
         格式: idem:{company_id}:{agent_name}:{tool_name}:{hash(params)}
+
+        可选幂等令牌 idempotency_key：
+          - 传入非空令牌时，令牌会参与哈希计算。相同令牌 + 相同参数 => 相同幂等键（去重）；
+            不同令牌 + 相同参数 => 不同幂等键（不误拦，区分"用户真实想做的多次相同操作"）。
+          - 不传 / None / 空字符串时，行为与改动前完全一致（仅用 params-hash），保持向后兼容。
+        注意：执行前预检（check_only）与执行后存储（store）必须传入同一个令牌，
+              否则两处生成的幂等键会对不上，出现"查得到存不进"或"存得进查不到"。
         """
-        params_str = json.dumps(params, sort_keys=True, ensure_ascii=False, default=str)  # sort_keys 保证相同参数生成相同哈希；ensure_ascii=False 保留中文；default=str 处理不可序列化对象
-        params_hash = hashlib.sha256(params_str.encode()).hexdigest()[:16]  # 取前16位：碰撞概率足够低（2^64），且 key 长度可控
+        params_str = json.dumps(
+            params, sort_keys=True, ensure_ascii=False, default=str
+        )  # sort_keys 保证相同参数生成相同哈希；ensure_ascii=False 保留中文；default=str 处理不可序列化对象
+        # 令牌为空（None / 空字符串）时退回原有 params-hash 逻辑，保证向后兼容；
+        # 非空时拼入哈希内容，使不同令牌产生不同摘要（不暴露令牌明文到 Redis key）
+        token = idempotency_key or ""
+        hash_input = f"{params_str}|idem_token={token}" if token else params_str
+        params_hash = hashlib.sha256(hash_input.encode()).hexdigest()[
+            :16
+        ]  # 取前16位：碰撞概率足够低（2^64），且 key 长度可控
         return f"idem:{company_id}:{agent_name}:{tool_name}:{params_hash}"  # 层级前缀便于 Redis 可视化管理和按租户批量清理
 
     # ── 核心 API ────────────────────────────────────────────────
@@ -95,7 +119,9 @@ class IdempotencyManager:
         key: str,
         executor: callable,  # callable 而非具体函数签名：幂等管理器不关心执行逻辑，将控制权交给调用方
         ttl: int = DEFAULT_IDEMPOTENT_TTL,
-    ) -> tuple[Any, bool]:  # 返回 (result, is_cached) 让调用方区分是首次执行还是缓存命中，便于日志和业务判断
+    ) -> tuple[
+        Any, bool
+    ]:  # 返回 (result, is_cached) 让调用方区分是首次执行还是缓存命中，便于日志和业务判断
         """幂等检查并执行
 
         如果 key 已存在，返回缓存结果 + is_cached=True。
@@ -111,13 +137,17 @@ class IdempotencyManager:
         """
         # 1. 检查 Redis
         cached = self._get_from_redis(key)
-        if cached is not None:  # 用 is not None 而非 if cached，因为缓存结果可能是 falsy 值（如空列表、0、False）
+        if (
+            cached is not None
+        ):  # 用 is not None 而非 if cached，因为缓存结果可能是 falsy 值（如空列表、0、False）
             logger.info("idempotency_cache_hit_redis", key=key)
             return cached, True
 
         # 2. 检查本地缓存
         with self._lock:  # 线程锁保护本地缓存读写，防止并发下重复执行
-            if key in self._local_cache:  # 先检查再判断过期：即使过期也不删除，留给 _evict_local_cache 统一清理
+            if (
+                key in self._local_cache
+            ):  # 先检查再判断过期：即使过期也不删除，留给 _evict_local_cache 统一清理
                 logger.info("idempotency_cache_hit_local", key=key)
                 return self._local_cache[key]["data"], True
 
@@ -132,7 +162,7 @@ class IdempotencyManager:
         self._store(key, result, ttl)  # 执行成功后存储，失败不存储
         return result, False
 
-    def check_only(self, key: str) -> Optional[Any]:  # 只读检查，不执行，用于幂等性预检场景
+    def check_only(self, key: str) -> Any | None:  # 只读检查，不执行，用于幂等性预检场景
         """仅检查幂等键，不执行
 
         Returns:
@@ -147,13 +177,15 @@ class IdempotencyManager:
                 return entry["data"]
         return None
 
-    def store(self, key: str, data: Any, ttl: int = DEFAULT_IDEMPOTENT_TTL) -> None:  # 手动存储，用于外部已执行操作的结果登记
+    def store(
+        self, key: str, data: Any, ttl: int = DEFAULT_IDEMPOTENT_TTL
+    ) -> None:  # 手动存储，用于外部已执行操作的结果登记
         """手动存储幂等结果"""
         self._store(key, data, ttl)
 
     # ── 内部存储 ─────────────────────────────────────────────────
 
-    def _get_from_redis(self, key: str) -> Optional[Any]:
+    def _get_from_redis(self, key: str) -> Any | None:
         if not self.is_available:  # Redis 不可用时直接返回 None，不阻塞
             return None
         try:
@@ -168,7 +200,9 @@ class IdempotencyManager:
         # Redis 存储
         if self.is_available:
             try:
-                self._redis_client.setex(key, ttl, json.dumps(data, default=str))  # setex 原子操作：设置值 + TTL，保证原子性
+                self._redis_client.setex(
+                    key, ttl, json.dumps(data, default=str)
+                )  # setex 原子操作：设置值 + TTL，保证原子性
                 logger.debug("idempotency_stored_redis", key=key, ttl=ttl)
             except Exception as e:  # Redis 写入失败不抛异常，本地缓存兜底
                 logger.warning("idempotency_redis_store_failed", key=key, error=str(e))
@@ -177,23 +211,30 @@ class IdempotencyManager:
         with self._lock:  # 线程安全写入
             self._local_cache[key] = {
                 "data": data,
-                "expires_at": time.time() + ttl,  # 记录过期时间戳，而非存储 TTL 值，避免每次读取都要计算
+                "expires_at": time.time()
+                + ttl,  # 记录过期时间戳，而非存储 TTL 值，避免每次读取都要计算
             }
             # 本地缓存淘汰
-            if len(self._local_cache) > MAX_LOCAL_CACHE_SIZE:  # 超过阈值触发淘汰，在写入路径上执行（而非独立线程），简化实现
+            if (
+                len(self._local_cache) > MAX_LOCAL_CACHE_SIZE
+            ):  # 超过阈值触发淘汰，在写入路径上执行（而非独立线程），简化实现
                 self._evict_local_cache()
 
     def _evict_local_cache(self) -> None:  # 调用方已持有 _lock，此方法不需要再加锁
         """淘汰过期条目（LRU 简化版：按过期时间清理）"""
         now = time.time()
-        expired = [k for k, v in self._local_cache.items() if v["expires_at"] < now]  # 先清理已过期的条目
+        expired = [
+            k for k, v in self._local_cache.items() if v["expires_at"] < now
+        ]  # 先清理已过期的条目
         for k in expired:
             del self._local_cache[k]
         # 如果淘汰后仍超标，删除最旧的条目
         if len(self._local_cache) > MAX_LOCAL_CACHE_SIZE:
             sorted_keys = sorted(
                 self._local_cache.keys(),
-                key=lambda k: self._local_cache[k]["expires_at"],  # 按过期时间升序，最早过期的排前面
+                key=lambda k: self._local_cache[k][
+                    "expires_at"
+                ],  # 按过期时间升序，最早过期的排前面
             )
             remove_count = len(self._local_cache) - MAX_LOCAL_CACHE_SIZE
             for k in sorted_keys[:remove_count]:  # 删除最旧的 N 条，确保缓存大小回到阈值以内
@@ -201,7 +242,9 @@ class IdempotencyManager:
 
     # ── 清理 ─────────────────────────────────────────────────────
 
-    def clear_key(self, key: str) -> bool:  # 返回 bool 表示是否成功从 Redis 清除，本地缓存清除始终成功
+    def clear_key(
+        self, key: str
+    ) -> bool:  # 返回 bool 表示是否成功从 Redis 清除，本地缓存清除始终成功
         """手动清除幂等键"""
         cleared = False
         if self.is_available:
@@ -214,6 +257,35 @@ class IdempotencyManager:
             self._local_cache.pop(key, None)  # pop 而非 del：key 不存在时不抛异常
         return cleared
 
+    def clear_namespace(self, namespace: str) -> int:
+        """Clear idempotency keys under idem:{namespace}:* from Redis and local cache."""
+        namespace = str(namespace or "").strip().strip(":")
+        if not namespace:
+            raise ValueError("namespace must be non-empty")
+
+        prefix = f"idem:{namespace}:"
+        removed = 0
+
+        if self.is_available:
+            try:
+                keys = list(self._redis_client.scan_iter(match=f"{prefix}*"))
+                if keys:
+                    removed += int(self._redis_client.delete(*keys) or 0)
+            except Exception as e:
+                logger.warning(
+                    "idempotency_redis_namespace_delete_failed",
+                    namespace=namespace,
+                    error=str(e),
+                )
+
+        with self._lock:
+            local_keys = [key for key in self._local_cache if key.startswith(prefix)]
+            for key in local_keys:
+                self._local_cache.pop(key, None)
+            removed += len(local_keys)
+
+        return removed
+
     def close(self) -> None:
         if self._connection_pool:  # 释放连接池资源
             self._connection_pool.disconnect()
@@ -224,7 +296,7 @@ class IdempotencyManager:
 
 
 # 全局单例
-_idempotency_manager: Optional[IdempotencyManager] = None  # 模块级变量，延迟初始化
+_idempotency_manager: IdempotencyManager | None = None  # 模块级变量，延迟初始化
 
 
 def get_idempotency_manager() -> IdempotencyManager:  # 工厂函数提供统一访问入口

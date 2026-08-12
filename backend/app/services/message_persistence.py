@@ -10,7 +10,7 @@ Handles saving/loading chat messages and updating conversation statistics
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -52,17 +52,17 @@ def sanitize_user_visible_text(content: str | None) -> str:
 def truncate_title(message: str, max_length: int = MAX_TITLE_LENGTH) -> str:
     """
     从消息内容截取标题
-    
+
     Args:
         message: 用户消息内容
         max_length: 最大标题长度
-        
+
     Returns:
         截取后的标题
     """
     if not message or not message.strip():
         return "新对话"
-    
+
     stripped = message.strip()
     if len(stripped) <= max_length:
         return stripped
@@ -78,17 +78,17 @@ def get_or_create_conversation(
 ) -> Conversation:
     """
     获取或创建对话
-    
+
     如果传入了 conversation_id，先尝试查找已有对话；
     如果不存在或未传入，则创建新对话。
-    
+
     Args:
         session: 数据库会话
         user_id: 用户 ID
         company_id: 公司 ID
         conversation_id: 可选的已有对话 ID
         title: 对话标题（仅新建时使用）
-        
+
     Returns:
         Conversation 实例
     """
@@ -140,7 +140,7 @@ def save_user_message(
 ) -> Message:
     """
     保存用户消息
-    
+
     Args:
         session: 数据库会话
         conversation_id: 对话 ID
@@ -149,7 +149,7 @@ def save_user_message(
         metadata: 结构化元数据（如意图识别结果）
         references: RAG 引用数据
         sequence_num: 消息序号
-        
+
     Returns:
         创建的 Message 实例
     """
@@ -184,7 +184,7 @@ def save_assistant_message(
 ) -> Message:
     """
     保存助手（Master/Agent）回复
-    
+
     Args:
         session: 数据库会话
         conversation_id: 对话 ID
@@ -192,7 +192,7 @@ def save_assistant_message(
         metadata: 结构化元数据（如达人列表、分析报告）
         references: 引用数据
         sequence_num: 消息序号
-        
+
     Returns:
         创建的 Message 实例
     """
@@ -224,21 +224,17 @@ def update_conversation_stats(
 ) -> None:
     """
     更新对话统计信息
-    
+
     Args:
         session: 数据库会话
         conversation_id: 对话 ID
         last_message: 最后一条消息内容（用于更新 last_message 字段）
     """
-    conv = (
-        session.query(Conversation)
-        .filter(Conversation.id == conversation_id)
-        .first()
-    )
+    conv = session.query(Conversation).filter(Conversation.id == conversation_id).first()
     if conv:
         conv.message_count += 1
         conv.last_message = truncate_title(sanitize_user_visible_text(last_message))
-        conv.updated_at = datetime.now(timezone.utc)
+        conv.updated_at = datetime.now(UTC)
         session.commit()
         logger.info(
             "conversation_stats_updated",

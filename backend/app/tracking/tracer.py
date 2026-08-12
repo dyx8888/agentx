@@ -6,9 +6,9 @@ OpenTelemetry 链路追踪模块
 """
 
 import functools
+import os
 import uuid
 from contextlib import contextmanager
-from typing import Optional
 
 from app.core.logging import get_logger
 
@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 _tracer_provider_initialized = False
 
 
-def init_tracer(service_name: str = "agentx", exporter_endpoint: Optional[str] = None):
+def init_tracer(service_name: str = "agentx", exporter_endpoint: str | None = None):
     """
     初始化 OpenTelemetry TracerProvider。
 
@@ -34,13 +34,17 @@ def init_tracer(service_name: str = "agentx", exporter_endpoint: Optional[str] =
     try:
         from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
         provider = TracerProvider()
-        provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+        if os.getenv("TRACE_CONSOLE_EXPORTER", "").lower() in {"1", "true", "yes", "on"}:
+            from opentelemetry.sdk.trace.export import ConsoleSpanExporter
+
+            provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
 
         if exporter_endpoint:
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
             otlp_exporter = OTLPSpanExporter(endpoint=exporter_endpoint)
             provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
 
@@ -58,6 +62,7 @@ def get_tracer():
     """获取当前 tracer 实例"""
     try:
         from opentelemetry import trace
+
         return trace.get_tracer("agentx")
     except ImportError:
         return _NoopTracer()
@@ -65,6 +70,7 @@ def get_tracer():
 
 class _NoopTracer:
     """当 OpenTelemetry 未安装时使用的空操作 tracer"""
+
     def start_as_current_span(self, name, **kwargs):
         return _NoopSpan()
 
@@ -72,15 +78,19 @@ class _NoopTracer:
 class _NoopSpan:
     def __enter__(self):
         return self
+
     def __exit__(self, *args):
         pass
+
     def set_attribute(self, key, value):
         pass
+
     def set_status(self, status):
         pass
 
 
 # ── traced 装饰器 ────────────────────────────────────────
+
 
 def traced(name: str = None):
     """
@@ -91,6 +101,7 @@ def traced(name: str = None):
         async def executor_node(state, llm, tools):
             ...
     """
+
     def decorator(func):
         span_name = name or func.__name__
 
@@ -121,6 +132,7 @@ def traced(name: str = None):
                     raise
 
         import asyncio
+
         if asyncio.iscoroutinefunction(func):
             return async_wrapper
         return sync_wrapper
@@ -129,6 +141,7 @@ def traced(name: str = None):
 
 
 # ── trace_id 生成 ───────────────────────────────────────
+
 
 def generate_trace_id(company_id: str = "", agent_name: str = "") -> str:
     """生成格式化的 trace_id: <company>-<agent>-<uuid8>"""
@@ -139,6 +152,7 @@ def generate_trace_id(company_id: str = "", agent_name: str = "") -> str:
 
 
 # ── Span 上下文管理器 ────────────────────────────────────
+
 
 @contextmanager
 def trace_span(name: str, attributes: dict = None):

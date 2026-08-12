@@ -2,7 +2,6 @@
 16.1.4 _wrap_tool_result() 单元测试
 ok/error/pending_approval/非ToolResult
 """
-import pytest
 
 
 class TestWrapToolResult:
@@ -11,6 +10,7 @@ class TestWrapToolResult:
     def test_ok_result(self):
         """ok 结果"""
         from app.tools.result import ToolResult
+
         result = ToolResult.ok(data={"count": 10}, message="成功")
         assert result.is_ok()
         assert result.data == {"count": 10}
@@ -19,6 +19,7 @@ class TestWrapToolResult:
     def test_error_result(self):
         """error 结果"""
         from app.tools.result import ToolResult, ErrorCode
+
         result = ToolResult.error(
             error_code=ErrorCode.TOOL_TIMEOUT,
             message="工具执行超时",
@@ -31,6 +32,7 @@ class TestWrapToolResult:
     def test_pending_approval_result(self):
         """pending_approval 结果"""
         from app.tools.result import ToolResult
+
         result = ToolResult.pending_approval(
             tool_name="schedule_task",
             proposed_params={"platform": "douyin"},
@@ -43,17 +45,20 @@ class TestWrapToolResult:
         """非ToolResult（字符串）"""
         output = "普通字符串结果"
         from app.tools.result import ToolResult
+
         assert not isinstance(output, ToolResult)
 
     def test_non_tool_result_dict(self):
         """非ToolResult（字典）"""
         output = {"status": "ok", "data": [1, 2, 3]}
         from app.tools.result import ToolResult
+
         assert not isinstance(output, ToolResult)
 
     def test_error_code_enum(self):
         """ErrorCode 常量完整性"""
         from app.tools.result import ErrorCode
+
         codes = [
             ErrorCode.TOOL_TIMEOUT,
             ErrorCode.CONNECTION_ERROR,
@@ -68,6 +73,7 @@ class TestWrapToolResult:
     def test_error_suggestions(self):
         """ERROR_SUGGESTIONS 映射表"""
         from app.tools.result import ERROR_SUGGESTIONS, ErrorCode
+
         expected_codes = [
             ErrorCode.TOOL_TIMEOUT,
             ErrorCode.CONNECTION_ERROR,

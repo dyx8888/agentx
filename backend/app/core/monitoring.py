@@ -329,7 +329,7 @@ class AlertManager:
 
         return alerts
 
-    def check_metric(self, metric_name: str) -> Optional[dict[str, Any]]:
+    def check_metric(self, metric_name: str) -> dict[str, Any] | None:
         """检查单个指标的阈值，若触发则返回告警详情，否则返回 None"""
         metrics = self._collector.get_all_metrics()
         current_value = metrics.get(metric_name)
@@ -368,8 +368,8 @@ class AlertManager:
 
 # ── 全局单例 ─────────────────────────────────────────────────────
 
-_metrics_collector: Optional[MetricsCollector] = None
-_alert_manager: Optional[AlertManager] = None
+_metrics_collector: MetricsCollector | None = None
+_alert_manager: AlertManager | None = None
 
 
 def get_metrics_collector() -> MetricsCollector:

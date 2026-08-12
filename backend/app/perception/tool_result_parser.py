@@ -14,6 +14,7 @@ logger = get_logger(__name__)
 @dataclass
 class ParsedToolResult:  # 独立数据类，让下游 Agent 只依赖此结构而不关心原始工具输出格式
     """解析后的工具结果"""
+
     tool_name: str = ""  # 工具名称，用于日志和路由
     status: str = "unknown"  # 统一状态：ok / error / empty / pending_approval / unknown
     summary: str = ""  # 简短摘要，用于快速展示或决策
@@ -50,6 +51,7 @@ class ToolResultParser:
 
         try:  # 尝试匹配项目内部的 ToolResult 包装类
             from app.tools.result import ToolResult as TR
+
             if isinstance(output, TR):  # 如果是 ToolResult，走专用解析路径
                 return self._parse_tool_result(output, tool_name, raw_output)
         except ImportError:  # 如果项目没有 ToolResult 类，静默跳过
@@ -122,7 +124,9 @@ class ToolResultParser:
         return ParsedToolResult(  # 非错误状态，统一取 data 字段作为关键数据
             tool_name=tool_name,
             status=status,
-            summary=self._generate_summary_from_data(output.get("data", output), tool_name),  # 无 data 时降级用整个 dict
+            summary=self._generate_summary_from_data(
+                output.get("data", output), tool_name
+            ),  # 无 data 时降级用整个 dict
             key_data=output.get("data", output),
             raw_output=raw_output,
         )
@@ -136,9 +140,12 @@ class ToolResultParser:
             raw_output=raw_output,
         )
 
-    def _parse_string_result(self, output: str, tool_name: str, raw_output: str) -> ParsedToolResult:
+    def _parse_string_result(
+        self, output: str, tool_name: str, raw_output: str
+    ) -> ParsedToolResult:
         try:  # 字符串可能内嵌 JSON，尝试反序列化以获得更丰富的解析
             import json
+
             data = json.loads(output)
             return self._parse_dict_result(data, tool_name, raw_output)  # 成功则委托给 dict 解析器
         except (json.JSONDecodeError, ValueError):  # 非 JSON 字符串，走普通字符串处理
@@ -165,16 +172,21 @@ class ToolResultParser:
         """从任意输出中提取文本"""
         if output is None:  # None 返回空字符串，调用方自行处理
             return ""
-        if hasattr(output, 'content'):  # LangChain 响应对象，优先取 .content
+        if hasattr(output, "content"):  # LangChain 响应对象，优先取 .content
             return str(output.content)
-        if hasattr(output, 'to_json'):  # 支持自定义序列化接口
+        if hasattr(output, "to_json"):  # 支持自定义序列化接口
             return output.to_json()
-        if hasattr(output, 'to_dict'):  # to_dict 后手动 json.dumps，因为返回的是 Python 对象
+        if hasattr(output, "to_dict"):  # to_dict 后手动 json.dumps，因为返回的是 Python 对象
             import json
-            return json.dumps(output.to_dict(), ensure_ascii=False, default=str)  # ensure_ascii=False 保留中文
+
+            return json.dumps(
+                output.to_dict(), ensure_ascii=False, default=str
+            )  # ensure_ascii=False 保留中文
         return str(output)  # 终极兜底：转字符串
 
-    def _generate_summary_from_data(self, data, tool_name: str) -> str:  # 独立方法便于测试和自定义摘要策略
+    def _generate_summary_from_data(
+        self, data, tool_name: str
+    ) -> str:  # 独立方法便于测试和自定义摘要策略
         """从数据中生成简短摘要"""
         if data is None:
             return "工具执行完成，返回空数据"

@@ -18,11 +18,12 @@ import asyncio
 import json
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from enum import StrEnum
+from typing import Any
 
-from jsonschema import validate, ValidationError
+from jsonschema import ValidationError, validate
 
 from app.core.logging import get_logger
 
@@ -34,7 +35,8 @@ logger = get_logger(__name__)
 # 基于 4.docx 第 3 节：工具风险分级
 # =============================================================================
 
-class ToolRiskLevel(str, Enum):
+
+class ToolRiskLevel(StrEnum):
     """工具风险等级，来源于 4.docx 中的安全设计规范。
 
     READ_ONLY:
@@ -45,6 +47,7 @@ class ToolRiskLevel(str, Enum):
         高风险写操作，如删除数据、执行 SQL、发起支付、修改权限。
         此类操作需要二次确认（见第 5 关卡）。
     """
+
     READ_ONLY = "READ_ONLY"
     WRITE_LOW_RISK = "WRITE_LOW_RISK"
     WRITE_HIGH_RISK = "WRITE_HIGH_RISK"
@@ -54,6 +57,7 @@ class ToolRiskLevel(str, Enum):
 # 工具权限配置 — ToolPermission
 # 基于 4.docx 第 2 节：权限模型
 # =============================================================================
+
 
 @dataclass
 class ToolPermission:
@@ -70,11 +74,12 @@ class ToolPermission:
         rate_limit: 速率限制，格式为 (max_calls, window_seconds)。None 表示不限流。
         description: 工具用途描述，用于审计日志和二次确认提示。
     """
+
     tool_name: str
     risk_level: ToolRiskLevel = ToolRiskLevel.READ_ONLY
-    required_permissions: List[str] = field(default_factory=list)
+    required_permissions: list[str] = field(default_factory=list)
     require_confirmation: bool = False
-    rate_limit: Optional[tuple[int, float]] = None  # (max_calls, window_seconds)
+    rate_limit: tuple[int, float] | None = None  # (max_calls, window_seconds)
     description: str = ""
 
     def __post_init__(self):
@@ -87,6 +92,7 @@ class ToolPermission:
 # 审计记录 — ToolAuditRecord
 # 基于 4.docx 第 4 节：审计日志规范
 # =============================================================================
+
 
 @dataclass
 class ToolAuditRecord:
@@ -108,12 +114,13 @@ class ToolAuditRecord:
         confirmation_id: 二次确认 ID（如有）。
         latency_ms: 安全检查耗时（毫秒）。
     """
+
     record_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     timestamp: float = field(default_factory=time.time)
     tool_name: str = ""
     user_id: str = ""
     tenant_id: str = ""
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict)
     risk_level: ToolRiskLevel = ToolRiskLevel.READ_ONLY
     result: str = ""  # allowed / denied / pending_confirmation
     deny_reason: str = ""
@@ -124,6 +131,7 @@ class ToolAuditRecord:
 # =============================================================================
 # 安全检查结果
 # =============================================================================
+
 
 @dataclass
 class SecurityCheckResult:
@@ -136,17 +144,19 @@ class SecurityCheckResult:
         confirmation_id: 二次确认会话 ID。
         audit_record: 完整的审计记录。
     """
+
     allowed: bool = True
     deny_reason: str = ""
     pending_confirmation: bool = False
     confirmation_id: str = ""
-    audit_record: Optional[ToolAuditRecord] = None
+    audit_record: ToolAuditRecord | None = None
 
 
 # =============================================================================
 # 率限制器 — RateLimiter
 # 基于 4.docx 第 6 节：限流策略
 # =============================================================================
+
 
 class RateLimiter:
     """简易内存速率限制器，按工具维度进行限流。
@@ -159,7 +169,7 @@ class RateLimiter:
     """
 
     def __init__(self):
-        self._storage: Dict[str, List[float]] = {}
+        self._storage: dict[str, list[float]] = {}
         self._lock = asyncio.Lock()
 
     async def is_allowed(self, tool_name: str, max_calls: int, window_seconds: float) -> bool:
@@ -180,9 +190,7 @@ class RateLimiter:
 
             # 清理过期记录（滑动窗口）
             window_start = now - window_seconds
-            self._storage[tool_name] = [
-                ts for ts in self._storage[tool_name] if ts > window_start
-            ]
+            self._storage[tool_name] = [ts for ts in self._storage[tool_name] if ts > window_start]
 
             if len(self._storage[tool_name]) >= max_calls:
                 return False
@@ -195,6 +203,7 @@ class RateLimiter:
 # 工具安全守卫 — ToolSecurityGuard
 # 基于 4.docx 全文六道关卡设计
 # =============================================================================
+
 
 class ToolSecurityGuard:
     """工具调用安全守卫，串联执行六道安全检查关卡。
@@ -216,9 +225,9 @@ class ToolSecurityGuard:
 
     def __init__(
         self,
-        permissions_registry: Dict[str, ToolPermission],
-        rate_limiter: Optional[RateLimiter] = None,
-        permission_checker: Optional[Callable[[str, List[str]], bool]] = None,
+        permissions_registry: dict[str, ToolPermission],
+        rate_limiter: RateLimiter | None = None,
+        permission_checker: Callable[[str, list[str]], bool] | None = None,
     ):
         """初始化安全守卫。
 
@@ -239,9 +248,9 @@ class ToolSecurityGuard:
     async def check(
         self,
         tool_name: str,
-        parameters: Dict[str, Any],
-        user_context: Dict[str, Any],
-        json_schema: Optional[Dict[str, Any]] = None,
+        parameters: dict[str, Any],
+        user_context: dict[str, Any],
+        json_schema: dict[str, Any] | None = None,
     ) -> SecurityCheckResult:
         """执行全部六道安全检查。
 
@@ -305,9 +314,7 @@ class ToolSecurityGuard:
 
         # ---- 关卡 2：权限校验 (4.docx 第 2 节) ----
         if tool_perm.required_permissions:
-            has_permission = self._check_permissions(
-                user_id, tool_perm.required_permissions
-            )
+            has_permission = self._check_permissions(user_id, tool_perm.required_permissions)
             if not has_permission:
                 latency_ms = (time.perf_counter() - t_start) * 1000
                 record = ToolAuditRecord(
@@ -338,15 +345,15 @@ class ToolSecurityGuard:
             confirmation_id = uuid.uuid4().hex
             logger.info(
                 "工具 [%s] 风险等级为 %s，需要二次确认。confirmation_id=%s",
-                tool_name, risk_level.value, confirmation_id,
+                tool_name,
+                risk_level.value,
+                confirmation_id,
             )
 
         # ---- 关卡 6：限流检查 (4.docx 第 6 节) ----
         if tool_perm.rate_limit is not None:
             max_calls, window_seconds = tool_perm.rate_limit
-            rate_ok = await self._rate_limiter.is_allowed(
-                tool_name, max_calls, window_seconds
-            )
+            rate_ok = await self._rate_limiter.is_allowed(tool_name, max_calls, window_seconds)
             if not rate_ok:
                 latency_ms = (time.perf_counter() - t_start) * 1000
                 record = ToolAuditRecord(
@@ -383,7 +390,9 @@ class ToolSecurityGuard:
 
         logger.info(
             "工具安全检查完成: tool=%s user=%s risk=%s allowed=%s confirmation=%s latency=%.2fms",
-            tool_name, user_id, risk_level.value,
+            tool_name,
+            user_id,
+            risk_level.value,
             "yes" if not pending_confirmation else "pending",
             "yes" if pending_confirmation else "no",
             latency_ms,
@@ -421,9 +430,9 @@ class ToolSecurityGuard:
     def _validate_parameters(
         self,
         tool_name: str,
-        parameters: Dict[str, Any],
-        json_schema: Dict[str, Any],
-    ) -> Optional[str]:
+        parameters: dict[str, Any],
+        json_schema: dict[str, Any],
+    ) -> str | None:
         """关卡 1：参数校验 — 基于 4.docx 第 1 节。
 
         使用 jsonschema 库校验输入参数是否符合工具定义的 JSON Schema。
@@ -439,7 +448,7 @@ class ToolSecurityGuard:
     def _check_permissions(
         self,
         user_id: str,
-        required_permissions: List[str],
+        required_permissions: list[str],
     ) -> bool:
         """关卡 2：权限校验 — 基于 4.docx 第 2 节。
 
@@ -450,7 +459,7 @@ class ToolSecurityGuard:
     @staticmethod
     def _default_permission_checker(
         user_id: str,
-        required_permissions: List[str],
+        required_permissions: list[str],
     ) -> bool:
         """默认权限校验器：记录警告后放行。
 
@@ -458,7 +467,8 @@ class ToolSecurityGuard:
         """
         logger.warning(
             "使用默认权限校验器（始终放行）。user=%s permissions=%s",
-            user_id, required_permissions,
+            user_id,
+            required_permissions,
         )
         return True
 
@@ -488,7 +498,7 @@ class ToolSecurityGuard:
             logger.info("AUDIT: %s", json.dumps(log_data, ensure_ascii=False))
 
     @staticmethod
-    def _sanitize_params(parameters: Dict[str, Any]) -> Dict[str, Any]:
+    def _sanitize_params(parameters: dict[str, Any]) -> dict[str, Any]:
         """脱敏处理：对敏感字段进行掩码，避免审计日志泄露。
 
         参照 4.docx 第 4 节中关于敏感数据保护的要求。

@@ -31,7 +31,7 @@ class RedisTaskQueue:
     def __init__(self, redis_url: str | None = None, queue_name: str = "agentx_tasks"):
         """
         Initialize Redis task queue
-        
+
         Args:
             redis_url: Redis connection URL (e.g., redis://localhost:6379/0)
             queue_name: Name of the Redis queue
@@ -74,11 +74,11 @@ class RedisTaskQueue:
     def publish_task(self, task_data: dict[str, Any], priority: int = 0) -> bool:
         """
         Publish task to Redis queue
-        
+
         Args:
             task_data: Task data dictionary
             priority: Task priority (higher = higher priority)
-            
+
         Returns:
             True if task was published successfully
         """
@@ -88,10 +88,7 @@ class RedisTaskQueue:
 
         try:
             # Add timestamp and priority to task
-            task_data.update({
-                "timestamp": datetime.utcnow().isoformat(),
-                "priority": priority
-            })
+            task_data.update({"timestamp": datetime.utcnow().isoformat(), "priority": priority})
 
             # Serialize task data
             task_json = json.dumps(task_data, default=str)
@@ -99,7 +96,9 @@ class RedisTaskQueue:
             # Use Redis list with priority (LPUSH for FIFO)
             self.redis_client.lpush(self.queue_name, task_json)
 
-            logger.info(f"Published task to queue {self.queue_name}: {task_data.get('task_id', 'unknown')}")
+            logger.info(
+                f"Published task to queue {self.queue_name}: {task_data.get('task_id', 'unknown')}"
+            )
             return True
 
         except Exception as e:
@@ -109,7 +108,7 @@ class RedisTaskQueue:
     def consume_tasks(self, callback: Callable[[dict[str, Any]], None], timeout: int = 30) -> None:
         """
         Consume tasks from Redis queue
-        
+
         Args:
             callback: Function to handle consumed tasks
             timeout: Timeout in seconds for blocking pop
@@ -136,9 +135,7 @@ class RedisTaskQueue:
 
                             # Execute callback in separate thread to avoid blocking
                             threading.Thread(
-                                target=self._execute_task,
-                                args=(callback, task_data),
-                                daemon=True
+                                target=self._execute_task, args=(callback, task_data), daemon=True
                             ).start()
 
                         except json.JSONDecodeError as e:
@@ -159,16 +156,18 @@ class RedisTaskQueue:
         except Exception as e:
             logger.error(f"Unexpected error in task consumption: {e}")
 
-    def _execute_task(self, callback: Callable[[dict[str, Any]], None], task_data: dict[str, Any]) -> None:
+    def _execute_task(
+        self, callback: Callable[[dict[str, Any]], None], task_data: dict[str, Any]
+    ) -> None:
         """
         Execute task callback with error handling
-        
+
         Args:
             callback: Task processing function
             task_data: Task data
         """
         redis_request_id = f"redis-{uuid.uuid4().hex[:12]}"
-        task_id = task_data.get('task_id', 'unknown')
+        task_id = task_data.get("task_id", "unknown")
         structlog.contextvars.bind_contextvars(
             request_id=redis_request_id,
             task_id=task_id,
@@ -233,11 +232,11 @@ def get_redis_queue() -> RedisTaskQueue | None:
 def publish_task(task_data: dict[str, Any], priority: int = 0) -> bool:
     """
     Convenience function to publish task to Redis queue
-    
+
     Args:
         task_data: Task data dictionary
         priority: Task priority (higher = higher priority)
-        
+
     Returns:
         True if task was published successfully
     """

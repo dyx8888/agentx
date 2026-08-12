@@ -3,16 +3,15 @@ Unit tests for Message Persistence Service (Task 2.5)
 Tests for saving/loading messages and updating conversation stats
 """
 
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from app.database.models import Conversation, Message
+from app.database.models import Conversation
 
 
 # ============================================================
 # Test: Get or Create Conversation
 # ============================================================
+
 
 class TestGetOrCreateConversation:
     """Test get_or_create_conversation helper"""
@@ -87,6 +86,7 @@ class TestGetOrCreateConversation:
 # Test: Save User Message
 # ============================================================
 
+
 class TestSaveUserMessage:
     """Test save_user_message helper"""
 
@@ -147,6 +147,7 @@ class TestSaveUserMessage:
 # Test: Save Assistant Message
 # ============================================================
 
+
 class TestSaveAssistantMessage:
     """Test save_assistant_message helper"""
 
@@ -205,6 +206,7 @@ class TestSaveAssistantMessage:
 # ============================================================
 # Test: Update Conversation Stats
 # ============================================================
+
 
 class TestUpdateConversationStats:
     """Test update_conversation_stats helper"""
@@ -277,6 +279,7 @@ class TestUpdateConversationStats:
 # Test: Truncate Title
 # ============================================================
 
+
 class TestTruncateTitle:
     """Test title truncation helper"""
 
@@ -305,6 +308,7 @@ class TestTruncateTitle:
 # ============================================================
 # Test: Full Persistence Flow
 # ============================================================
+
 
 class TestFullPersistenceFlow:
     """Test the complete persistence flow"""
@@ -370,6 +374,7 @@ class TestFullPersistenceFlow:
 # ============================================================
 # Test: ChatRequest with conversation_id
 # ============================================================
+
 
 class TestChatRequestWithConversationId:
     """Test ChatRequest model includes conversation_id"""

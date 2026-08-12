@@ -2,6 +2,7 @@
 16.1.5 QueryRewriter 单元测试
 补全/口语转结构化/空输入
 """
+
 import pytest
 
 
@@ -11,6 +12,7 @@ class TestQueryRewriter:
     @pytest.fixture
     def rewriter(self):
         from app.perception.query_rewriter import QueryRewriter
+
         return QueryRewriter()
 
     def test_empty_input(self, rewriter):
@@ -43,6 +45,19 @@ class TestQueryRewriter:
         result = rewriter.rewrite("查询 @品牌A #活动 的 KOL 数据")
         assert isinstance(result, str)
 
+    def test_raglive_query_skips_llm_even_when_enabled(self, monkeypatch):
+        """明确知识库唯一标记查询不需要 LLM 改写"""
+        from app.perception.query_rewriter import QueryRewriter
+
+        class FailingGateway:
+            def get_llm(self, company_id=None):
+                raise AssertionError("LLM should not be called for direct knowledge query")
+
+        monkeypatch.setenv("PERCEPTION_LLM_ENABLED", "true")
+        text = "RAGLIVE-GMV-20260805 这条知识里 GMV 环比增长是多少？"
+
+        assert QueryRewriter(model_gateway=FailingGateway()).rewrite(text) == text
+
 
 class TestIntentExtractor:
     """意图提取器单元测试"""
@@ -50,11 +65,13 @@ class TestIntentExtractor:
     @pytest.fixture
     def extractor(self):
         from app.perception.intent_extractor import IntentExtractor
+
         return IntentExtractor()
 
     def test_empty_input(self, extractor):
         """空输入返回 GENERAL"""
         from app.perception.intent_extractor import IntentType
+
         intent = extractor.extract("")
         assert intent.intent_type == IntentType.GENERAL
         assert intent.confidence == 0.0
@@ -62,6 +79,7 @@ class TestIntentExtractor:
     def test_all_intent_types(self, extractor):
         """7种意图类型定义"""
         from app.perception.intent_extractor import IntentType
+
         types = [
             IntentType.SEARCH,
             IntentType.ANALYZE,
@@ -83,6 +101,7 @@ class TestIntentExtractor:
     def test_intent_to_dict(self):
         """Intent 序列化"""
         from app.perception.intent_extractor import Intent, IntentType
+
         intent = Intent(
             intent_type=IntentType.SEARCH,
             confidence=0.9,
@@ -97,5 +116,23 @@ class TestIntentExtractor:
         """解析无效JSON"""
         result = extractor._parse_response("这不是JSON", "test query")
         from app.perception.intent_extractor import IntentType
+
         assert result.intent_type == IntentType.GENERAL
         assert result.confidence == 0.0
+
+    def test_raglive_query_uses_heuristic_fast_path_even_when_llm_enabled(self, monkeypatch):
+        """明确知识库唯一标记查询直接判为 knowledge，不等 LLM"""
+        from app.perception.intent_extractor import IntentExtractor, IntentType
+
+        class FailingGateway:
+            def get_llm(self, company_id=None):
+                raise AssertionError("LLM should not be called for direct knowledge query")
+
+        monkeypatch.setenv("PERCEPTION_LLM_ENABLED", "true")
+        text = "RAGLIVE-CS-20260805 里，敏感肌退换货要先确认什么？"
+
+        intent = IntentExtractor(model_gateway=FailingGateway()).extract(text)
+
+        assert intent.intent_type == IntentType.KNOWLEDGE
+        assert intent.confidence >= 0.9
+        assert intent.raw_response == "heuristic_direct_knowledge_query"

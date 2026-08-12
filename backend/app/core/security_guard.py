@@ -12,9 +12,8 @@
 """
 
 import re
-import json
-from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
+from typing import Any
 
 from app.core.logging import get_logger
 
@@ -25,11 +24,13 @@ logger = get_logger(__name__)
 # 数据类定义
 # =============================================================================
 
+
 @dataclass
 class PIIDetectionResult:
     """PII检测结果"""
+
     has_pii: bool = False
-    items: List[Dict[str, Any]] = field(default_factory=list)
+    items: list[dict[str, Any]] = field(default_factory=list)
     # 每个 item 结构: {"type": "phone"|"id_card"|"bank_card"|"email"|"address",
     #                  "start": int, "end": int, "original": str}
 
@@ -37,34 +38,38 @@ class PIIDetectionResult:
 @dataclass
 class InjectionDetectionResult:
     """注入检测结果"""
+
     is_injection: bool = False
     risk_score: float = 0.0  # 0.0 ~ 1.0
-    detected_patterns: List[str] = field(default_factory=list)
+    detected_patterns: list[str] = field(default_factory=list)
     # 每个 pattern: 匹配到的注入模式名称
 
 
 @dataclass
 class SensitiveContentResult:
     """敏感内容检测结果"""
+
     has_sensitive: bool = False
-    categories: List[str] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)
     # 如: "violence", "hate_speech", "sexual_content", "illegal_info"
 
 
 @dataclass
 class SecurityCheckResult:
     """安全检查综合结果"""
+
     safe: bool = True
-    pii_result: Optional[PIIDetectionResult] = None
-    injection_result: Optional[InjectionDetectionResult] = None
-    sensitive_result: Optional[SensitiveContentResult] = None
-    sanitized_text: Optional[str] = None
-    warnings: List[str] = field(default_factory=list)
+    pii_result: PIIDetectionResult | None = None
+    injection_result: InjectionDetectionResult | None = None
+    sensitive_result: SensitiveContentResult | None = None
+    sanitized_text: str | None = None
+    warnings: list[str] = field(default_factory=list)
 
 
 # =============================================================================
 # PII检测器 (PII Detector)
 # =============================================================================
+
 
 class PIIDetector:
     """
@@ -86,36 +91,28 @@ class PIIDetector:
     # --- 正则模式定义 ---
 
     # 中国手机号：1开头，第二位3-9，共11位
-    PHONE_PATTERN: re.Pattern = re.compile(
-        r'(?<!\d)(1[3-9]\d{9})(?!\d)'
-    )
+    PHONE_PATTERN: re.Pattern = re.compile(r"(?<!\d)(1[3-9]\d{9})(?!\d)")
 
     # 身份证号：18位数字，最后一位可能是X/x
-    ID_CARD_PATTERN: re.Pattern = re.compile(
-        r'(?<!\d)(\d{17}[\dXx])(?!\d)'
-    )
+    ID_CARD_PATTERN: re.Pattern = re.compile(r"(?<!\d)(\d{17}[\dXx])(?!\d)")
 
     # 银行卡号：16-19位连续数字
-    BANK_CARD_PATTERN: re.Pattern = re.compile(
-        r'(?<!\d)(\d{16,19})(?!\d)'
-    )
+    BANK_CARD_PATTERN: re.Pattern = re.compile(r"(?<!\d)(\d{16,19})(?!\d)")
 
     # 电子邮箱
-    EMAIL_PATTERN: re.Pattern = re.compile(
-        r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    )
+    EMAIL_PATTERN: re.Pattern = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
     # 中国地址：省/市/区/路/街/号/栋/单元/室 等关键词组合
     ADDRESS_PATTERN: re.Pattern = re.compile(
-        r'(?:'
-        r'(?:[\u4e00-\u9fff]{2,}(?:省|自治区|市|特别行政区))'
-        r'[\u4e00-\u9fff]{0,}(?:市|区|县|镇|乡|街道|路|街|巷|弄|道|村|里)'
-        r'[\u4e00-\u9fff\d\-\号栋楼座单元室层]*'
-        r')'
+        r"(?:"
+        r"(?:[\u4e00-\u9fff]{2,}(?:省|自治区|市|特别行政区))"
+        r"[\u4e00-\u9fff]{0,}(?:市|区|县|镇|乡|街道|路|街|巷|弄|道|村|里)"
+        r"[\u4e00-\u9fff\d\-\号栋楼座单元室层]*"
+        r")"
     )
 
     # 脱敏占位符映射
-    MASK_PLACEHOLDERS: Dict[str, str] = {
+    MASK_PLACEHOLDERS: dict[str, str] = {
         "phone": "[PHONE_MASKED]",
         "id_card": "[ID_CARD_MASKED]",
         "bank_card": "[BANK_CARD_MASKED]",
@@ -143,67 +140,74 @@ class PIIDetector:
 
         # 按优先级检测：先检测长模式（地址），再检测短模式
         # 使用已检测区域避免重复标记
-        covered_ranges: List[Tuple[int, int]] = []
+        covered_ranges: list[tuple[int, int]] = []
 
         def _is_covered(start: int, end: int) -> bool:
-            for cs, ce in covered_ranges:
-                if start >= cs and end <= ce:
-                    return True
-            return False
+            return any(start >= cs and end <= ce for cs, ce in covered_ranges)
 
         # 1. 检测地址（最长模式优先）
         for match in self.ADDRESS_PATTERN.finditer(text):
             if not _is_covered(match.start(), match.end()):
-                result.items.append({
-                    "type": "address",
-                    "start": match.start(),
-                    "end": match.end(),
-                    "original": match.group(),
-                })
+                result.items.append(
+                    {
+                        "type": "address",
+                        "start": match.start(),
+                        "end": match.end(),
+                        "original": match.group(),
+                    }
+                )
                 covered_ranges.append((match.start(), match.end()))
 
         # 2. 检测身份证号
         for match in self.ID_CARD_PATTERN.finditer(text):
             if not _is_covered(match.start(), match.end()):
-                result.items.append({
-                    "type": "id_card",
-                    "start": match.start(),
-                    "end": match.end(),
-                    "original": match.group(),
-                })
+                result.items.append(
+                    {
+                        "type": "id_card",
+                        "start": match.start(),
+                        "end": match.end(),
+                        "original": match.group(),
+                    }
+                )
                 covered_ranges.append((match.start(), match.end()))
 
         # 3. 检测银行卡号（在身份证号之后检测，避免18位身份证号被误判为银行卡）
         for match in self.BANK_CARD_PATTERN.finditer(text):
             if not _is_covered(match.start(), match.end()):
-                result.items.append({
-                    "type": "bank_card",
-                    "start": match.start(),
-                    "end": match.end(),
-                    "original": match.group(),
-                })
+                result.items.append(
+                    {
+                        "type": "bank_card",
+                        "start": match.start(),
+                        "end": match.end(),
+                        "original": match.group(),
+                    }
+                )
                 covered_ranges.append((match.start(), match.end()))
 
         # 4. 检测手机号
         for match in self.PHONE_PATTERN.finditer(text):
             if not _is_covered(match.start(), match.end()):
-                result.items.append({
-                    "type": "phone",
-                    "start": match.start(),
-                    "end": match.end(),
-                    "original": match.group(),
-                })
+                result.items.append(
+                    {
+                        "type": "phone",
+                        "start": match.start(),
+                        "end": match.end(),
+                        "original": match.group(),
+                    }
+                )
                 covered_ranges.append((match.start(), match.end()))
 
         # 5. 检测邮箱
         for match in self.EMAIL_PATTERN.finditer(text):
             if not _is_covered(match.start(), match.end()):
-                result.items.append({
-                    "type": "email",
-                    "start": match.start(),
-                    "end": match.end(),
-                    "original": match.group(),
-                })
+                result.items.append(
+                    {
+                        "type": "email",
+                        "start": match.start(),
+                        "end": match.end(),
+                        "original": match.group(),
+                    }
+                )
                 covered_ranges.append((match.start(), match.end()))
 
         result.has_pii = len(result.items) > 0
@@ -240,11 +244,7 @@ class PIIDetector:
         for item in sorted_items:
             pii_type = item["type"]
             placeholder = self.MASK_PLACEHOLDERS.get(pii_type, "[MASKED]")
-            masked_text = (
-                masked_text[:item["start"]]
-                + placeholder
-                + masked_text[item["end"]:]
-            )
+            masked_text = masked_text[: item["start"]] + placeholder + masked_text[item["end"] :]
 
         logger.debug("PII脱敏完成，共处理 %d 处", len(sorted_items))
         return masked_text
@@ -282,25 +282,20 @@ class PIIDetector:
                 partial = original[:4] + "**********" + original[-4:]
             elif pii_type == "bank_card":
                 # 银行卡：保留前4后4
-                partial = original[:4] + "****" + ("*" * (len(original) - 12)) + "****" + original[-4:]
+                partial = (
+                    original[:4] + "****" + ("*" * (len(original) - 12)) + "****" + original[-4:]
+                )
             elif pii_type == "email":
                 # 邮箱：保留首字符和域名
                 at_idx = original.find("@")
-                if at_idx > 0:
-                    partial = original[0] + "***" + original[at_idx:]
-                else:
-                    partial = "***@***"
+                partial = original[0] + "***" + original[at_idx:] if at_idx > 0 else "***@***"
             elif pii_type == "address":
                 # 地址：保留前6个字符
                 partial = original[:6] + "****"
             else:
                 partial = "****"
 
-            masked_text = (
-                masked_text[:item["start"]]
-                + partial
-                + masked_text[item["end"]:]
-            )
+            masked_text = masked_text[: item["start"]] + partial + masked_text[item["end"] :]
 
         logger.debug("PII部分脱敏完成，共处理 %d 处", len(sorted_items))
         return masked_text
@@ -309,6 +304,7 @@ class PIIDetector:
 # =============================================================================
 # Prompt注入检测器 (Prompt Injection Detector)
 # =============================================================================
+
 
 class PromptInjectionDetector:
     """
@@ -329,13 +325,13 @@ class PromptInjectionDetector:
     # --- 注入模式定义 ---
     # 每条规则: (正则模式, 规则名称, 风险权重)
 
-    INJECTION_PATTERNS: List[Tuple[re.Pattern, str, float]] = [
+    INJECTION_PATTERNS: list[tuple[re.Pattern, str, float]] = [
         # 指令覆盖类
         (
             re.compile(
-                r'(?:ignore|forget|disregard|override|bypass)\s+'
-                r'(?:all\s+)?(?:previous|above|prior|earlier|system)\s+'
-                r'(?:instructions?|prompts?|rules?|directives?|commands?)',
+                r"(?:ignore|forget|disregard|override|bypass)\s+"
+                r"(?:all\s+)?(?:previous|above|prior|earlier|system)\s+"
+                r"(?:instructions?|prompts?|rules?|directives?|commands?)",
                 re.IGNORECASE,
             ),
             "instruction_override",
@@ -343,7 +339,7 @@ class PromptInjectionDetector:
         ),
         (
             re.compile(
-                r'(?:you\s+(?:are|must|should|will|need\s+to)\s+now\s+(?:act|behave|play|roleplay|pretend|follow))',
+                r"(?:you\s+(?:are|must|should|will|need\s+to)\s+now\s+(?:act|behave|play|roleplay|pretend|follow))",
                 re.IGNORECASE,
             ),
             "instruction_override_2",
@@ -351,7 +347,7 @@ class PromptInjectionDetector:
         ),
         (
             re.compile(
-                r'(?:new\s+(?:system\s+)?(?:instructions?|prompts?|rules?|directives?))',
+                r"(?:new\s+(?:system\s+)?(?:instructions?|prompts?|rules?|directives?))",
                 re.IGNORECASE,
             ),
             "new_instruction_injection",
@@ -360,7 +356,7 @@ class PromptInjectionDetector:
         # 角色操纵类
         (
             re.compile(
-                r'(?:you\s+are\s+(?:now\s+)?(?:DAN|jailbroken|unrestricted|unfiltered|free|no\s+limits?))',
+                r"(?:you\s+are\s+(?:now\s+)?(?:DAN|jailbroken|unrestricted|unfiltered|free|no\s+limits?))",
                 re.IGNORECASE,
             ),
             "role_manipulation_dan",
@@ -368,7 +364,7 @@ class PromptInjectionDetector:
         ),
         (
             re.compile(
-                r'(?:pretend\s+(?:you\s+are|to\s+be)|act\s+(?:as|like)\s+(?:a|an)|roleplay\s+(?:as|like))',
+                r"(?:pretend\s+(?:you\s+are|to\s+be)|act\s+(?:as|like)\s+(?:a|an)|roleplay\s+(?:as|like))",
                 re.IGNORECASE,
             ),
             "role_manipulation_pretend",
@@ -376,7 +372,7 @@ class PromptInjectionDetector:
         ),
         (
             re.compile(
-                r'(?:you\s+are\s+(?:not|no\s+longer)\s+(?:an?\s+)?(?:AI|assistant|language\s+model|chatbot))',
+                r"(?:you\s+are\s+(?:not|no\s+longer)\s+(?:an?\s+)?(?:AI|assistant|language\s+model|chatbot))",
                 re.IGNORECASE,
             ),
             "role_denial",
@@ -385,10 +381,10 @@ class PromptInjectionDetector:
         # 分隔符注入类
         (
             re.compile(
-                r'{system_message}|{user_message}|{assistant_message}|'
-                r'<system>|<user>|<assistant>|'
-                r'\[SYSTEM\]|\[USER\]|\[ASSISTANT\]|'
-                r'<\/?system>|<\/?user>|<\/?assistant>',
+                r"{system_message}|{user_message}|{assistant_message}|"
+                r"<system>|<user>|<assistant>|"
+                r"\[SYSTEM\]|\[USER\]|\[ASSISTANT\]|"
+                r"<\/?system>|<\/?user>|<\/?assistant>",
                 re.IGNORECASE,
             ),
             "delimiter_injection_tags",
@@ -396,7 +392,7 @@ class PromptInjectionDetector:
         ),
         (
             re.compile(
-                r'---\s*SYSTEM\s*---|---\s*USER\s*---|---\s*ASSISTANT\s*---',
+                r"---\s*SYSTEM\s*---|---\s*USER\s*---|---\s*ASSISTANT\s*---",
                 re.IGNORECASE,
             ),
             "delimiter_injection_markdown",
@@ -405,9 +401,9 @@ class PromptInjectionDetector:
         # 越狱尝试类
         (
             re.compile(
-                r'(?:do\s+anything\s+now|developer\s+mode|god\s+mode|'
-                r'jailbreak|no\s+restrictions?|no\s+limitations?|'
-                r'no\s+ethical?\s+(?:restrictions?|limitations?|guidelines?))',
+                r"(?:do\s+anything\s+now|developer\s+mode|god\s+mode|"
+                r"jailbreak|no\s+restrictions?|no\s+limitations?|"
+                r"no\s+ethical?\s+(?:restrictions?|limitations?|guidelines?))",
                 re.IGNORECASE,
             ),
             "jailbreak_attempt",
@@ -415,8 +411,8 @@ class PromptInjectionDetector:
         ),
         (
             re.compile(
-                r'(?:respond\s+as\s+(?:if\s+)?(?:you\s+(?:are|have)\s+)?'
-                r'(?:evil|malicious|unethical|immoral|dangerous|toxic|racist|sexist))',
+                r"(?:respond\s+as\s+(?:if\s+)?(?:you\s+(?:are|have)\s+)?"
+                r"(?:evil|malicious|unethical|immoral|dangerous|toxic|racist|sexist))",
                 re.IGNORECASE,
             ),
             "jailbreak_unethical_role",
@@ -425,17 +421,17 @@ class PromptInjectionDetector:
         # 中文注入模式
         (
             re.compile(
-                r'(?:忽略|无视|忘记|覆盖|绕过)\s*'
-                r'(?:所有|之前的|上面的|前面的|系统的)?\s*'
-                r'(?:指令|提示|规则|命令|要求)',
+                r"(?:忽略|无视|忘记|覆盖|绕过)\s*"
+                r"(?:所有|之前的|上面的|前面的|系统的)?\s*"
+                r"(?:指令|提示|规则|命令|要求)",
             ),
             "instruction_override_cn",
             0.9,
         ),
         (
             re.compile(
-                r'(?:从现在开始|从现在起|接下来|现在)\s*'
-                r'(?:你是|你作为|你扮演|你假装|你充当)',
+                r"(?:从现在开始|从现在起|接下来|现在)\s*"
+                r"(?:你是|你作为|你扮演|你假装|你充当)",
             ),
             "role_manipulation_cn",
             0.8,
@@ -443,10 +439,10 @@ class PromptInjectionDetector:
         # 上下文泄露尝试
         (
             re.compile(
-                r'(?:reveal|show|display|print|output|tell\s+me)\s+'
-                r'(?:your\s+)?(?:system\s+(?:prompt|message|instructions?)|'
-                r'(?:original|initial|base)\s+(?:prompt|instructions?)|'
-                r'hidden\s+(?:instructions?|prompt|rules?))',
+                r"(?:reveal|show|display|print|output|tell\s+me)\s+"
+                r"(?:your\s+)?(?:system\s+(?:prompt|message|instructions?)|"
+                r"(?:original|initial|base)\s+(?:prompt|instructions?)|"
+                r"hidden\s+(?:instructions?|prompt|rules?))",
                 re.IGNORECASE,
             ),
             "context_leak_attempt",
@@ -454,9 +450,9 @@ class PromptInjectionDetector:
         ),
         (
             re.compile(
-                r'(?:泄露|透露|显示|输出|告诉我)\s*'
-                r'(?:你的|原始的|初始的|系统的|隐藏的)?\s*'
-                r'(?:提示词|指令|系统消息|规则)',
+                r"(?:泄露|透露|显示|输出|告诉我)\s*"
+                r"(?:你的|原始的|初始的|系统的|隐藏的)?\s*"
+                r"(?:提示词|指令|系统消息|规则)",
             ),
             "context_leak_attempt_cn",
             0.85,
@@ -481,7 +477,7 @@ class PromptInjectionDetector:
         if not text:
             return result
 
-        detected_patterns: List[str] = []
+        detected_patterns: list[str] = []
         max_score: float = 0.0
 
         for pattern, pattern_name, weight in self.INJECTION_PATTERNS:
@@ -501,7 +497,7 @@ class PromptInjectionDetector:
 
         return result
 
-    def detect_detailed(self, text: str) -> Dict[str, Any]:
+    def detect_detailed(self, text: str) -> dict[str, Any]:
         """
         返回详细的注入检测结果，包括每个匹配到的模式及其位置。
 
@@ -512,7 +508,7 @@ class PromptInjectionDetector:
             Dict: 包含详细检测结果
         """
         result = self.detect(text)
-        details: Dict[str, Any] = {
+        details: dict[str, Any] = {
             "is_injection": result.is_injection,
             "risk_score": result.risk_score,
             "detected_patterns": result.detected_patterns,
@@ -524,13 +520,15 @@ class PromptInjectionDetector:
 
         for pattern, pattern_name, weight in self.INJECTION_PATTERNS:
             for match in pattern.finditer(text):
-                details["matches"].append({
-                    "pattern": pattern_name,
-                    "weight": weight,
-                    "start": match.start(),
-                    "end": match.end(),
-                    "matched_text": match.group(),
-                })
+                details["matches"].append(
+                    {
+                        "pattern": pattern_name,
+                        "weight": weight,
+                        "start": match.start(),
+                        "end": match.end(),
+                        "matched_text": match.group(),
+                    }
+                )
 
         return details
 
@@ -538,6 +536,7 @@ class PromptInjectionDetector:
 # =============================================================================
 # 敏感内容检测器 (Sensitive Content Detector)
 # =============================================================================
+
 
 class SensitiveContentDetector:
     """
@@ -556,26 +555,64 @@ class SensitiveContentDetector:
     """
 
     # 敏感内容关键词分类
-    SENSITIVE_KEYWORDS: Dict[str, List[str]] = {
+    SENSITIVE_KEYWORDS: dict[str, list[str]] = {
         "violence": [
-            "杀人", "杀死", "谋杀", "屠杀", "绑架", "爆炸", "恐怖袭击",
-            "kill", "murder", "bomb", "terrorist", "massacre",
+            "杀人",
+            "杀死",
+            "谋杀",
+            "屠杀",
+            "绑架",
+            "爆炸",
+            "恐怖袭击",
+            "kill",
+            "murder",
+            "bomb",
+            "terrorist",
+            "massacre",
         ],
         "hate_speech": [
-            "种族歧视", "种族主义", "纳粹", "法西斯",
-            "racist", "racism", "nazi", "fascist",
+            "种族歧视",
+            "种族主义",
+            "纳粹",
+            "法西斯",
+            "racist",
+            "racism",
+            "nazi",
+            "fascist",
         ],
         "sexual_content": [
-            "色情", "淫秽", "裸体", "成人内容",
-            "porn", "pornography", "nude", "explicit",
+            "色情",
+            "淫秽",
+            "裸体",
+            "成人内容",
+            "porn",
+            "pornography",
+            "nude",
+            "explicit",
         ],
         "illegal_info": [
-            "毒品", "贩毒", "走私", "洗钱", "诈骗", "黑客",
-            "drug", "trafficking", "smuggling", "hacking", "fraud",
+            "毒品",
+            "贩毒",
+            "走私",
+            "洗钱",
+            "诈骗",
+            "黑客",
+            "drug",
+            "trafficking",
+            "smuggling",
+            "hacking",
+            "fraud",
         ],
         "self_harm": [
-            "自杀", "自残", "割腕", "跳楼", "上吊",
-            "suicide", "self-harm", "self-harm", "kill myself",
+            "自杀",
+            "自残",
+            "割腕",
+            "跳楼",
+            "上吊",
+            "suicide",
+            "self-harm",
+            "self-harm",
+            "kill myself",
         ],
     }
 
@@ -617,6 +654,7 @@ class SensitiveContentDetector:
 # 上下文分区器 (Context Partitioner)
 # =============================================================================
 
+
 class ContextPartitioner:
     """
     上下文分区器。
@@ -638,17 +676,17 @@ class ContextPartitioner:
     """
 
     # 分区边界标记
-    USER_BACKGROUND_START = '<user_background>'
-    USER_BACKGROUND_END = '</user_background>'
+    USER_BACKGROUND_START = "<user_background>"
+    USER_BACKGROUND_END = "</user_background>"
 
-    RAG_EVIDENCE_START = '<rag_evidence>'
-    RAG_EVIDENCE_END = '</rag_evidence>'
+    RAG_EVIDENCE_START = "<rag_evidence>"
+    RAG_EVIDENCE_END = "</rag_evidence>"
 
-    TOOL_RESULTS_START = '<tool_results>'
-    TOOL_RESULTS_END = '</tool_results>'
+    TOOL_RESULTS_START = "<tool_results>"
+    TOOL_RESULTS_END = "</tool_results>"
 
     # 分区标记（声明性分隔符，不被解析）
-    SECTION_BOUNDARY = '---CONTEXT_BOUNDARY---'
+    SECTION_BOUNDARY = "---CONTEXT_BOUNDARY---"
 
     # 允许的分区名称
     VALID_PARTITIONS = {"user_background", "rag_evidence", "tool_results"}
@@ -700,10 +738,10 @@ class ContextPartitioner:
 
     def build_context(
         self,
-        user_background: Optional[str] = None,
-        rag_evidence: Optional[str] = None,
-        tool_results: Optional[str] = None,
-        user_query: Optional[str] = None,
+        user_background: str | None = None,
+        rag_evidence: str | None = None,
+        tool_results: str | None = None,
+        user_query: str | None = None,
     ) -> str:
         """
         构建完整的分区上下文，将所有上下文组件按正确顺序组装。
@@ -723,7 +761,7 @@ class ContextPartitioner:
         Returns:
             str: 组装后的完整上下文
         """
-        parts: List[str] = []
+        parts: list[str] = []
 
         if user_background:
             parts.append(self.wrap_user_background(user_background))
@@ -741,7 +779,7 @@ class ContextPartitioner:
         logger.debug("构建上下文分区完成，共 %d 个分区", len(parts))
         return result
 
-    def extract_partition(self, text: str, partition_name: str) -> Optional[str]:
+    def extract_partition(self, text: str, partition_name: str) -> str | None:
         """
         从已分区的文本中提取指定分区的内容。
 
@@ -791,7 +829,10 @@ class ContextPartitioner:
             if start_count != end_count:
                 logger.warning(
                     "分区标记不匹配: %s 出现 %d 次, %s 出现 %d 次",
-                    start_tag, start_count, end_tag, end_count,
+                    start_tag,
+                    start_count,
+                    end_tag,
+                    end_count,
                 )
                 return False
 
@@ -805,6 +846,7 @@ class ContextPartitioner:
 # =============================================================================
 # 安全守卫 (Security Guard) - 统一编排
 # =============================================================================
+
 
 class SecurityGuard:
     """
@@ -832,10 +874,10 @@ class SecurityGuard:
 
     def __init__(
         self,
-        pii_detector: Optional[PIIDetector] = None,
-        injection_detector: Optional[PromptInjectionDetector] = None,
-        sensitive_detector: Optional[SensitiveContentDetector] = None,
-        context_partitioner: Optional[ContextPartitioner] = None,
+        pii_detector: PIIDetector | None = None,
+        injection_detector: PromptInjectionDetector | None = None,
+        sensitive_detector: SensitiveContentDetector | None = None,
+        context_partitioner: ContextPartitioner | None = None,
     ) -> None:
         """
         初始化安全守卫，可选注入自定义检测器实例。
@@ -861,7 +903,7 @@ class SecurityGuard:
         check_sensitive: bool = True,
         mask_pii: bool = True,
         injection_threshold: float = 0.7,
-        user_background: Optional[str] = None,
+        user_background: str | None = None,
     ) -> SecurityCheckResult:
         """
         对用户输入进行全面的安全检查。
@@ -920,9 +962,7 @@ class SecurityGuard:
             sensitive_result = self.sensitive_detector.detect(text)
             result.sensitive_result = sensitive_result
             if sensitive_result.has_sensitive:
-                result.warnings.append(
-                    f"检测到敏感内容: {sensitive_result.categories}"
-                )
+                result.warnings.append(f"检测到敏感内容: {sensitive_result.categories}")
                 result.safe = False
 
         # 如果未设置 sanitized_text，使用原始文本
@@ -967,10 +1007,10 @@ class SecurityGuard:
     def build_safe_context(
         self,
         user_background: str,
-        rag_evidence: Optional[str] = None,
-        tool_results: Optional[str] = None,
-        user_query: Optional[str] = None,
-    ) -> Tuple[str, SecurityCheckResult]:
+        rag_evidence: str | None = None,
+        tool_results: str | None = None,
+        user_query: str | None = None,
+    ) -> tuple[str, SecurityCheckResult]:
         """
         构建安全的上下文分区，并对用户查询进行安全检查。
 
@@ -1016,7 +1056,7 @@ class SecurityGuard:
         """
         return self.context_partitioner.validate_partition_integrity(context)
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """
         获取安全守卫的配置摘要。
 

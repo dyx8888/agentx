@@ -18,15 +18,14 @@ logger = get_logger(__name__)
 
 
 def _redact_url(url: str) -> str:
-    """Redact sensitive query parameter values before URLs are written to logs."""
+    """脱敏 URL 中的敏感 query 参数（token、password、secret、key、api_key 等）。
+
+    避免日志中明文记录凭据类参数，仅保留参数名，值替换为 ***。
+    """
     if not url:
         return url
-    return re.sub(
-        r"([?&](?:token|password|secret|key|api_key)=)[^&]+",
-        r"\1***",
-        url,
-        flags=re.IGNORECASE,
-    )
+    # 命中 token/password/secret/key/api_key 等参数，将其值替换为 ***
+    return re.sub(r"(token|password|secret|key|api_key)=[^&]+", r"\1=***", url, flags=re.IGNORECASE)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -96,41 +95,57 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             )
 
             from fastapi.responses import JSONResponse
+
+            # 不向客户端返回异常详情（可能泄露堆栈/SQL/文件路径），
+            # 异常详情已通过上方 logger.exception 记录到服务端日志。
+            # 与 app/main.py 的 general_exception_handler 行为保持一致。
             return JSONResponse({"error": "Internal server error"}, status_code=500)
         finally:
             structlog.contextvars.clear_contextvars()
 
 
 class HealthCheckMiddleware(BaseHTTPMiddleware):
-    """Middleware to provide enhanced health check endpoints"""
+    """Middleware to provide liveness and readiness endpoints."""
 
     def __init__(self, app, health_paths: list = None):
         super().__init__(app)
-        self.health_paths = health_paths or ["/health", "/health/", "/health/db", "/health/redis"]
+        self.liveness_paths = health_paths or ["/health", "/health/", "/health/db", "/health/redis"]
+        self.readiness_paths = ["/ready", "/ready/"]
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        """Handle health check requests"""
-        if str(request.url.path) in self.health_paths:
-            return await self._health_check(request)
+        """Handle health/readiness check requests."""
+        path = str(request.url.path)
+        if path in self.readiness_paths:
+            return await self._health_check(request, readiness=True)
+        if path in self.liveness_paths:
+            return await self._health_check(request, readiness=False)
 
         return await call_next(request)
 
-    async def _health_check(self, request: Request) -> Response:
-        """Perform comprehensive health check"""
+    async def _health_check(self, request: Request, readiness: bool = False) -> Response:
+        """Perform health checks with strict dependency gates for /ready."""
         import os
 
         from fastapi.responses import JSONResponse
 
+        vector_db = os.getenv("VECTOR_DB", "milvus").strip().lower()
+        milvus_host = os.getenv("MILVUS_HOST")
+        milvus_port = os.getenv("MILVUS_PORT", "19530")
+        milvus_collection = os.getenv("MILVUS_COLLECTION", "company_knowledge")
+
         health_status = {
-            "status": "healthy",
+            "status": "checking",
+            "overall": "checking",
+            "probe": "readiness" if readiness else "liveness",
             "service": "agentx-backend",
             "timestamp": time.time(),
-            "version": "1.0.0"
+            "version": "1.0.0",
         }
 
         # Check database health
         try:
             from app.database import db
+
             db_status = db.health_check()
             health_status["database"] = db_status
         except Exception as e:
@@ -141,6 +156,7 @@ class HealthCheckMiddleware(BaseHTTPMiddleware):
         if redis_url:
             try:
                 from app.messaging.redis_queue import get_redis_queue
+
                 redis_queue = get_redis_queue()
                 if redis_queue and redis_queue.is_available():
                     # Test Redis operations
@@ -148,7 +164,7 @@ class HealthCheckMiddleware(BaseHTTPMiddleware):
                     health_status["redis"] = {
                         "status": "healthy",
                         "queue_length": queue_length,
-                        "url": redis_url.split('@')[-1] if '@' in redis_url else redis_url
+                        "url": redis_url.split("@")[-1] if "@" in redis_url else redis_url,
                     }
                 else:
                     health_status["redis"] = {"status": "unavailable", "url": redis_url}
@@ -157,33 +173,128 @@ class HealthCheckMiddleware(BaseHTTPMiddleware):
         else:
             health_status["redis"] = {"status": "not_configured"}
 
+        # Check Milvus health when vector search is configured for Milvus.
+        if vector_db == "milvus" and milvus_host:
+            try:
+                from pymilvus import MilvusClient
+
+                client = MilvusClient(
+                    uri=f"http://{milvus_host}:{milvus_port}",
+                    timeout=2,
+                )
+                collections = client.list_collections()
+                collection_exists = milvus_collection in collections if milvus_collection else False
+                milvus_status = "healthy"
+                milvus_error = None
+                query_probe = {"status": "skipped", "reason": "liveness_probe"}
+                if readiness and milvus_collection and not collection_exists:
+                    milvus_status = "unhealthy"
+                    milvus_error = "MILVUS_COLLECTION is not present"
+                    query_probe = {"status": "skipped", "reason": "collection_missing"}
+                elif readiness and milvus_collection and collection_exists:
+                    try:
+                        # Collection existence alone misses shard/channel failures that only
+                        # surface during real query/search operations. A bounded read-only
+                        # query gives /ready a stronger signal without requiring embeddings.
+                        probe_rows = client.query(
+                            collection_name=milvus_collection,
+                            filter='id != ""',
+                            output_fields=["id"],
+                            limit=1,
+                            timeout=2,
+                        )
+                        query_probe = {
+                            "status": "healthy",
+                            "row_count": len(probe_rows or []),
+                        }
+                    except Exception as probe_exc:
+                        milvus_status = "unhealthy"
+                        milvus_error = f"MILVUS_COLLECTION query probe failed: {probe_exc}"
+                        query_probe = {"status": "unhealthy", "error": str(probe_exc)}
+                client.close()
+                health_status["milvus"] = {
+                    "status": milvus_status,
+                    "host": milvus_host,
+                    "port": milvus_port,
+                    "collection": milvus_collection,
+                    "collection_count": len(collections),
+                    "collection_exists": collection_exists,
+                    "query_probe": query_probe,
+                }
+                if milvus_error:
+                    health_status["milvus"]["error"] = milvus_error
+            except ImportError:
+                health_status["milvus"] = {
+                    "status": "unhealthy",
+                    "error": "pymilvus_not_installed",
+                }
+            except Exception as e:
+                health_status["milvus"] = {"status": "unhealthy", "error": str(e)}
+        elif vector_db == "milvus":
+            health_status["milvus"] = {
+                "status": "not_configured",
+                "error": "MILVUS_HOST is not set",
+            }
+        else:
+            health_status["milvus"] = {"status": "not_configured", "backend": vector_db}
+
+        runtime = getattr(request.app.state, "runtime", None)
+        runtime_initialized = getattr(runtime, "initialized", None) if runtime is not None else None
+        chat_agent_ready = runtime_initialized if isinstance(runtime_initialized, bool) else False
+        health_status["chat_agent"] = {
+            "status": "ready" if chat_agent_ready else "not_initialized",
+            "initialized": chat_agent_ready,
+        }
+
         # Check environment variables
         health_status["environment"] = {
             "tool_load_mode": os.getenv("TOOL_LOAD_MODE", "local"),
             "run_as_http_service": os.getenv("RUN_AS_HTTP_SERVICE", "false"),
             "database_configured": bool(os.getenv("DATABASE_URL")),
-            "redis_configured": bool(redis_url)
+            "redis_configured": bool(redis_url),
+            "vector_db": vector_db,
+            "milvus_configured": bool(milvus_host),
+            "milvus_collection_configured": bool(milvus_collection),
         }
 
-        # Determine overall status
+        # Determine overall status. Redis can be absent in local/dev because it
+        # has in-memory fallbacks. Milvus is different: when VECTOR_DB=milvus,
+        # it is the declared RAG vector backend, so "not_configured" must not be
+        # reported as production-ready healthy.
         db_healthy = health_status.get("database", {}).get("status") == "healthy"
-        redis_healthy = health_status.get("redis", {}).get("status") in ["healthy", "not_configured"]
+        redis_healthy = health_status.get("redis", {}).get("status") in [
+            "healthy",
+            "not_configured",
+        ]
+        milvus_status = health_status.get("milvus", {}).get("status")
+        if vector_db == "milvus":
+            milvus_healthy = milvus_status == "healthy"
+        else:
+            milvus_healthy = milvus_status in ["healthy", "not_configured"]
 
-        if db_healthy and redis_healthy:
+        dependency_ready = db_healthy and redis_healthy and milvus_healthy
+        ready = dependency_ready and chat_agent_ready
+        health_status["ready"] = ready
+        health_status["readiness"] = "ready" if ready else "not_ready"
+
+        if readiness:
+            status_code = 200 if ready else 503
+            health_status["status"] = "ready" if ready else "not_ready"
+            health_status["overall"] = "healthy" if ready else "degraded"
+        elif dependency_ready and chat_agent_ready:
             status_code = 200
+            health_status["status"] = "healthy"
             health_status["overall"] = "healthy"
         else:
-            status_code = 503
-            health_status["overall"] = "unhealthy"
+            status_code = 200
+            health_status["status"] = "degraded"
+            health_status["overall"] = "degraded"
 
-        return JSONResponse(
-            content=health_status,
-            status_code=status_code
-        )
+        return JSONResponse(content=health_status, status_code=status_code)
 
 
 # Metrics storage for monitoring
-class MetricsCollector:
+class SimpleMetricsCollector:
     """Simple metrics collector for monitoring"""
 
     def __init__(self):
@@ -192,7 +303,7 @@ class MetricsCollector:
             "requests_errors": 0,
             "response_time_sum": 0.0,
             "response_time_count": 0,
-            "active_connections": 0
+            "active_connections": 0,
         }
         self.start_time = time.time()
 
@@ -212,7 +323,8 @@ class MetricsCollector:
 
         avg_response_time = (
             self.metrics["response_time_sum"] / self.metrics["response_time_count"]
-            if self.metrics["response_time_count"] > 0 else 0
+            if self.metrics["response_time_count"] > 0
+            else 0
         )
 
         return {
@@ -221,10 +333,11 @@ class MetricsCollector:
             "requests_errors": self.metrics["requests_errors"],
             "error_rate": (
                 self.metrics["requests_errors"] / self.metrics["requests_total"]
-                if self.metrics["requests_total"] > 0 else 0
+                if self.metrics["requests_total"] > 0
+                else 0
             ),
             "avg_response_time": avg_response_time,
-            "active_connections": self.metrics["active_connections"]
+            "active_connections": self.metrics["active_connections"],
         }
 
     def increment_connections(self):
@@ -237,10 +350,10 @@ class MetricsCollector:
 
 
 # Global metrics collector
-_metrics_collector = MetricsCollector()
+_metrics_collector = SimpleMetricsCollector()
 
 
-def get_metrics_collector() -> MetricsCollector:
+def get_metrics_collector() -> SimpleMetricsCollector:
     """Get global metrics collector instance"""
     return _metrics_collector
 
