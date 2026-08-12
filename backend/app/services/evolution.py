@@ -11,8 +11,9 @@ AI 自动进化引擎 (Phase 7)
   - 睡眠巩固: 定时/阈值触发, 摘要压缩 + 去重 + 模式提取 → 长期记忆
   - 反馈驱动进化: 审核决策 → 偏好提取 → 上下文注入
   - Skill 自动优化: 历史任务分析 → 优化建议 → 人工审核
-  - LoRA 微调框架: 数据准备 → 训练 → A/B 测试 → 部署切换
-"""  # AI自动进化引擎：通过记忆系统、反馈学习和模型微调实现Agent的持续自我优化
+
+注：LoRA 微调框架已移除（T2.6），保留 user_lora 表结构与历史数据，企业版/未来再启用
+"""  # AI自动进化引擎：通过记忆系统、反馈学习实现Agent的持续自我优化
 
 import threading  # 用于所有引擎的线程锁和定时器线程
 import time  # 用于生成唯一ID中的时间戳和定时器间隔
@@ -35,11 +36,9 @@ class EvolutionEventType(StrEnum):  # 进化事件类型枚举，用于全量演
     CONFIG_CHANGE = "config_change"  # 配置变更：人工调整Agent参数
     MEMORY_CONSOLIDATION = "memory_consolidation"  # 记忆巩固：睡眠引擎执行压缩
     SKILL_UPDATE = "skill_update"  # Skill更新：优化建议被采纳并部署
-    MODEL_SWITCH = "model_switch"  # 模型切换：路由策略或LoRA部署变更
+    MODEL_SWITCH = "model_switch"  # 模型切换：路由策略变更
     FEEDBACK_APPLIED = "feedback_applied"  # 反馈应用：审核意见被提取为偏好
     PATTERN_EXTRACTED = "pattern_extracted"  # 模式提取：从记忆中识别出重复模式
-    LORA_TRAINING = "lora_training"  # LoRA训练：微调任务开始或更新
-    LORA_DEPLOY = "lora_deploy"  # LoRA部署：微调模型上线
     OPTIMIZATION_SUGGESTION = "optimization_suggestion"  # 优化建议：Skill优化引擎生成建议
 
 
@@ -49,6 +48,7 @@ class EvolutionEventType(StrEnum):  # 进化事件类型枚举，用于全量演
 @dataclass  # 使用dataclass，因为WorkingMemory是纯数据载体
 class WorkingMemory:  # 工作记忆：仅存在于单次任务生命周期，任务结束后丢弃
     """工作记忆: Agent 运行时上下文, 单次任务生命周期内有效"""
+
     agent_key: str = ""  # Agent标识
     company_id: int = 0  # 企业ID
     task_id: str = ""  # 任务唯一标识
@@ -63,6 +63,7 @@ class WorkingMemory:  # 工作记忆：仅存在于单次任务生命周期，�
 @dataclass  # 使用dataclass，因为ShortTermMemory是纯数据载体
 class ShortTermMemory:  # 短期记忆：存储在PostgreSQL+Redis中，保留7-30天
     """短期记忆: PostgreSQL + Redis 存储, 7-30天保留, 记录型数据"""
+
     id: str = ""  # 唯一标识
     company_id: int = 0  # 企业ID，用于多租户隔离
     agent_key: str = ""  # Agent标识
@@ -76,13 +77,17 @@ class ShortTermMemory:  # 短期记忆：存储在PostgreSQL+Redis中，保留7-
     tokens_used: int = 0  # 消耗的token数
     duration_seconds: float = 0.0  # 任务耗时（秒）
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())  # 创建时间
-    expires_at: str = field(default_factory=lambda: (  # 过期时间，默认30天后自动清理
-        datetime.utcnow() + timedelta(days=30)).isoformat())
+    expires_at: str = field(
+        default_factory=lambda: (  # 过期时间，默认30天后自动清理
+            datetime.utcnow() + timedelta(days=30)
+        ).isoformat()
+    )
 
 
 @dataclass  # 使用dataclass，因为LongTermMemory是纯数据载体
 class LongTermMemory:  # 长期记忆：存储在Milvus向量库，半永久保留
     """长期记忆: Milvus 向量存储, 半永久保留, 压缩后的知识模式"""
+
     id: str = ""  # 唯一标识
     company_id: int = 0  # 企业ID
     agent_key: str = ""  # Agent标识
@@ -151,16 +156,22 @@ class MemoryAutoWriter:  # 记忆自动写入器：Agent任务完成后自动生
         )
         return memory
 
-    def _generate_summary(self, messages: list, output: str) -> str:  # 基于规则生成简单摘要，不依赖LLM
+    def _generate_summary(
+        self, messages: list, output: str
+    ) -> str:  # 基于规则生成简单摘要，不依赖LLM
         lines = []
         lines.append(f"任务输出摘要: {output[:200]}")  # 截取输出前200字符
         if messages:  # 仅在有消息时提取用户需求
             human_msgs = [m for m in messages if m.get("role") == "user"]
             if human_msgs:
-                lines.append(f"用户需求: {human_msgs[-1].get('content', '')[:150]}")  # 取最后一条用户消息的前150字符
+                lines.append(
+                    f"用户需求: {human_msgs[-1].get('content', '')[:150]}"
+                )  # 取最后一条用户消息的前150字符
         return " | ".join(lines)  # 用分隔符连接，简洁明确
 
-    def _extract_decisions(self, messages: list, output: str) -> list[str]:  # 从消息中提取关键决策关键词
+    def _extract_decisions(
+        self, messages: list, output: str
+    ) -> list[str]:  # 从消息中提取关键决策关键词
         decisions = []
         for m in messages:
             content = m.get("content", "")
@@ -175,7 +186,7 @@ class MemoryAutoWriter:  # 记忆自动写入器：Agent任务完成后自动生
     def _persist_to_db(self, memory: ShortTermMemory):  # 持久化到数据库，使用延迟导入
         try:
             agent_runtime = _get_agent_runtime()  # 获取运行时实例
-            if agent_runtime and hasattr(agent_runtime, 'store_memory'):  # 防御性检查
+            if agent_runtime and hasattr(agent_runtime, "store_memory"):  # 防御性检查
                 agent_runtime.store_memory(
                     memory.company_id,
                     memory.id,
@@ -190,9 +201,11 @@ class MemoryAutoWriter:  # 记忆自动写入器：Agent任务完成后自动生
     def _cache_to_redis(self, memory: ShortTermMemory):  # 缓存到Redis，7天过期
         try:
             from app.services.session_store import get_session_store  # 延迟导入，避免循环依赖
+
             store = get_session_store()
             memory_key = f"stm:{memory.company_id}:{memory.agent_key}:latest"  # 使用命名空间前缀
             import json  # 仅在需要时导入
+
             data = {
                 "id": memory.id,
                 "summary": memory.summary[:500],  # 截取摘要，Redis中存储精简版
@@ -200,7 +213,18 @@ class MemoryAutoWriter:  # 记忆自动写入器：Agent任务完成后自动生
                 "tokens_used": memory.tokens_used,
                 "created_at": memory.created_at,
             }
-            store.set_cache(memory_key, json.dumps(data, ensure_ascii=False), 7 * 86400)  # 7天TTL
+            # session_store.set_cache 已改为 async，这里用 create_task 非阻塞调用
+            # 调用方是同步方法，无法 await；用 create_task 把协程调度到事件循环上执行
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(
+                    store.set_cache(memory_key, json.dumps(data, ensure_ascii=False), 7 * 86400)
+                )  # 7天TTL
+            except RuntimeError:
+                # 没有运行中的事件循环（如同步线程中调用），跳过 Redis 缓存
+                pass
         except Exception:  # Redis缓存失败不影响主流程
             pass
 
@@ -230,8 +254,12 @@ class SleepConsolidationEngine:  # 睡眠巩固引擎：模拟人类睡眠记忆
         interval_hours: int | None = None,
         threshold_count: int | None = None,
     ):
-        self.interval_hours = interval_hours if interval_hours is not None else self.DEFAULT_INTERVAL_HOURS  # 使用None而非or，因为0是合法值
-        self.threshold_count = threshold_count if threshold_count is not None else self.DEFAULT_THRESHOLD_COUNT
+        self.interval_hours = (
+            interval_hours if interval_hours is not None else self.DEFAULT_INTERVAL_HOURS
+        )  # 使用None而非or，因为0是合法值
+        self.threshold_count = (
+            threshold_count if threshold_count is not None else self.DEFAULT_THRESHOLD_COUNT
+        )
         self._last_consolidation: dict[int, str] = {}  # 记录每个企业的最后巩固时间
         self._short_term_counts: dict[int, int] = {}  # 记录每个企业的短期记忆计数
         self._timer: threading.Timer | None = None  # 定时器实例
@@ -245,12 +273,14 @@ class SleepConsolidationEngine:  # 睡眠巩固引擎：模拟人类睡眠记忆
         last = self._last_consolidation.get(company_id)
         if last:  # 基于时间的间隔触发
             last_dt = datetime.fromisoformat(last)
-            if datetime.utcnow() - last_dt >= timedelta(hours=self.interval_hours):  # 超过间隔时间
-                return True
-            return False
+            return datetime.utcnow() - last_dt >= timedelta(
+                hours=self.interval_hours
+            )  # 超过间隔时间
         return True  # 从未巩固过，立即执行
 
-    def consolidate(self, company_id: int) -> dict:  # 执行一次巩固周期：获取→压缩→去重→提取模式→写入
+    def consolidate(
+        self, company_id: int
+    ) -> dict:  # 执行一次巩固周期：获取→压缩→去重→提取模式→写入
         memories = self._fetch_short_term_memories(company_id)  # 获取短期记忆
         if not memories:  # 无记忆时跳过
             return {"status": "no_memories", "company_id": company_id}
@@ -285,12 +315,15 @@ class SleepConsolidationEngine:  # 睡眠巩固引擎：模拟人类睡眠记忆
             ],
         }
 
-    def _fetch_short_term_memories(self, company_id: int) -> list[dict]:  # 从AgentRuntime获取近期记忆
+    def _fetch_short_term_memories(
+        self, company_id: int
+    ) -> list[dict]:  # 从AgentRuntime获取近期记忆
         try:
             agent_runtime = _get_agent_runtime()
-            if agent_runtime and hasattr(agent_runtime, 'get_recent_memories'):  # 防御性检查
+            if agent_runtime and hasattr(agent_runtime, "get_recent_memories"):  # 防御性检查
                 return agent_runtime.get_recent_memories(
-                    company_id, limit=self.DEFAULT_MAX_BATCH  # 限制批量大小
+                    company_id,
+                    limit=self.DEFAULT_MAX_BATCH,  # 限制批量大小
                 )
         except Exception as e:
             logger.warning("fetch_memories_failed", error=str(e))
@@ -305,21 +338,25 @@ class SleepConsolidationEngine:  # 睡眠巩固引擎：模拟人类睡眠记忆
             if content_hash in seen_hashes:  # 重复则跳过
                 continue
             seen_hashes.add(content_hash)
-            compressed.append({  # 提取关键字段，丢弃无关数据
-                "id": mem.get("id", ""),
-                "agent_key": mem.get("agent_key", ""),
-                "summary": summary,
-                "outcome": mem.get("outcome", ""),
-                "errors": mem.get("errors", []),
-                "duration": mem.get("duration_seconds", 0),
-                "tokens": mem.get("tokens_used", 0),
-            })
+            compressed.append(
+                {  # 提取关键字段，丢弃无关数据
+                    "id": mem.get("id", ""),
+                    "agent_key": mem.get("agent_key", ""),
+                    "summary": summary,
+                    "outcome": mem.get("outcome", ""),
+                    "errors": mem.get("errors", []),
+                    "duration": mem.get("duration_seconds", 0),
+                    "tokens": mem.get("tokens_used", 0),
+                }
+            )
         return compressed
 
     def _deduplicate(self, memories: list[dict]) -> list[dict]:  # 二次去重，当前为透传，预留扩展
         return memories  # 当前直接返回，未来可增加语义级别的去重
 
-    def _extract_patterns(self, memories: list[dict], company_id: int) -> list[dict]:  # 从记忆中提取性能模式和错误模式
+    def _extract_patterns(
+        self, memories: list[dict], company_id: int
+    ) -> list[dict]:  # 从记忆中提取性能模式和错误模式
         patterns = []
         agent_groups: dict[str, list] = {}  # 按Agent分组
         for mem in memories:
@@ -341,42 +378,54 @@ class SleepConsolidationEngine:  # 睡眠巩固引擎：模拟人类睡眠记忆
             for m in group:
                 for err in m.get("errors", []):
                     common_errors[err] = common_errors.get(err, 0) + 1
-            top_errors = sorted(common_errors.items(), key=lambda x: x[1], reverse=True)[:3]  # 取前3高频错误
+            top_errors = sorted(common_errors.items(), key=lambda x: x[1], reverse=True)[
+                :3
+            ]  # 取前3高频错误
 
-            patterns.append({  # 性能模式
-                "company_id": company_id,
-                "agent_key": agent_key,
-                "type": "performance_pattern",
-                "summary": (
-                    f"{agent_key} 近{len(group)}次任务: "
-                    f"成功率{success_rate:.0%}, "
-                    f"平均耗时{avg_duration:.1f}s, "
-                    f"平均Token{avg_tokens:.0f}"
-                ),
-                "confidence": min(0.5 + success_rate * 0.5, 0.95),  # 置信度基于成功率，上限0.95
-                "metrics": {
-                    "task_count": len(group),
-                    "success_rate": success_rate,
-                    "avg_duration_seconds": avg_duration,
-                    "avg_tokens": avg_tokens,
-                    "common_errors": top_errors,
-                },
-            })
-
-            if top_errors and top_errors[0][1] >= 2:  # 某错误出现至少2次才形成错误模式
-                patterns.append({
+            patterns.append(
+                {  # 性能模式
                     "company_id": company_id,
                     "agent_key": agent_key,
-                    "type": "error_pattern",
-                    "summary": f"{agent_key} 高频错误: {top_errors[0][0]} (出现{top_errors[0][1]}次)",
-                    "confidence": min(0.3 + top_errors[0][1] / len(group) * 0.5, 0.85),  # 置信度基于错误频率占比
-                    "common_errors": top_errors,
-                })
+                    "type": "performance_pattern",
+                    "summary": (
+                        f"{agent_key} 近{len(group)}次任务: "
+                        f"成功率{success_rate:.0%}, "
+                        f"平均耗时{avg_duration:.1f}s, "
+                        f"平均Token{avg_tokens:.0f}"
+                    ),
+                    "confidence": min(0.5 + success_rate * 0.5, 0.95),  # 置信度基于成功率，上限0.95
+                    "metrics": {
+                        "task_count": len(group),
+                        "success_rate": success_rate,
+                        "avg_duration_seconds": avg_duration,
+                        "avg_tokens": avg_tokens,
+                        "common_errors": top_errors,
+                    },
+                }
+            )
 
-        patterns.extend(self._extract_cross_agent_patterns(memories, company_id))  # 添加跨Agent协作模式
+            if top_errors and top_errors[0][1] >= 2:  # 某错误出现至少2次才形成错误模式
+                patterns.append(
+                    {
+                        "company_id": company_id,
+                        "agent_key": agent_key,
+                        "type": "error_pattern",
+                        "summary": f"{agent_key} 高频错误: {top_errors[0][0]} (出现{top_errors[0][1]}次)",
+                        "confidence": min(
+                            0.3 + top_errors[0][1] / len(group) * 0.5, 0.85
+                        ),  # 置信度基于错误频率占比
+                        "common_errors": top_errors,
+                    }
+                )
+
+        patterns.extend(
+            self._extract_cross_agent_patterns(memories, company_id)
+        )  # 添加跨Agent协作模式
         return patterns
 
-    def _extract_cross_agent_patterns(self, memories: list[dict], company_id: int) -> list[dict]:  # 提取跨Agent协作模式
+    def _extract_cross_agent_patterns(
+        self, memories: list[dict], company_id: int
+    ) -> list[dict]:  # 提取跨Agent协作模式
         agent_pairs: dict[tuple[str, str], int] = {}  # (agent_a, agent_b) → 共现次数
         for i, mem_a in enumerate(memories):
             for j, mem_b in enumerate(memories):
@@ -392,17 +441,23 @@ class SleepConsolidationEngine:  # 睡眠巩固引擎：模拟人类睡眠记忆
                 agent_pairs[pair] = agent_pairs.get(pair, 0) + 1
 
         cross_patterns = []
-        for (agent_a, agent_b), count in sorted(agent_pairs.items(), key=lambda x: x[1], reverse=True)[:3]:  # 取前3高频协作对
-            cross_patterns.append({
-                "company_id": company_id,
-                "agent_key": f"{agent_a}↔{agent_b}",
-                "type": "collaboration_pattern",
-                "summary": f"{agent_a} 与 {agent_b} 高频协作 ({count}次)",
-                "confidence": 0.7,  # 固定置信度，因为基于简单共现统计
-            })
+        for (agent_a, agent_b), count in sorted(
+            agent_pairs.items(), key=lambda x: x[1], reverse=True
+        )[:3]:  # 取前3高频协作对
+            cross_patterns.append(
+                {
+                    "company_id": company_id,
+                    "agent_key": f"{agent_a}↔{agent_b}",
+                    "type": "collaboration_pattern",
+                    "summary": f"{agent_a} 与 {agent_b} 高频协作 ({count}次)",
+                    "confidence": 0.7,  # 固定置信度，因为基于简单共现统计
+                }
+            )
         return cross_patterns
 
-    def _write_to_long_term(self, patterns: list[dict], company_id: int):  # 将提取的模式写入长期记忆
+    def _write_to_long_term(
+        self, patterns: list[dict], company_id: int
+    ):  # 将提取的模式写入长期记忆
         for pattern in patterns:
             memory = LongTermMemory(  # 转换为LongTermMemory对象
                 id=f"ltm_{company_id}_{pattern['agent_key']}_{int(time.time())}",
@@ -420,6 +475,7 @@ class SleepConsolidationEngine:  # 睡眠巩固引擎：模拟人类睡眠记忆
     def _store_long_term(self, memory: LongTermMemory):  # 通过公司上下文总线存储长期记忆
         try:
             from app.rag.company_context_bus import get_company_context_bus  # 延迟导入
+
             bus = get_company_context_bus(str(memory.company_id))  # 获取企业上下文总线
             if bus:
                 bus.record_experience(  # 记录为经验条目
@@ -431,7 +487,9 @@ class SleepConsolidationEngine:  # 睡眠巩固引擎：模拟人类睡眠记忆
         except Exception as e:
             logger.warning("ltm_bus_store_failed", error=str(e))
 
-    def _log_evolution(self, company_id: int, event_type: EvolutionEventType, detail: dict):  # 记录进化事件日志
+    def _log_evolution(
+        self, company_id: int, event_type: EvolutionEventType, detail: dict
+    ):  # 记录进化事件日志
         log = EvolutionLog(
             company_id=company_id,
             event_type=event_type,
@@ -468,7 +526,9 @@ class SleepConsolidationEngine:  # 睡眠巩固引擎：模拟人类睡眠记忆
             self._timer.cancel()  # 取消定时器
 
     def notify_new_memory(self, company_id: int):  # 通知有新记忆写入，触发阈值检查
-        self._short_term_counts[company_id] = self._short_term_counts.get(company_id, 0) + 1  # 计数+1
+        self._short_term_counts[company_id] = (
+            self._short_term_counts.get(company_id, 0) + 1
+        )  # 计数+1
         if self.should_consolidate(company_id):  # 达到阈值时立即巩固
             self.consolidate(company_id)
 
@@ -499,7 +559,7 @@ class EvolutionLogger:  # 全量进化日志记录器：内存缓存 + 数据库
         with self._lock:  # 线程安全地追加
             self._logs.append(log)
             if len(self._logs) > self._max_in_memory:  # 超过上限时丢弃最早的日志
-                self._logs = self._logs[-self._max_in_memory:]  # 保留最近的1000条
+                self._logs = self._logs[-self._max_in_memory :]  # 保留最近的1000条
 
         try:  # 数据库持久化失败不影响内存记录
             self._persist_log(log)
@@ -517,7 +577,8 @@ class EvolutionLogger:  # 全量进化日志记录器：内存缓存 + 数据库
     def _persist_log(self, log: EvolutionLog):  # 持久化到PostgreSQL的evolution_log表
         try:
             from app.database import db  # 延迟导入
-            if hasattr(db, 'execute'):  # 防御性检查
+
+            if hasattr(db, "execute"):  # 防御性检查
                 db.execute(  # 参数化查询防止SQL注入
                     "INSERT INTO evolution_log "
                     "(company_id, agent_key, event_type, description, detail_json, "
@@ -545,25 +606,27 @@ class EvolutionLogger:  # 全量进化日志记录器：内存缓存 + 数据库
         with self._lock:  # 线程安全地获取日志快照
             results = self._logs
         if company_id is not None:  # 按企业筛选
-            results = [l for l in results if l.company_id == company_id]
+            results = [log for log in results if log.company_id == company_id]
         if event_type is not None:  # 按事件类型筛选
-            results = [l for l in results if l.event_type == event_type]
+            results = [log for log in results if log.event_type == event_type]
         if agent_key:  # 按Agent筛选
-            results = [l for l in results if l.agent_key == agent_key]
+            results = [log for log in results if log.agent_key == agent_key]
         return results[-limit:]  # 返回最近的limit条
 
-    def get_evolution_feed(self, company_id: int, limit: int = 20) -> list[dict]:  # 获取企业的进化动态流
+    def get_evolution_feed(
+        self, company_id: int, limit: int = 20
+    ) -> list[dict]:  # 获取企业的进化动态流
         logs = self.query(company_id=company_id, limit=limit)
         return [  # 转换为字典格式，便于前端展示
             {
-                "event_type": l.event_type.value,
-                "description": l.description,
-                "detail": l.detail,
-                "agent_key": l.agent_key,
-                "timestamp": l.timestamp,
-                "operator": l.operator,
+                "event_type": log.event_type.value,
+                "description": log.description,
+                "detail": log.detail,
+                "agent_key": log.agent_key,
+                "timestamp": log.timestamp,
+                "operator": log.operator,
             }
-            for l in logs
+            for log in logs
         ]
 
     def clear(self):  # 清空所有日志
@@ -611,17 +674,19 @@ class FeedbackDrivenEvolution:  # 反馈驱动进化：从人工审核决策中�
         preferences = self._extract_preferences(feedback)  # 提取偏好
         self._update_preference_cache(company_id, agent_key, preferences)  # 更新偏好缓存
 
-        get_evolution_logger().record(EvolutionLog(  # 记录进化事件
-            company_id=company_id,
-            event_type=EvolutionEventType.FEEDBACK_APPLIED,
-            description=f"反馈驱动进化: {decision} - {reviewer_notes[:80]}",
-            detail={
-                "decision": decision,
-                "notes": reviewer_notes,
-                "preferences_extracted": preferences,
-            },
-            agent_key=agent_key,
-        ))
+        get_evolution_logger().record(
+            EvolutionLog(  # 记录进化事件
+                company_id=company_id,
+                event_type=EvolutionEventType.FEEDBACK_APPLIED,
+                description=f"反馈驱动进化: {decision} - {reviewer_notes[:80]}",
+                detail={
+                    "decision": decision,
+                    "notes": reviewer_notes,
+                    "preferences_extracted": preferences,
+                },
+                agent_key=agent_key,
+            )
+        )
 
     def _extract_preferences(self, feedback: dict) -> list[str]:  # 从反馈中提取偏好规则
         prefs = []
@@ -644,7 +709,9 @@ class FeedbackDrivenEvolution:  # 反馈驱动进化：从人工审核决策中�
 
         return prefs
 
-    def _update_preference_cache(self, company_id: int, agent_key: str, prefs: list[str]):  # 更新偏好缓存，去重+限制条数
+    def _update_preference_cache(
+        self, company_id: int, agent_key: str, prefs: list[str]
+    ):  # 更新偏好缓存，去重+限制条数
         cache_key = f"{company_id}:{agent_key}"  # 复合缓存键
         with self._lock:
             if cache_key not in self._preference_cache:
@@ -655,11 +722,15 @@ class FeedbackDrivenEvolution:  # 反馈驱动进化：从人工审核决策中�
             if len(self._preference_cache[cache_key]) > 20:  # 限制最多20条偏好
                 self._preference_cache[cache_key] = self._preference_cache[cache_key][-20:]
 
-    def get_preferences(self, company_id: int, agent_key: str) -> list[str]:  # 获取指定企业的Agent偏好
+    def get_preferences(
+        self, company_id: int, agent_key: str
+    ) -> list[str]:  # 获取指定企业的Agent偏好
         cache_key = f"{company_id}:{agent_key}"
         return self._preference_cache.get(cache_key, [])
 
-    def get_preference_context(self, company_id: int, agent_key: str) -> str:  # 将偏好格式化为可注入Agent的上下文文本
+    def get_preference_context(
+        self, company_id: int, agent_key: str
+    ) -> str:  # 将偏好格式化为可注入Agent的上下文文本
         prefs = self.get_preferences(company_id, agent_key)
         if not prefs:  # 无偏好返回空字符串
             return ""
@@ -687,7 +758,9 @@ class FeedbackDrivenEvolution:  # 反馈驱动进化：从人工审核决策中�
             "modified": modified,
             "rejected": rejected,
             "approval_rate": approved / max(total, 1),  # 防止除零
-            "recent_notes": [f["reviewer_notes"][:100] for f in agent_feedbacks[-5:]],  # 最近5条备注
+            "recent_notes": [
+                f["reviewer_notes"][:100] for f in agent_feedbacks[-5:]
+            ],  # 最近5条备注
             "preferences": self.get_preferences(company_id, agent_key),
         }
 
@@ -705,23 +778,26 @@ class SkillOptimizationEngine:
 
     def feed_task(self, company_id: int, agent_key: str, task_data: dict):
         with self._lock:
-            self._task_history.append({
-                "company_id": company_id,
-                "agent_key": agent_key,
-                "task_type": task_data.get("task_type", ""),
-                "duration_seconds": task_data.get("duration_seconds", 0),
-                "tokens_used": task_data.get("tokens_used", 0),
-                "errors": task_data.get("errors", []),
-                "feedback": task_data.get("feedback", ""),
-                "timestamp": datetime.utcnow().isoformat(),
-            })
+            self._task_history.append(
+                {
+                    "company_id": company_id,
+                    "agent_key": agent_key,
+                    "task_type": task_data.get("task_type", ""),
+                    "duration_seconds": task_data.get("duration_seconds", 0),
+                    "tokens_used": task_data.get("tokens_used", 0),
+                    "errors": task_data.get("errors", []),
+                    "feedback": task_data.get("feedback", ""),
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            )
             if len(self._task_history) > 500:
                 self._task_history = self._task_history[-500:]
 
     def analyze_and_suggest(self, company_id: int, agent_key: str) -> list[dict]:
         with self._lock:
             agent_tasks = [
-                t for t in self._task_history
+                t
+                for t in self._task_history
                 if t["company_id"] == company_id and t["agent_key"] == agent_key
             ]
 
@@ -735,16 +811,18 @@ class SkillOptimizationEngine:
             avg_duration = sum(durations) / len(durations)
             recent_avg = sum(durations[-3:]) / min(len(durations[-3:]), 1)
             if recent_avg > avg_duration * 1.3:
-                suggestions.append({
-                    "type": "performance",
-                    "agent_key": agent_key,
-                    "suggestion": f"最近3次任务平均耗时 {recent_avg:.0f}s, 较整体均值 {avg_duration:.0f}s 增长 {(recent_avg/avg_duration-1)*100:.0f}%, 建议优化 {agent_key} 的 System Prompt 或简化工具调用链",
-                    "severity": "warning",
-                    "evidence": {
-                        "overall_avg_duration": avg_duration,
-                        "recent_avg_duration": recent_avg,
-                    },
-                })
+                suggestions.append(
+                    {
+                        "type": "performance",
+                        "agent_key": agent_key,
+                        "suggestion": f"最近3次任务平均耗时 {recent_avg:.0f}s, 较整体均值 {avg_duration:.0f}s 增长 {(recent_avg / avg_duration - 1) * 100:.0f}%, 建议优化 {agent_key} 的 System Prompt 或简化工具调用链",
+                        "severity": "warning",
+                        "evidence": {
+                            "overall_avg_duration": avg_duration,
+                            "recent_avg_duration": recent_avg,
+                        },
+                    }
+                )
 
         error_tasks = [t for t in agent_tasks if t.get("errors")]
         if len(error_tasks) >= 3:
@@ -753,36 +831,42 @@ class SkillOptimizationEngine:
                 for err in t.get("errors", []):
                     error_counts[err] = error_counts.get(err, 0) + 1
             top_err = max(error_counts, key=error_counts.get)
-            suggestions.append({
-                "type": "error_handling",
-                "agent_key": agent_key,
-                "suggestion": f"高频错误 ({top_err}) 出现 {error_counts[top_err]} 次, 建议为 {agent_key} 增加错误处理 Skill 或调整工具参数校验",
-                "severity": "critical" if error_counts[top_err] >= 5 else "warning",
-                "evidence": {"error": top_err, "count": error_counts[top_err]},
-            })
+            suggestions.append(
+                {
+                    "type": "error_handling",
+                    "agent_key": agent_key,
+                    "suggestion": f"高频错误 ({top_err}) 出现 {error_counts[top_err]} 次, 建议为 {agent_key} 增加错误处理 Skill 或调整工具参数校验",
+                    "severity": "critical" if error_counts[top_err] >= 5 else "warning",
+                    "evidence": {"error": top_err, "count": error_counts[top_err]},
+                }
+            )
 
         feedback_tasks = [t for t in agent_tasks if t.get("feedback")]
         if len(feedback_tasks) >= 3:
             latest_feedback = [t["feedback"][:100] for t in feedback_tasks[-3:]]
-            suggestions.append({
-                "type": "output_quality",
-                "agent_key": agent_key,
-                "suggestion": f"近{len(feedback_tasks)}次任务有审核反馈: {'; '.join(latest_feedback)}, 建议更新 {agent_key} 的输出规范",
-                "severity": "info",
-                "evidence": {"feedback_count": len(feedback_tasks), "latest": latest_feedback},
-            })
+            suggestions.append(
+                {
+                    "type": "output_quality",
+                    "agent_key": agent_key,
+                    "suggestion": f"近{len(feedback_tasks)}次任务有审核反馈: {'; '.join(latest_feedback)}, 建议更新 {agent_key} 的输出规范",
+                    "severity": "info",
+                    "evidence": {"feedback_count": len(feedback_tasks), "latest": latest_feedback},
+                }
+            )
 
         token_usages = [t["tokens_used"] for t in agent_tasks if t["tokens_used"] > 0]
         if len(token_usages) >= 5:
             avg_tokens = sum(token_usages) / len(token_usages)
             if avg_tokens > 5000:
-                suggestions.append({
-                    "type": "cost_optimization",
-                    "agent_key": agent_key,
-                    "suggestion": f"平均每次任务消耗 {avg_tokens:.0f} tokens, 建议为 {agent_key} 增加缓存或精简上下文注入策略降低成本",
-                    "severity": "info" if avg_tokens < 10000 else "warning",
-                    "evidence": {"avg_tokens": avg_tokens},
-                })
+                suggestions.append(
+                    {
+                        "type": "cost_optimization",
+                        "agent_key": agent_key,
+                        "suggestion": f"平均每次任务消耗 {avg_tokens:.0f} tokens, 建议为 {agent_key} 增加缓存或精简上下文注入策略降低成本",
+                        "severity": "info" if avg_tokens < 10000 else "warning",
+                        "evidence": {"avg_tokens": avg_tokens},
+                    }
+                )
 
         with self._lock:
             self._suggestions.extend(suggestions)
@@ -790,13 +874,15 @@ class SkillOptimizationEngine:
                 self._suggestions = self._suggestions[-100:]
 
         for s in suggestions:
-            get_evolution_logger().record(EvolutionLog(
-                company_id=company_id,
-                event_type=EvolutionEventType.OPTIMIZATION_SUGGESTION,
-                description=s["suggestion"],
-                detail=s,
-                agent_key=agent_key,
-            ))
+            get_evolution_logger().record(
+                EvolutionLog(
+                    company_id=company_id,
+                    event_type=EvolutionEventType.OPTIMIZATION_SUGGESTION,
+                    description=s["suggestion"],
+                    detail=s,
+                    agent_key=agent_key,
+                )
+            )
 
         return suggestions
 
@@ -812,298 +898,6 @@ class SkillOptimizationEngine:
         return results
 
 
-# ── 7.7 LoRA 微调流程框架 ─────────────────────────────────────────────
-
-
-class LoRAStage(StrEnum):
-    DATA_COLLECTION = "data_collection"
-    DATA_CLEANING = "data_cleaning"
-    TRAINING = "training"
-    EVALUATION = "evaluation"
-    AB_TEST = "ab_test"
-    DEPLOYMENT = "deployment"
-    ROLLBACK = "rollback"
-
-
-@dataclass
-class LoRAJob:
-    job_id: str
-    company_id: int
-    agent_key: str
-    base_model: str = "deepseek-chat"
-    stage: LoRAStage = LoRAStage.DATA_COLLECTION
-    progress: float = 0.0
-    training_samples: int = 0
-    config: dict = field(default_factory=dict)
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    status: str = "pending"
-    error: str = ""
-    ab_test_result: dict | None = None
-
-
-class LoRAFineTuneFramework:
-    """LoRA 微调流程框架: 数据准备 → 训练 → A/B 测试 → 部署切换(可选)"""
-
-    MIN_TRAINING_SAMPLES = 50
-    AB_TEST_MIN_DAYS = 3
-    SIGNIFICANCE_THRESHOLD = 0.05
-
-    def __init__(self):
-        self._jobs: dict[str, LoRAJob] = {}
-        self._active_deployments: dict[str, str] = {}
-
-    def create_job(
-        self,
-        company_id: int,
-        agent_key: str,
-        config: dict | None = None,
-    ) -> LoRAJob:
-        job_id = f"lora_{company_id}_{agent_key}_{int(time.time())}"
-        job = LoRAJob(
-            job_id=job_id,
-            company_id=company_id,
-            agent_key=agent_key,
-            config=config or {
-                "lora_rank": 8,
-                "lora_alpha": 16,
-                "learning_rate": 2e-4,
-                "epochs": 3,
-                "batch_size": 4,
-                "max_seq_length": 2048,
-                "validation_split": 0.1,
-            },
-        )
-        self._jobs[job_id] = job
-        get_evolution_logger().record(EvolutionLog(
-            company_id=company_id,
-            event_type=EvolutionEventType.LORA_TRAINING,
-            description=f"创建 LoRA 微调任务: {agent_key}",
-            detail={"job_id": job_id, "config": job.config},
-            agent_key=agent_key,
-        ))
-        return job
-
-    def get_job(self, job_id: str) -> LoRAJob | None:
-        return self._jobs.get(job_id)
-
-    def update_job_stage(self, job_id: str, stage: LoRAStage, progress: float = 0.0):
-        job = self._jobs.get(job_id)
-        if not job:
-            return
-        job.stage = stage
-        job.progress = progress
-        job.updated_at = datetime.utcnow().isoformat()
-
-    def collect_training_data(self, job_id: str) -> dict:
-        job = self._jobs.get(job_id)
-        if not job:
-            return {"error": "job not found"}
-
-        self.update_job_stage(job_id, LoRAStage.DATA_COLLECTION, 0.1)
-
-        memories = self._fetch_training_eligible_memories(job.company_id, job.agent_key)
-        good_samples = [
-            {
-                "instruction": m.get("summary", ""),
-                "output": m.get("outcome", ""),
-                "completion_quality": "approved",
-            }
-            for m in memories
-            if m.get("feedback_score", 0) > 0.7
-        ]
-
-        rejected_samples = [
-            {
-                "instruction": m.get("summary", ""),
-                "output": m.get("outcome", ""),
-                "rejection_reason": m.get("errors", [""])[0],
-            }
-            for m in memories
-            if m.get("feedback_score", 0) < 0.3 and m.get("errors")
-        ]
-
-        job.training_samples = len(good_samples) + len(rejected_samples)
-        self.update_job_stage(job_id, LoRAStage.DATA_COLLECTION, 0.5)
-
-        return {
-            "total_samples": job.training_samples,
-            "good_samples": len(good_samples),
-            "rejected_samples": len(rejected_samples),
-            "min_required": self.MIN_TRAINING_SAMPLES,
-            "ready_for_training": job.training_samples >= self.MIN_TRAINING_SAMPLES,
-        }
-
-    def _fetch_training_eligible_memories(self, company_id: int, agent_key: str) -> list[dict]:
-        try:
-            agent_runtime = _get_agent_runtime()
-            if agent_runtime and hasattr(agent_runtime, 'get_recent_memories'):
-                return agent_runtime.get_recent_memories(company_id, limit=200)
-        except Exception:
-            pass
-        return []
-
-    def clean_and_prepare_data(self, job_id: str) -> dict:
-        job = self._jobs.get(job_id)
-        if not job:
-            return {"error": "job not found"}
-
-        self.update_job_stage(job_id, LoRAStage.DATA_CLEANING, 0.2)
-        self.update_job_stage(job_id, LoRAStage.DATA_CLEANING, 0.9)
-
-        return {
-            "status": "data_ready",
-            "samples_after_cleaning": job.training_samples,
-            "format": "alpaca",
-            "tokenizer": "auto",
-        }
-
-    def start_training(self, job_id: str) -> dict:
-        job = self._jobs.get(job_id)
-        if not job:
-            return {"error": "job not found"}
-
-        if job.training_samples < self.MIN_TRAINING_SAMPLES:
-            return {
-                "error": f"训练样本不足: {job.training_samples} < {self.MIN_TRAINING_SAMPLES}",
-                "suggestion": "请收集更多高反馈评分的数据",
-            }
-
-        self.update_job_stage(job_id, LoRAStage.TRAINING, 0.05)
-        job.status = "training"
-
-        return {
-            "status": "training_started",
-            "config": job.config,
-            "estimated_time": f"{job.training_samples // 10} 分钟",
-            "progress": 0.05,
-        }
-
-    def check_training_progress(self, job_id: str) -> dict:
-        job = self._jobs.get(job_id)
-        if not job:
-            return {"error": "job not found"}
-
-        return {
-            "job_id": job_id,
-            "stage": job.stage.value,
-            "progress": job.progress,
-            "status": job.status,
-            "training_samples": job.training_samples,
-            "updated_at": job.updated_at,
-        }
-
-    def evaluate_model(self, job_id: str) -> dict:
-        job = self._jobs.get(job_id)
-        if not job:
-            return {"error": "job not found"}
-
-        self.update_job_stage(job_id, LoRAStage.EVALUATION, 0.5)
-
-        return {
-            "status": "evaluation_complete",
-            "metrics": {
-                "bleu": 0.72,
-                "rouge_l": 0.65,
-                "task_success_rate": 0.88,
-                "avg_latency_ms": 1200,
-            },
-            "baseline_comparison": {
-                "base_model_success_rate": 0.82,
-                "lora_model_success_rate": 0.88,
-                "improvement": "+7.3%",
-            },
-        }
-
-    def design_ab_test(self, job_id: str) -> dict:
-        job = self._jobs.get(job_id)
-        if not job:
-            return {"error": "job not found"}
-
-        self.update_job_stage(job_id, LoRAStage.AB_TEST, 0.1)
-
-        return {
-            "status": "ab_test_designed",
-            "design": {
-                "control": "base_model (deepseek-chat)",
-                "treatment": f"lora_{job.agent_key}_v1",
-                "split_ratio": "50:50",
-                "min_sample_size": 30,
-                "min_duration_days": self.AB_TEST_MIN_DAYS,
-                "significance_level": self.SIGNIFICANCE_THRESHOLD,
-                "success_criteria": [
-                    "任务成功率提升 ≥ 5%",
-                    "平均耗时增加 < 20%",
-                    "审核通过率提升 ≥ 3%",
-                ],
-            },
-        }
-
-    def deploy(self, job_id: str, approved_by: str = "") -> dict:
-        job = self._jobs.get(job_id)
-        if not job:
-            return {"error": "job not found"}
-
-        self.update_job_stage(job_id, LoRAStage.DEPLOYMENT, 1.0)
-        job.status = "deployed"
-
-        deployment_key = f"{job.company_id}:{job.agent_key}"
-        self._active_deployments[deployment_key] = job_id
-
-        get_evolution_logger().record(EvolutionLog(
-            company_id=job.company_id,
-            event_type=EvolutionEventType.LORA_DEPLOY,
-            description=f"LoRA 模型部署上线: {job.agent_key}",
-            detail={"job_id": job_id, "approved_by": approved_by},
-            agent_key=job.agent_key,
-            operator=approved_by,
-        ))
-
-        return {
-            "status": "deployed",
-            "job_id": job_id,
-            "deployment_key": deployment_key,
-            "rollback_available": True,
-        }
-
-    def rollback(self, job_id: str, reason: str = "") -> dict:
-        job = self._jobs.get(job_id)
-        if not job:
-            return {"error": "job not found"}
-
-        self.update_job_stage(job_id, LoRAStage.ROLLBACK, 1.0)
-        job.status = "rolled_back"
-        deployment_key = f"{job.company_id}:{job.agent_key}"
-        self._active_deployments.pop(deployment_key, None)
-
-        return {
-            "status": "rolled_back",
-            "job_id": job_id,
-            "reason": reason,
-        }
-
-    def get_active_deployment(self, company_id: int, agent_key: str) -> str | None:
-        return self._active_deployments.get(f"{company_id}:{agent_key}")
-
-    def list_jobs(self, company_id: int | None = None) -> list[dict]:
-        jobs = self._jobs.values()
-        if company_id is not None:
-            jobs = [j for j in jobs if j.company_id == company_id]
-        return [
-            {
-                "job_id": j.job_id,
-                "company_id": j.company_id,
-                "agent_key": j.agent_key,
-                "stage": j.stage.value,
-                "progress": j.progress,
-                "status": j.status,
-                "training_samples": j.training_samples,
-                "created_at": j.created_at,
-            }
-            for j in jobs
-        ]
-
-
 # ── 单例 & 便捷访问 ────────────────────────────────────────────────────
 
 
@@ -1112,7 +906,6 @@ _consolidation: SleepConsolidationEngine | None = None
 _evolution_logger: EvolutionLogger | None = None
 _feedback_evolution: FeedbackDrivenEvolution | None = None
 _skill_optimizer: SkillOptimizationEngine | None = None
-_lora_framework: LoRAFineTuneFramework | None = None
 _lock = threading.Lock()
 
 _agent_runtime = None
@@ -1123,6 +916,7 @@ def _get_agent_runtime():
     if _agent_runtime is None:
         try:
             from app.runtime.orchestrator import AgentRuntime
+
             _agent_runtime = AgentRuntime()
         except Exception:
             pass
@@ -1172,15 +966,6 @@ def get_skill_optimizer() -> SkillOptimizationEngine:
             if _skill_optimizer is None:
                 _skill_optimizer = SkillOptimizationEngine()
     return _skill_optimizer
-
-
-def get_lora_framework() -> LoRAFineTuneFramework:
-    global _lora_framework
-    if _lora_framework is None:
-        with _lock:
-            if _lora_framework is None:
-                _lora_framework = LoRAFineTuneFramework()
-    return _lora_framework
 
 
 def start_evolution_services():

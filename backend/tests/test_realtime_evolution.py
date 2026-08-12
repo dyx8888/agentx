@@ -30,23 +30,33 @@ class TestRealtimeEvolution:
         """每个测试方法前的设置"""
         # 创建测试任务数据
         self.test_task = {
-            'id': self.test_task_id,
-            'company_id': self.test_company_id,
-            'source_agent_id': None,
-            'target_agent_name': 'brand_bd',
-            'task_description': '请帮我搜索美妆达人并生成邀约话术'
+            "id": self.test_task_id,
+            "company_id": self.test_company_id,
+            "source_agent_id": None,
+            "target_agent_name": "brand_bd",
+            "task_description": "请帮我搜索美妆达人并生成邀约话术",
         }
 
     def test_1_task_completion_triggers_evolution(self):
         """正常场景 1：任务完成后触发进化分析"""
         # Mock 数据库操作
-        with patch('app.database.db.get_agent_by_name') as mock_get_agent, \
-             patch('app.database.db.create_evolution_review') as mock_create_review:
-
+        with (
+            patch("app.database.db.get_agent_by_name") as mock_get_agent,
+            patch("app.database.db.create_evolution_review") as mock_create_review,
+            patch("app.services.model_gateway.get_global_model_gateway") as mock_mg,
+            patch("app.agent.build_reaction_graph") as mock_build_graph,
+            patch("app.agents.create_agent_execution_context") as mock_exec_ctx,
+        ):
             # Mock agent 查询返回
             mock_agent = MagicMock()
             mock_agent.id = self.test_agent_id
+            mock_agent.company_id = self.test_company_id
+            mock_agent.tools_json = "[]"
             mock_get_agent.return_value = mock_agent
+
+            mock_exec_ctx.return_value = {}
+            mock_mg.return_value = MagicMock()
+            mock_build_graph.return_value = (MagicMock(), MagicMock())
 
             # Mock 进化建议
             mock_suggestion = EvolutionSuggestion(
@@ -54,11 +64,11 @@ class TestRealtimeEvolution:
                 suggested_prompt_changes="建议优化提示词以提高准确性",
                 knowledge_entries=["美妆达人话术模板"],
                 analysis_summary="基于任务结果的分析建议",
-                confidence_score=0.8
+                confidence_score=0.8,
             )
 
             # Mock EvolutionSuggester
-            with patch('app.evolution.suggester.EvolutionSuggester') as mock_suggester_class:
+            with patch("app.evolution.suggester.EvolutionSuggester") as mock_suggester_class:
                 mock_suggester = MagicMock()
                 mock_suggester_class.return_value = mock_suggester
                 mock_suggester.generate_lightweight_suggestion.return_value = mock_suggestion
@@ -67,17 +77,22 @@ class TestRealtimeEvolution:
                 worker = TaskWorker()
 
                 # Mock _execute_with_timeout 方法返回任务结果
-                with patch.object(worker, '_execute_with_timeout') as mock_execute:
+                with patch.object(worker, "_execute_with_timeout") as mock_execute:
                     mock_execute.return_value = "任务执行完成，成功搜索到3个美妆达人"
 
                     # Mock _extract_steps 方法（全局函数）
-                    with patch('app.tasks.worker._extract_steps') as mock_extract:
+                    with patch("app.tasks.worker._extract_steps") as mock_extract:
                         mock_extract.return_value = [
-                            {'step_id': 1, 'name': '分析需求', 'status': 'completed', 'result': '美妆达人'}
+                            {
+                                "step_id": 1,
+                                "name": "分析需求",
+                                "status": "completed",
+                                "result": "美妆达人",
+                            }
                         ]
 
                         # Mock db.update_task_status
-                        with patch('app.database.db.update_task_status') as mock_update:
+                        with patch("app.database.db.update_task_status"):
                             # 执行任务处理
                             worker._process_single_task(self.test_task)
 
@@ -89,18 +104,29 @@ class TestRealtimeEvolution:
                             call_args = mock_create_review.call_args
 
                             # 验证调用参数
-                            assert call_args[1]['agent_id'] == self.test_agent_id
-                            assert call_args[1]['suggestion_text'] == "建议优化提示词以提高准确性"
-                            assert call_args[1]['prompt_changes'] == "建议优化提示词以提高准确性"
+                            assert call_args[1]["agent_id"] == self.test_agent_id
+                            assert call_args[1]["suggestion_text"] == "建议优化提示词以提高准确性"
+                            assert call_args[1]["prompt_changes"] == "建议优化提示词以提高准确性"
 
     def test_2_low_confidence_suggestion_not_saved(self):
         """正常场景 2：低置信度建议不存入数据库"""
         # Mock 数据库操作
-        with patch('app.database.db.get_agent_by_name') as mock_get_agent:
+        with (
+            patch("app.database.db.get_agent_by_name") as mock_get_agent,
+            patch("app.services.model_gateway.get_global_model_gateway") as mock_mg,
+            patch("app.agent.build_reaction_graph") as mock_build_graph,
+            patch("app.agents.create_agent_execution_context") as mock_exec_ctx,
+        ):
             # Mock agent 查询返回
             mock_agent = MagicMock()
             mock_agent.id = self.test_agent_id
+            mock_agent.company_id = self.test_company_id
+            mock_agent.tools_json = "[]"
             mock_get_agent.return_value = mock_agent
+
+            mock_exec_ctx.return_value = {}
+            mock_mg.return_value = MagicMock()
+            mock_build_graph.return_value = (MagicMock(), MagicMock())
 
             # Mock 低置信度进化建议
             mock_suggestion = EvolutionSuggestion(
@@ -108,11 +134,11 @@ class TestRealtimeEvolution:
                 suggested_prompt_changes="",
                 knowledge_entries=[],
                 analysis_summary="信息不足，无法生成有效建议",
-                confidence_score=0.1  # 低置信度
+                confidence_score=0.1,  # 低置信度
             )
 
             # Mock EvolutionSuggester
-            with patch('app.evolution.suggester.EvolutionSuggester') as mock_suggester_class:
+            with patch("app.evolution.suggester.EvolutionSuggester") as mock_suggester_class:
                 mock_suggester = MagicMock()
                 mock_suggester_class.return_value = mock_suggester
                 mock_suggester.generate_lightweight_suggestion.return_value = mock_suggestion
@@ -121,19 +147,26 @@ class TestRealtimeEvolution:
                 worker = TaskWorker()
 
                 # Mock _execute_with_timeout 方法返回任务结果
-                with patch.object(worker, '_execute_with_timeout') as mock_execute:
+                with patch.object(worker, "_execute_with_timeout") as mock_execute:
                     mock_execute.return_value = "任务执行完成"
 
                     # Mock _extract_steps 方法（全局函数）
-                    with patch('app.tasks.worker._extract_steps') as mock_extract:
+                    with patch("app.tasks.worker._extract_steps") as mock_extract:
                         mock_extract.return_value = [
-                            {'step_id': 1, 'name': '分析需求', 'status': 'completed', 'result': '美妆达人'}
+                            {
+                                "step_id": 1,
+                                "name": "分析需求",
+                                "status": "completed",
+                                "result": "美妆达人",
+                            }
                         ]
 
                         # Mock db.update_task_status
-                        with patch('app.database.db.update_task_status') as mock_update:
+                        with patch("app.database.db.update_task_status") as mock_update:
                             # Mock db.create_evolution_review
-                            with patch('app.database.db.create_evolution_review') as mock_create_review:
+                            with patch(
+                                "app.database.db.create_evolution_review"
+                            ) as mock_create_review:
                                 # 执行任务处理
                                 worker._process_single_task(self.test_task)
 
@@ -149,33 +182,51 @@ class TestRealtimeEvolution:
     def test_3_evolution_failure_doesnt_affect_task_completion(self):
         """异常场景 1：进化分析失败不影响任务完成"""
         # Mock 数据库操作
-        with patch('app.database.db.get_agent_by_name') as mock_get_agent:
+        with (
+            patch("app.database.db.get_agent_by_name") as mock_get_agent,
+            patch("app.services.model_gateway.get_global_model_gateway") as mock_mg,
+            patch("app.agent.build_reaction_graph") as mock_build_graph,
+            patch("app.agents.create_agent_execution_context") as mock_exec_ctx,
+        ):
             # Mock agent 查询返回
             mock_agent = MagicMock()
             mock_agent.id = self.test_agent_id
+            mock_agent.company_id = self.test_company_id
+            mock_agent.tools_json = "[]"
             mock_get_agent.return_value = mock_agent
 
+            mock_exec_ctx.return_value = {}
+            mock_mg.return_value = MagicMock()
+            mock_build_graph.return_value = (MagicMock(), MagicMock())
+
             # Mock EvolutionSuggester 抛出异常
-            with patch('app.evolution.suggester.EvolutionSuggester') as mock_suggester_class:
+            with patch("app.evolution.suggester.EvolutionSuggester") as mock_suggester_class:
                 mock_suggester = MagicMock()
                 mock_suggester_class.return_value = mock_suggester
-                mock_suggester.generate_lightweight_suggestion.side_effect = Exception("进化分析失败")
+                mock_suggester.generate_lightweight_suggestion.side_effect = Exception(
+                    "进化分析失败"
+                )
 
                 # 创建 TaskWorker 并处理任务
                 worker = TaskWorker()
 
                 # Mock _execute_with_timeout 方法返回任务结果
-                with patch.object(worker, '_execute_with_timeout') as mock_execute:
+                with patch.object(worker, "_execute_with_timeout") as mock_execute:
                     mock_execute.return_value = "任务执行完成"
 
                     # Mock _extract_steps 方法（全局函数）
-                    with patch('app.tasks.worker._extract_steps') as mock_extract:
+                    with patch("app.tasks.worker._extract_steps") as mock_extract:
                         mock_extract.return_value = [
-                            {'step_id': 1, 'name': '分析需求', 'status': 'completed', 'result': '美妆达人'}
+                            {
+                                "step_id": 1,
+                                "name": "分析需求",
+                                "status": "completed",
+                                "result": "美妆达人",
+                            }
                         ]
 
                         # Mock db.update_task_status
-                        with patch('app.database.db.update_task_status') as mock_update:
+                        with patch("app.database.db.update_task_status") as mock_update:
                             # 执行任务处理
                             worker._process_single_task(self.test_task)
 
@@ -188,7 +239,7 @@ class TestRealtimeEvolution:
     def test_4_agent_not_found_skips_evolution(self):
         """异常场景 2：Agent 不存在时进化分析被跳过"""
         # Mock 数据库操作
-        with patch('app.database.db.get_agent_by_name') as mock_get_agent:
+        with patch("app.database.db.get_agent_by_name") as mock_get_agent:
             # Mock agent 查询返回 None（agent 不存在）
             mock_get_agent.return_value = None
 
@@ -196,19 +247,26 @@ class TestRealtimeEvolution:
             worker = TaskWorker()
 
             # Mock _execute_with_timeout 方法返回任务结果
-            with patch.object(worker, '_execute_with_timeout') as mock_execute:
+            with patch.object(worker, "_execute_with_timeout") as mock_execute:
                 mock_execute.return_value = "任务执行完成"
 
                 # Mock _extract_steps 方法（全局函数）
-                with patch('app.tasks.worker._extract_steps') as mock_extract:
+                with patch("app.tasks.worker._extract_steps") as mock_extract:
                     mock_extract.return_value = [
-                        {'step_id': 1, 'name': '分析需求', 'status': 'completed', 'result': '美妆达人'}
+                        {
+                            "step_id": 1,
+                            "name": "分析需求",
+                            "status": "completed",
+                            "result": "美妆达人",
+                        }
                     ]
 
                     # Mock db.update_task_status
-                    with patch('app.database.db.update_task_status') as mock_update:
+                    with patch("app.database.db.update_task_status") as mock_update:
                         # Mock EvolutionSuggester（不应该被调用）
-                        with patch('app.evolution.suggester.EvolutionSuggester') as mock_suggester_class:
+                        with patch(
+                            "app.evolution.suggester.EvolutionSuggester"
+                        ) as mock_suggester_class:
                             # 执行任务处理
                             worker._process_single_task(self.test_task)
 
@@ -224,9 +282,10 @@ class TestRealtimeEvolution:
         suggester = EvolutionSuggester()
 
         # 测试有任务结果的情况
-        with patch.object(suggester, '_call_llm_for_single_result') as mock_llm_call, \
-             patch.object(suggester, '_parse_llm_response') as mock_parse:
-
+        with (
+            patch.object(suggester, "_call_llm_for_single_result") as mock_llm_call,
+            patch.object(suggester, "_parse_llm_response") as mock_parse,
+        ):
             # Mock LLM 响应
             mock_llm_call.return_value = '{"suggested_prompt_changes": "优化提示词", "knowledge_entries": ["模板1"], "analysis_summary": "分析结果", "confidence_score": 0.7}'
 
@@ -236,7 +295,7 @@ class TestRealtimeEvolution:
                 suggested_prompt_changes="优化提示词",
                 knowledge_entries=["模板1"],
                 analysis_summary="分析结果",
-                confidence_score=0.7
+                confidence_score=0.7,
             )
             mock_parse.return_value = expected_suggestion
 
@@ -258,13 +317,13 @@ class TestRealtimeEvolution:
         suggester = EvolutionSuggester()
 
         # 测试无任务结果的情况（应该降级到全量分析）
-        with patch.object(suggester, 'generate_suggestion') as mock_generate:
+        with patch.object(suggester, "generate_suggestion") as mock_generate:
             expected_suggestion = EvolutionSuggestion(
                 agent_id=self.test_agent_id,
                 suggested_prompt_changes="全量分析结果",
                 knowledge_entries=["知识条目"],
                 analysis_summary="全量分析",
-                confidence_score=0.6
+                confidence_score=0.6,
             )
             mock_generate.return_value = expected_suggestion
 

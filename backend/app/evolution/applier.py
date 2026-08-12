@@ -16,15 +16,17 @@ logger = get_logger(__name__)
 class EvolutionApplier:
     """Applies evolution changes after admin approval"""
 
-    def apply_knowledge_entries(self, agent_id: int, knowledge_entries: list[str], company_id: str) -> bool:
+    def apply_knowledge_entries(
+        self, agent_id: int, knowledge_entries: list[str], company_id: str
+    ) -> bool:
         """
         Apply knowledge entries to ChromaDB knowledge base
-        
+
         Args:
             agent_id: ID of the agent
             knowledge_entries: List of knowledge entry strings
             company_id: Company ID for multi-tenant isolation
-            
+
         Returns:
             bool: Success status
         """
@@ -41,17 +43,29 @@ class EvolutionApplier:
                         add_knowledge(
                             content=entry,
                             category=f"agent_{agent_id}_improvement",  # 用 agent_id 做分类前缀，便于按 Agent 维度检索知识
-                            tags=["evolution", "agent_improvement"],  # 统一 tag 方便后续过滤"进化产生"的知识条目
-                            company_id=company_id  # Ensure string type for ChromaDB
+                            tags=[
+                                "evolution",
+                                "agent_improvement",
+                            ],  # 统一 tag 方便后续过滤"进化产生"的知识条目
+                            company_id=company_id,  # Ensure string type for ChromaDB
                         )
                         added_count += 1
-                        logger.info("evolution_knowledge_entry_added", entry=entry[:50])  # 只记录前50字符，防止日志过大
+                        logger.info(
+                            "evolution_knowledge_entry_added", entry=entry[:50]
+                        )  # 只记录前50字符，防止日志过大
                     except Exception as e:
                         # 单条失败不中断整体流程，因为其他条目仍有价值
-                        logger.error("evolution_knowledge_entry_add_failed", entry=entry, error=str(e))
+                        logger.error(
+                            "evolution_knowledge_entry_add_failed", entry=entry, error=str(e)
+                        )
 
             # 记录最终结果，resource_id 绑定 agent_id 方便后续按 Agent 搜索日志
-            logger.info("evolution_knowledge_applied", applied=added_count, total=len(knowledge_entries), resource_id=agent_id)
+            logger.info(
+                "evolution_knowledge_applied",
+                applied=added_count,
+                total=len(knowledge_entries),
+                resource_id=agent_id,
+            )
             return True
 
         except Exception as e:
@@ -61,11 +75,11 @@ class EvolutionApplier:
     def apply_prompt_changes(self, agent_id: int, prompt_changes_text: str) -> bool:
         """
         Apply prompt changes to agent configuration
-        
+
         Args:
             agent_id: ID of the agent
             prompt_changes_text: Suggested prompt changes
-            
+
         Returns:
             bool: Success status
         """
@@ -75,7 +89,9 @@ class EvolutionApplier:
             # or create a new version in agent_prompt_versions table
 
             # 当前仅记录日志而非直接修改 System Prompt，因为 Prompt 修改需要人工审核确认后才能生效，避免自动修改导致 Agent 行为异常
-            logger.info("evolution_prompt_applied", resource_id=agent_id, preview=prompt_changes_text[:100])
+            logger.info(
+                "evolution_prompt_applied", resource_id=agent_id, preview=prompt_changes_text[:100]
+            )
 
             # Could extend this to create agent_prompt_versions table:
             # CREATE TABLE IF NOT EXISTS agent_prompt_versions (

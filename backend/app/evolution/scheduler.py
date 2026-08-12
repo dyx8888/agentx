@@ -2,7 +2,7 @@
 # 它是单例模式，因为定时任务只需要一个调度器实例，多个实例会导致重复执行
 """
 Evolution Scheduler v2 - 定时触发的自动进化
-整合：睡眠巩固 + 反馈驱动进化 + Prompt优化 + LoRA数据准备
+整合：睡眠巩固 + 反馈驱动进化 + Prompt优化
 """
 
 import asyncio
@@ -81,11 +81,14 @@ class EvolutionScheduler:
                 logger.info("sleep_cycle_complete", company=company_id, result=result)
             else:
                 # 未指定 company_id，对所有活跃租户执行巩固
+                # 注意：不再回退到 [1]，避免对错误租户执行巩固造成数据越权
                 try:
                     from app.database import db
+
                     company_ids = db.get_active_company_ids()
-                except Exception:
-                    company_ids = [1]  # 获取活跃租户失败时，默认回退到 company_id=1
+                except Exception as e:
+                    logger.error("get_active_company_ids_failed", error=str(e))
+                    company_ids = []
 
                 for cid in company_ids:
                     try:
@@ -100,12 +103,14 @@ class EvolutionScheduler:
     async def trigger_memory_consolidation(self, company_id: int) -> dict:
         """手动触发记忆巩固（供 API 调用）"""
         from app.runtime.memory import memory_manager
+
         return await memory_manager.sleep_consolidation(str(company_id))
 
     async def trigger_prompt_evolution(self, agent_key: str, company_id: int) -> dict:
         """手动触发 Prompt 进化（供 API 调用）"""
         # 延迟导入反馈进化引擎，避免循环依赖
         from app.evolution.feedback_evolution import feedback_evolution
+
         return await feedback_evolution.trigger_stage2_evolution(agent_key, company_id)
 
     def get_evolution_report(self, company_id: int) -> dict:
@@ -122,9 +127,14 @@ class EvolutionScheduler:
 
             # 硬编码的 Agent 列表，因为系统中 Agent 的种类是固定的，不需要动态发现
             agent_keys = [
-                "brand_bd", "content_operation", "data_analysis",
-                "customer_service", "warehouse_logistics", "visual_designer",
-                "product_selector", "smart_ad_delivery",
+                "brand_bd",
+                "content_operation",
+                "data_analysis",
+                "customer_service",
+                "warehouse_logistics",
+                "visual_designer",
+                "product_selector",
+                "smart_ad_delivery",
             ]
 
             for ak in agent_keys:

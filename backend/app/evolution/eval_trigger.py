@@ -5,13 +5,18 @@ Evolution Suggester Upgrade - 8.7
 基于评测结果自动触发优化建议
 扩展原有的 suggest_generation 能力，增加 eval-driven 进化触发
 """
-import json
+
 from dataclasses import dataclass
+
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
 class EvalDrivenSuggestion:
     """评测驱动的优化建议"""
+
     agent_name: str
     # trigger_type 区分三种触发场景，因为不同场景需要不同的处理策略（知识补充 vs 工具替换 vs 根因修复）
     trigger_type: str  # "low_score", "regression", "root_cause"
@@ -53,28 +58,32 @@ def generate_from_eval_results(
     # 触发1: 低完成率
     # 完成率是最直观的指标，低于阈值意味着 Agent 可能无法完成任务，需要最高优先级处理
     if completion_rate < threshold_completion:
-        suggestions.append(EvalDrivenSuggestion(
-            agent_name=agent_name,
-            trigger_type="low_score",
-            affected_metrics={"completion_rate": completion_rate},
-            suggested_changes=_get_low_completion_suggestion(completion_rate),
-            root_cause_pattern="completion_failure",
-            priority="high",  # 高优先级：完成率低直接影响用户体验
-            confidence=0.85,  # 0.85 的置信度是基于规则判断的，不是 LLM 猜测，所以较高
-        ))
+        suggestions.append(
+            EvalDrivenSuggestion(
+                agent_name=agent_name,
+                trigger_type="low_score",
+                affected_metrics={"completion_rate": completion_rate},
+                suggested_changes=_get_low_completion_suggestion(completion_rate),
+                root_cause_pattern="completion_failure",
+                priority="high",  # 高优先级：完成率低直接影响用户体验
+                confidence=0.85,  # 0.85 的置信度是基于规则判断的，不是 LLM 猜测，所以较高
+            )
+        )
 
     # 触发2: 低工具准确率
     # 工具准确率低意味着 Agent 选错了工具，虽然不直接导致失败，但会浪费大量 token 和用户时间
     if tool_accuracy < threshold_accuracy:
-        suggestions.append(EvalDrivenSuggestion(
-            agent_name=agent_name,
-            trigger_type="low_score",
-            affected_metrics={"tool_accuracy": tool_accuracy},
-            suggested_changes=_get_low_accuracy_suggestion(tool_accuracy),
-            root_cause_pattern="tool_misuse",
-            priority="high",
-            confidence=0.80,  # 比完成率低 0.05，因为工具准确率可能受多种因素影响，不确定性稍高
-        ))
+        suggestions.append(
+            EvalDrivenSuggestion(
+                agent_name=agent_name,
+                trigger_type="low_score",
+                affected_metrics={"tool_accuracy": tool_accuracy},
+                suggested_changes=_get_low_accuracy_suggestion(tool_accuracy),
+                root_cause_pattern="tool_misuse",
+                priority="high",
+                confidence=0.80,  # 比完成率低 0.05，因为工具准确率可能受多种因素影响，不确定性稍高
+            )
+        )
 
     # 触发3: 根因分析驱动
     # 根因分析提供了更细粒度的洞察，需要至少 3 个案例才触发，避免基于偶然事件做决策
@@ -83,16 +92,18 @@ def generate_from_eval_results(
             pattern_mode = pattern.get("mode", "")
             pattern_count = pattern.get("affected_count", 0)
             if pattern_count >= 3:
-                suggestions.append(EvalDrivenSuggestion(
-                    agent_name=agent_name,
-                    trigger_type="root_cause",
-                    affected_metrics={"affected_cases": pattern_count},
-                    suggested_changes=pattern.get("suggestion", ""),
-                    root_cause_pattern=pattern_mode,
-                    # 根据影响面动态调整优先级：>=5 个案例说明是系统性问题的概率更高
-                    priority="medium" if pattern_count < 5 else "high",
-                    confidence=0.75,  # 根因分析置信度低于规则判断，因为涉及模式识别
-                ))
+                suggestions.append(
+                    EvalDrivenSuggestion(
+                        agent_name=agent_name,
+                        trigger_type="root_cause",
+                        affected_metrics={"affected_cases": pattern_count},
+                        suggested_changes=pattern.get("suggestion", ""),
+                        root_cause_pattern=pattern_mode,
+                        # 根据影响面动态调整优先级：>=5 个案例说明是系统性问题的概率更高
+                        priority="medium" if pattern_count < 5 else "high",
+                        confidence=0.75,  # 根因分析置信度低于规则判断，因为涉及模式识别
+                    )
+                )
 
     return suggestions
 
@@ -183,14 +194,18 @@ def auto_trigger_evolution_on_eval(
                 if s.priority == "high":
                     # 只自动保存高优先级建议，中低优先级的留给管理员手动确认，避免产生过多噪音
                     suggester.save_suggestion_to_log(
-                        agent_id=0,  # agent_id=0 表示需要从配置获取，这里留了 TODO
+                        agent_id=0,  # agent_id=0 是旧日志接口约定的评测流水线哨兵值
                         tool_name=agent_name,
                         suggestion=s.suggested_changes,
                     )
             applied = True
-        except Exception:
-            # 静默吞掉保存异常，不影响评测结果的返回
-            pass
+        except Exception as exc:
+            # 保存失败不阻塞评测结果返回，但必须留下诊断线索，避免生产问题被吞掉。
+            logger.warning(
+                "eval_suggestion_persist_failed",
+                agent_name=agent_name,
+                error=str(exc),
+            )
 
     # 返回结构化的结果，包含每条建议的简化信息，便于前端直接渲染
     return {

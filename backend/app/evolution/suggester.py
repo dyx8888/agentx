@@ -15,18 +15,22 @@ from app.database import db
 
 logger = get_logger(__name__)
 
+
 @dataclass
 class FeedbackPair:
     """Data class for original vs edited feedback pairs"""
+
     # 同时保存原始输出和人工修改版本，让 LLM 通过对比差异来学习"人类期望的修改模式"
     original_output: str
     human_edited_output: str
     tool_name: str  # tool_name 是必须的，因为不同工具的错误模式不同，需要分开分析
     created_at: str
 
+
 @dataclass
 class EvolutionSuggestion:
     """Data class for evolution suggestions"""
+
     agent_id: int
     # suggested_prompt_changes 是纯文本而非结构化 JSON，因为 Prompt 修改建议需要灵活表达，不适合用固定模板
     suggested_prompt_changes: str
@@ -36,26 +40,31 @@ class EvolutionSuggestion:
     # confidence_score 帮助管理员判断是否值得采纳此建议
     confidence_score: float
 
+
 class EvolutionSuggester:
     """Suggester for generating LLM-based improvement suggestions"""
 
     def __init__(self, db_path: str = None):
         # 数据库路径与 Analyzer 共享同一个 feedback.db，保证数据一致性
-        self.db_path = db_path or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "feedback.db")
+        self.db_path = db_path or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "feedback.db"
+        )
 
     def get_connection(self):
         """Get database connection"""
         return sqlite3.connect(self.db_path)
 
-    def extract_feedback_pairs(self, agent_id: int, tool_name: str = None, days: int = 7) -> list[FeedbackPair]:
+    def extract_feedback_pairs(
+        self, agent_id: int, tool_name: str = None, days: int = 7
+    ) -> list[FeedbackPair]:
         """
         Extract original vs edited feedback pairs for analysis
-        
+
         Args:
             agent_id: Agent ID to analyze
             tool_name: Optional tool name to filter by
             days: Number of days to look back
-            
+
         Returns:
             List of FeedbackPair objects
         """
@@ -63,7 +72,7 @@ class EvolutionSuggester:
             cursor = conn.cursor()
 
             # Calculate date threshold
-            threshold_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+            threshold_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
             # Query for modified feedback pairs
             # 只查询有修改记录的反馈，因为未被修改的反馈无法提供"人类期望"的对比信号
@@ -89,23 +98,25 @@ class EvolutionSuggester:
                 # Only include pairs where human actually made changes
                 # 过滤掉 original == edited 的记录，这些是"标记为修改但实际未改"的无效数据
                 if human_edited_output and human_edited_output != original_output:
-                    feedback_pairs.append(FeedbackPair(
-                        original_output=original_output,
-                        human_edited_output=human_edited_output,
-                        tool_name=tool_name,
-                        created_at=created_at
-                    ))
+                    feedback_pairs.append(
+                        FeedbackPair(
+                            original_output=original_output,
+                            human_edited_output=human_edited_output,
+                            tool_name=tool_name,
+                            created_at=created_at,
+                        )
+                    )
 
             return feedback_pairs
 
     def generate_suggestion(self, agent_id: int, tool_name: str = None) -> EvolutionSuggestion:
         """
         Generate improvement suggestions using LLM analysis
-        
+
         Args:
             agent_id: Agent ID to analyze
             tool_name: Optional tool name to focus on
-            
+
         Returns:
             EvolutionSuggestion object with improvements
         """
@@ -120,7 +131,7 @@ class EvolutionSuggester:
                     suggested_prompt_changes="No modified feedback found for analysis.",
                     knowledge_entries=[],
                     analysis_summary="Insufficient data for analysis.",
-                    confidence_score=0.0
+                    confidence_score=0.0,
                 )
 
             # Prepare feedback summary for LLM
@@ -141,7 +152,7 @@ class EvolutionSuggester:
                 suggested_prompt_changes=f"Error generating suggestions: {str(e)}",
                 knowledge_entries=[],
                 analysis_summary="Failed to analyze feedback patterns.",
-                confidence_score=0.0
+                confidence_score=0.0,
             )
 
     def _prepare_feedback_summary(self, feedback_pairs: list[FeedbackPair]) -> str:
@@ -190,15 +201,17 @@ class EvolutionSuggester:
             human_content = f"""基于以下人类修改AI输出的反馈分析，请提取改进模式和建议：
 
 {feedback_summary}
-{f'特别关注工具：{tool_name}' if tool_name else ''}
+{f"特别关注工具：{tool_name}" if tool_name else ""}
 
 请按照上述 System Prompt 中的格式要求，返回 JSON。"""
 
             # 使用 invoke 而非 stream，因为需要完整响应来解析 JSON
-            response = llm.invoke([
-                SystemMessage(content=system_content),
-                HumanMessage(content=human_content),
-            ])
+            response = llm.invoke(
+                [
+                    SystemMessage(content=system_content),
+                    HumanMessage(content=human_content),
+                ]
+            )
             return response.content
 
         except Exception as e:
@@ -224,10 +237,12 @@ class EvolutionSuggester:
             # 使用 .get() 而非直接索引，防止 LLM 返回的 JSON 缺少某些字段导致崩溃
             return EvolutionSuggestion(
                 agent_id=agent_id,
-                suggested_prompt_changes=parsed.get('suggested_prompt_changes', ''),
-                knowledge_entries=parsed.get('knowledge_entries', []),
-                analysis_summary=parsed.get('analysis_summary', ''),
-                confidence_score=float(parsed.get('confidence_score', 0.5))  # 默认 0.5 表示"不确定"
+                suggested_prompt_changes=parsed.get("suggested_prompt_changes", ""),
+                knowledge_entries=parsed.get("knowledge_entries", []),
+                analysis_summary=parsed.get("analysis_summary", ""),
+                confidence_score=float(
+                    parsed.get("confidence_score", 0.5)
+                ),  # 默认 0.5 表示"不确定"
             )
 
         except (json.JSONDecodeError, KeyError, ValueError):
@@ -238,41 +253,47 @@ class EvolutionSuggester:
                 suggested_prompt_changes=llm_response,
                 knowledge_entries=[],
                 analysis_summary="LLM响应解析失败，返回原始内容。",
-                confidence_score=0.3  # 解析失败时置信度设为 0.3，低于正常值，提示管理员需要人工审核
+                confidence_score=0.3,  # 解析失败时置信度设为 0.3，低于正常值，提示管理员需要人工审核
             )
 
-    def save_suggestion_to_log(self, agent_id: int, tool_name: str, suggestion: str, training_data_path: str = None) -> bool:
+    def save_suggestion_to_log(
+        self, agent_id: int, tool_name: str, suggestion: str, training_data_path: str = None
+    ) -> bool:
         """Save evolution suggestion to database log"""
         try:
             # 通过 db.get_connection() 而非 self.get_connection()，因为 db 可能是 SQLAlchemy 模式
             with db.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
+                cursor.execute(
+                    """
                     INSERT INTO evolution_log (agent_id, tool_name, suggestion_text, training_data_path)
                     VALUES (?, ?, ?, ?)
-                """, (agent_id, tool_name, suggestion, training_data_path))
+                """,
+                    (agent_id, tool_name, suggestion, training_data_path),
+                )
                 conn.commit()
             return True
         except Exception as e:
             logger.error("evolution_suggester_save_error", error=str(e))
             return False
 
-    def generate_lightweight_suggestion(self, agent_id: int, task_result: str = None) -> EvolutionSuggestion:
+    def generate_lightweight_suggestion(
+        self, agent_id: int, task_result: str = None
+    ) -> EvolutionSuggestion:
         """
         基于单次任务结果生成轻量级进化建议。
         适用于实时触发场景，不需要大量的历史反馈数据。
-        
+
         Args:
             agent_id: Agent ID
             task_result: 本次任务的执行结果文本
-            
+
         Returns:
             EvolutionSuggestion 对象
         """
         try:
             # 如果有任务结果，直接分析
             if task_result:
-                analysis_summary = "基于本次任务执行结果的实时分析"
                 # 调用 LLM 对单次结果进行快速分析
                 # 与 generate_suggestion 不同，这里只分析单次结果，置信度由 LLM 内的校准规则控制
                 llm_response = self._call_llm_for_single_result(task_result)
@@ -287,7 +308,7 @@ class EvolutionSuggester:
                 suggested_prompt_changes="",
                 knowledge_entries=[],
                 analysis_summary=f"实时分析失败: {str(e)}",
-                confidence_score=0.0
+                confidence_score=0.0,
             )
 
     def _call_llm_for_single_result(self, task_result: str) -> str:
@@ -322,12 +343,14 @@ class EvolutionSuggester:
 
 请按上述规则分析并返回 JSON。记住：单样本分析的置信度上限为 0.75。"""
 
-            response = llm.invoke([
-                SystemMessage(content=system_content),
-                HumanMessage(content=human_content),
-            ])
+            response = llm.invoke(
+                [
+                    SystemMessage(content=system_content),
+                    HumanMessage(content=human_content),
+                ]
+            )
             # 使用 hasattr 检查 content 属性，兼容不同 LLM 返回类型
-            return response.content if hasattr(response, 'content') else str(response)
+            return response.content if hasattr(response, "content") else str(response)
         except Exception as e:
             # 失败时返回一个合法的 JSON 空结果，避免上游解析崩溃
             return f'{{"suggested_prompt_changes": "", "knowledge_entries": [], "analysis_summary": "LLM分析失败: {str(e)}", "confidence_score": 0.0}}'

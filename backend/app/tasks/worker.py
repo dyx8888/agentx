@@ -10,6 +10,7 @@ import threading
 import time
 import uuid
 
+import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.core.logging import get_logger
@@ -23,6 +24,7 @@ except ImportError:
     is_redis_available = None
 
 logger = get_logger(__name__)
+
 
 class TaskWorker:
     """Background task worker that processes tasks asynchronously"""
@@ -41,7 +43,9 @@ class TaskWorker:
                 self.use_redis = True
                 logger.info("TaskWorker configured for Redis queue consumption")
             else:
-                logger.warning("Redis available but queue not ready, falling back to database polling")
+                logger.warning(
+                    "Redis available but queue not ready, falling back to database polling"
+                )
         else:
             logger.info("TaskWorker configured for database polling")
 
@@ -130,19 +134,19 @@ class TaskWorker:
         """Process a single task with AgentRuntime Plan-Execute-Reflect."""
         task_request_id = f"task-{uuid.uuid4().hex[:12]}"
 
-        if 'id' in task:
-            task_id = task['id']
-            company_id = task['company_id']
-            source_agent_id = task['source_agent_id']
-            target_agent_name = task['target_agent_name']
-            task_description = task['task_description']
-            db.update_task_status(task_id, 'processing')
+        if "id" in task:
+            task_id = task["id"]
+            company_id = task["company_id"]
+            source_agent_id = task["source_agent_id"]
+            target_agent_name = task["target_agent_name"]
+            task_description = task["task_description"]
+            db.update_task_status(task_id, "processing")
         else:
-            task_id = task.get('task_id', f"redis_{int(time.time())}")
-            company_id = task.get('company_id')
-            source_agent_id = task.get('source_agent_id')
-            target_agent_name = task.get('target_agent_name')
-            task_description = task.get('task_description')
+            task_id = task.get("task_id", f"redis_{int(time.time())}")
+            company_id = task.get("company_id")
+            source_agent_id = task.get("source_agent_id")
+            target_agent_name = task.get("target_agent_name")
+            task_description = task.get("task_description")
 
         structlog.contextvars.bind_contextvars(
             request_id=task_request_id,
@@ -151,11 +155,14 @@ class TaskWorker:
         )
 
         try:
-            logger.info(f"Processing task {task_id}: {target_agent_name} - {task_description[:50]}...")
+            logger.info(
+                f"Processing task {task_id}: {target_agent_name} - {task_description[:50]}..."
+            )
 
             self._notify_task_started(company_id, task_id, target_agent_name, task_description)
 
             from app.agents import create_agent_execution_context
+
             exec_context = create_agent_execution_context(
                 agent_key=target_agent_name,
                 company_id=company_id,
@@ -167,12 +174,15 @@ class TaskWorker:
                 raise Exception(f"Target agent '{target_agent_name}' not found")
 
             if target_agent.company_id != company_id:
-                raise Exception(f"Agent '{target_agent_name}' does not belong to company {company_id}")
+                raise Exception(
+                    f"Agent '{target_agent_name}' does not belong to company {company_id}"
+                )
 
             import json
+
             tool_names = json.loads(target_agent.tools_json)
 
-            from app.agent import build_reaction_graph, build_system_message, State
+            from app.agent import State, build_reaction_graph, build_system_message
             from app.services.model_gateway import get_global_model_gateway
             from app.tools.registry import registry
 
@@ -194,10 +204,7 @@ class TaskWorker:
             rag_context = exec_context.get("rag_context", "")
             enhanced_task = task_description
             if rag_context:
-                enhanced_task = (
-                    f"【公司上下文】\n{rag_context}\n\n"
-                    f"【任务指令】\n{task_description}"
-                )
+                enhanced_task = f"【公司上下文】\n{rag_context}\n\n【任务指令】\n{task_description}"
 
             state = {
                 "messages": [HumanMessage(content=enhanced_task)],
@@ -206,24 +213,30 @@ class TaskWorker:
                     "source_agent_id": source_agent_id,
                     "task_mode": "async",
                     "agent_key": target_agent_name,
-                }
+                },
             }
 
             result = self._execute_with_timeout(target_agent_app, state, timeout=300)
 
-            steps = self._extract_steps(result)
+            steps = _extract_steps(result)
 
             for step in steps:
-                if step['name'] in ['generate_outreach', 'generate_script', 'generate_strategy_suggestion']:
-                    step['status'] = 'confirm_required'
-                    self._save_task_steps(task_id, steps)
-                    db.update_task_status(task_id, 'waiting_confirmation')
-                    logger.info(f"Task {task_id} paused at step {step['name']} for human confirmation")
+                if step["name"] in [
+                    "generate_outreach",
+                    "generate_script",
+                    "generate_strategy_suggestion",
+                ]:
+                    step["status"] = "confirm_required"
+                    _save_task_steps(task_id, steps)
+                    db.update_task_status(task_id, "waiting_confirmation")
+                    logger.info(
+                        f"Task {task_id} paused at step {step['name']} for human confirmation"
+                    )
                     self._notify_review_required(company_id, task_id, target_agent_name, step)
                     return
 
-            if 'id' in task:
-                db.update_task_status(task_id, 'completed', result)
+            if "id" in task:
+                db.update_task_status(task_id, "completed", result)
 
             logger.info(f"Task {task_id} completed successfully")
 
@@ -231,6 +244,7 @@ class TaskWorker:
 
             try:
                 from app.communication.collaboration import collaboration_engine
+
                 if target_agent_name and company_id:
                     asyncio = self._get_async_loop()
                     asyncio.run_coroutine_threadsafe(
@@ -247,6 +261,7 @@ class TaskWorker:
 
             try:
                 from app.evolution.suggester import EvolutionSuggester
+
                 target_agent = db.get_agent_by_name(target_agent_name)
                 agent_id = target_agent.id if target_agent else None
 
@@ -257,12 +272,19 @@ class TaskWorker:
                     if suggestion.confidence_score >= 0.3:
                         db.create_evolution_review(
                             agent_id=agent_id,
-                            tool_name=suggestion.tool_name if hasattr(suggestion, 'tool_name') else None,
-                            suggestion_text=suggestion.suggested_prompt_changes or suggestion.analysis_summary,
-                            knowledge_entries=str(suggestion.knowledge_entries) if suggestion.knowledge_entries else None,
-                            prompt_changes=suggestion.suggested_prompt_changes
+                            tool_name=suggestion.tool_name
+                            if hasattr(suggestion, "tool_name")
+                            else None,
+                            suggestion_text=suggestion.suggested_prompt_changes
+                            or suggestion.analysis_summary,
+                            knowledge_entries=str(suggestion.knowledge_entries)
+                            if suggestion.knowledge_entries
+                            else None,
+                            prompt_changes=suggestion.suggested_prompt_changes,
                         )
-                        logger.info(f"[EVOLUTION] Real-time suggestion generated for agent {agent_id}, confidence: {suggestion.confidence_score:.2f}")
+                        logger.info(
+                            f"[EVOLUTION] Real-time suggestion generated for agent {agent_id}, confidence: {suggestion.confidence_score:.2f}"
+                        )
             except Exception as e:
                 logger.error(f"[EVOLUTION] Real-time evolution trigger failed (non-blocking): {e}")
 
@@ -270,8 +292,8 @@ class TaskWorker:
             error_msg = f"Task execution failed: {str(e)}"
             logger.error(f"Task {task_id} failed: {error_msg}")
 
-            if 'id' in task:
-                db.update_task_status(task_id, 'failed', error_msg)
+            if "id" in task:
+                db.update_task_status(task_id, "failed", error_msg)
 
             self._notify_task_failed(company_id, task_id, target_agent_name, error_msg)
         finally:
@@ -288,9 +310,9 @@ class TaskWorker:
             try:
                 result = agent_app.invoke(state)
                 if result and result.get("messages"):
-                    result_container['value'] = result["messages"][-1].content
+                    result_container["value"] = result["messages"][-1].content
                 else:
-                    result_container['value'] = "Task completed but no response generated"
+                    result_container["value"] = "Task completed but no response generated"
             except Exception as e:
                 exception_container.append(e)
 
@@ -304,12 +326,12 @@ class TaskWorker:
         if exception_container:
             raise exception_container[0]
 
-        return result_container.get('value', 'No result generated')
+        return result_container.get("value", "No result generated")
 
-    def _notify_task_started(self, company_id: int, task_id: int, agent_key: str,
-                               description: str):
+    def _notify_task_started(self, company_id: int, task_id: int, agent_key: str, description: str):
         try:
             from app.ws import ws_manager
+
             asyncio = self._get_async_loop()
             asyncio.run_coroutine_threadsafe(
                 ws_manager.broadcast_task_status(company_id, task_id, "processing", agent_key),
@@ -318,28 +340,31 @@ class TaskWorker:
         except Exception:
             pass
 
-    def _notify_task_completed(self, company_id: int, task_id: int, agent_key: str,
-                                 result: str):
+    def _notify_task_completed(self, company_id: int, task_id: int, agent_key: str, result: str):
         try:
             from app.ws import ws_manager
+
             asyncio = self._get_async_loop()
             asyncio.run_coroutine_threadsafe(
-                ws_manager.broadcast_to_company(company_id, {
-                    "type": "task_status",
-                    "taskId": task_id,
-                    "status": "completed",
-                    "agent": agent_key,
-                    "summary": str(result)[:200],
-                }),
+                ws_manager.broadcast_to_company(
+                    company_id,
+                    {
+                        "type": "task_status",
+                        "taskId": task_id,
+                        "status": "completed",
+                        "agent": agent_key,
+                        "summary": str(result)[:200],
+                    },
+                ),
                 asyncio,
             )
         except Exception:
             pass
 
-    def _notify_task_failed(self, company_id: int, task_id: int, agent_key: str,
-                              error_msg: str):
+    def _notify_task_failed(self, company_id: int, task_id: int, agent_key: str, error_msg: str):
         try:
             from app.ws import ws_manager
+
             asyncio = self._get_async_loop()
             asyncio.run_coroutine_threadsafe(
                 ws_manager.broadcast_task_status(company_id, task_id, "failed", agent_key),
@@ -348,10 +373,10 @@ class TaskWorker:
         except Exception:
             pass
 
-    def _notify_review_required(self, company_id: int, task_id: int, agent_key: str,
-                                  step: dict):
+    def _notify_review_required(self, company_id: int, task_id: int, agent_key: str, step: dict):
         try:
             from app.ws import ws_manager
+
             asyncio = self._get_async_loop()
             asyncio.run_coroutine_threadsafe(
                 ws_manager.broadcast_review_notification(
@@ -370,8 +395,10 @@ class TaskWorker:
             asyncio.set_event_loop(loop)
             return loop
 
+
 # Global worker instance
 _global_worker: TaskWorker | None = None
+
 
 def get_task_worker() -> TaskWorker:
     """Get or create global task worker instance"""
@@ -380,16 +407,19 @@ def get_task_worker() -> TaskWorker:
         _global_worker = TaskWorker()
     return _global_worker
 
+
 def start_task_worker():
     """Start the global task worker"""
     worker = get_task_worker()
     worker.start()
+
 
 def stop_task_worker():
     """Stop the global task worker"""
     global _global_worker
     if _global_worker:
         _global_worker.stop()
+
 
 def _extract_steps(result: str) -> list:
     """
@@ -402,15 +432,12 @@ def _extract_steps(result: str) -> list:
         # Try to parse as JSON first
         if isinstance(result, str):
             parsed_result = json.loads(result)
-            if isinstance(parsed_result, dict) and 'steps' in parsed_result:
-                steps = parsed_result['steps']
+            if isinstance(parsed_result, dict) and "steps" in parsed_result:
+                steps = parsed_result["steps"]
             elif isinstance(parsed_result, list):
                 steps = parsed_result
         elif isinstance(result, dict):
-            if 'steps' in result:
-                steps = result['steps']
-            else:
-                steps = []
+            steps = result.get("steps", [])
         else:
             steps = []
 
@@ -419,17 +446,17 @@ def _extract_steps(result: str) -> list:
         for i, step in enumerate(steps):
             if isinstance(step, dict):
                 formatted_step = {
-                    'step_id': i + 1,
-                    'name': step.get('name', f'Step {i + 1}'),
-                    'status': step.get('status', 'pending'),
-                    'result': step.get('result', None)
+                    "step_id": i + 1,
+                    "name": step.get("name", f"Step {i + 1}"),
+                    "status": step.get("status", "pending"),
+                    "result": step.get("result", None),
                 }
             else:
                 formatted_step = {
-                    'step_id': i + 1,
-                    'name': str(step),
-                    'status': 'completed',
-                    'result': str(step)
+                    "step_id": i + 1,
+                    "name": str(step),
+                    "status": "completed",
+                    "result": str(step),
                 }
             formatted_steps.append(formatted_step)
 
@@ -438,22 +465,25 @@ def _extract_steps(result: str) -> list:
     except (json.JSONDecodeError, TypeError, AttributeError) as e:
         logger.warning(f"Error extracting steps from result: {e}")
         # Fallback: create a single step with the result
-        return [{
-            'step_id': 1,
-            'name': 'Task Execution',
-            'status': 'completed',
-            'result': str(result) if result else 'No result generated'
-        }]
+        return [
+            {
+                "step_id": 1,
+                "name": "Task Execution",
+                "status": "completed",
+                "result": str(result) if result else "No result generated",
+            }
+        ]
+
 
 def _save_task_steps(task_id: int, steps: list):
     """
     Save steps list to task.result field as JSON
     """
     try:
-        steps_json = json.dumps({'steps': steps})
-        db.update_task_status(task_id, 'processing', steps_json)
+        steps_json = json.dumps({"steps": steps})
+        db.update_task_status(task_id, "processing", steps_json)
         logger.info(f"Saved {len(steps)} steps for task {task_id}")
     except Exception as e:
         logger.error(f"Error saving task steps: {e}")
         # Fallback: save as simple string
-        db.update_task_status(task_id, 'processing', str(steps))
+        db.update_task_status(task_id, "processing", str(steps))
