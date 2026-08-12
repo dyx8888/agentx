@@ -1,4 +1,5 @@
 import ast
+import importlib
 from pathlib import Path
 
 
@@ -75,3 +76,16 @@ def test_public_demo_settings_backend_routes_are_registered():
     assert "/api/platforms" in route_paths
     assert "/api/rag/embedding/config" in route_paths
     assert "/api/rag/company/profile" in route_paths
+
+
+def test_public_demo_backend_runtime_dependencies_are_present():
+    required_modules = [
+        "app.communication.master_dispatcher",
+        "app.core.circuit_breaker",
+        "app.core.config",
+        "app.mcp_servers.runtime",
+        "app.rag.doc_status",
+    ]
+
+    for module_name in required_modules:
+        assert importlib.import_module(module_name)
