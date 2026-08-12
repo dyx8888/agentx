@@ -1,4 +1,4 @@
-"""
+﻿"""
 AgentRuntime - 核心编排器
 实现 Plan-Execute-Reflect 三层架构：
 1. Planner: 分析任务，生成结构化执行计划
@@ -13,42 +13,130 @@ AgentRuntime - 核心编排器
   - Master Orchestrator 的 Agent Loop 设计:
     初始化 → 循环迭代 → 安全兜底(max 10轮, Token阈值)
 """
+
 # 仅导入必需的类型提示，避免运行时引入不必要的依赖
-from typing import Any, Optional
+import os
+from typing import Any
 
 # HumanMessage 用于包装用户输入为 LangChain 标准消息格式，使得后续 LLM 调用与消息处理链路统一
 from langchain_core.messages import HumanMessage
+
 # END 和 START 是 LangGraph 的特殊节点标记，前者表示图的终止，后者表示入口——不导入无法构建状态图
 from langgraph.graph import END, START, StateGraph
 
 # Import Agent
 # State 是所有 RuntimeState 的基类，定义了 messages 等最基础的共享字段，子类叠加扩展字段
 from app.agent import State
-# 通过全局单例获取模型网关，避免在每个 Runtime 实例中重复创建网关连接
-from app.services.model_gateway import get_global_model_gateway
+
 # Redis 持久化的 checkpoint，保证服务重启后 LangGraph 状态图能从断点恢复
 from app.core.checkpoint import get_redis_saver
+
+# 高风险动作在进入 LLM/工具循环前短路，避免退款、发货、隐私导出等副作用动作被模型误执行
+from app.core.high_risk_actions import (
+    HighRiskActionDecision,
+    detect_high_risk_action,
+    detect_safe_sop_response,
+)
+
 # 使用结构化日志替代 print，日志可被采集、检索、告警
 from app.core.logging import get_logger
+
 # WorkingMemory 是跨节点的临时工作记忆，解耦了"当前在做什么"与持久化的长期记忆
 from app.core.working_memory import WorkingMemory
+
 # 三层的记忆管理器（感知/短期/长期），别名 MemoryManager 是为了编排器中书写简洁
 from app.runtime.memory import ThreeLayerMemoryManager as MemoryManager
+
 # 三个核心节点函数：加 _ 前缀表示它们是模块内部实现，编排器仅封装调用，不直接暴露
 from app.runtime.nodes import executor_node as _executor_node
 from app.runtime.nodes import planner_node as _planner_node
 from app.runtime.nodes import reflector_node as _reflector_node
+
 # 动态校验器在运行时根据 skill 定义的规则校验执行结果，不通过则触发 reflector 重审
 from app.runtime.validator import DynamicValidator
+
+# 通过全局单例获取模型网关，避免在每个 Runtime 实例中重复创建网关连接
+from app.services.model_gateway import get_global_model_gateway
+
 # skill_registry 是全局单例，存储所有已注册的 Skill 模板，运行时按需匹配
 from app.skills.registry import skill_registry
+
 # ToolLoader 统一管理 MCP 工具加载，ToolLoadContext 封装了加载所需的租户、Agent 等上下文
-from app.tools.loader import ToolLoader, ToolLoadContext
+from app.tools.loader import ToolLoadContext, ToolLoader
+
 # traced/trace_span 提供分布式追踪能力，generate_trace_id 为每次执行生成唯一链路 ID
-from app.tracking.tracer import generate_trace_id, init_tracer, traced, trace_span
+from app.tracking.tracer import generate_trace_id, init_tracer, trace_span
 
 # 通过模块名区分不同组件的日志来源，方便按组件过滤
 logger = get_logger(__name__)
+
+AGENT_TOOL_CAPABILITIES = {
+    "brand_bd": ["brand_bd", "search", "content", "analysis"],
+    "content_operation": ["content_operation", "content"],
+    "data_analysis": ["data_analysis", "analysis"],
+    "customer_service": ["customer_service", "service", "knowledge"],
+    "warehouse_logistics": ["warehouse_logistics", "logistics"],
+    "kol_search": ["kol_search", "search"],
+    "master": ["core"],
+}
+
+
+def _default_tool_capabilities(agent_name: str) -> list[str]:
+    """Return the narrow default tool capability set for an Agent runtime."""
+    normalized = (agent_name or "").strip()
+    if not normalized:
+        return ["core"]
+    return AGENT_TOOL_CAPABILITIES.get(normalized, [normalized])
+
+
+def _build_high_risk_guard_result(
+    decision: HighRiskActionDecision, message: str, agent_name: str
+) -> dict[str, Any]:
+    """Build a normal AgentRuntime result for a pre-LLM high-risk guard hit."""
+    memory = WorkingMemory(
+        goal="high_risk_action_guard",
+        current_step="guarded",
+        context_focus=decision.risk_domain,
+        temporary_variables={
+            "guarded": True,
+            "agent_name": agent_name,
+            "risk_level": decision.risk_level,
+            "risk_domain": decision.risk_domain,
+            "message_preview": message[:120],
+        },
+    )
+    step_results = [
+        {
+            "step": index + 1,
+            "description": f"pre-llm route: {tool_name}",
+            "tool_used": tool_name,
+            "status": "ok",
+            "result": decision.response,
+        }
+        for index, tool_name in enumerate(decision.tool_calls)
+    ]
+
+    return {
+        "response": decision.response,
+        "plan": {
+            "steps": [],
+            "task_summary": "High-risk action guarded before LLM/tool execution.",
+            "guardrail": {
+                "risk_level": decision.risk_level,
+                "risk_domain": decision.risk_domain,
+                "requires_human_review": decision.requires_human_review,
+            },
+        },
+        "step_results": step_results,
+        "reflection": {
+            "passed": True,
+            "guarded": True,
+            "risk_level": decision.risk_level,
+            "risk_domain": decision.risk_domain,
+        },
+        "success": True,
+        "working_memory": memory.to_dict(),
+    }
 
 # 模块加载时初始化 tracer（幂等）—— 提前 init 是为了确保 tracing SDK 在首次调用前已完成初始化，
 # 避免高并发场景下首次调用时的竞态竞争或延迟；幂等设计保证重复调用不会产生副作用
@@ -63,6 +151,7 @@ TOKEN_THRESHOLD_WARNING_RATIO = 0.7  # 70%时发出警告
 
 class AgentRuntime:
     """核心编排器 - 统一的 Agent 执行引擎"""
+
     # 设计为单个类而非多个子类，是为了保持 Plan-Execute-Reflect 三层之间的状态传递简单直接，
     # 避免多态带来的调试复杂度和类型推断困难
 
@@ -85,11 +174,13 @@ class AgentRuntime:
 
     async def initialize(self, ctx: ToolLoadContext = None):
         """启动时初始化：通过 ToolLoader 加载工具、构建 StateGraph
-        
+
         Args:
             ctx: 工具加载上下文（company_id, agent_name, trace_id, capabilities）
         """
         # 缓存 ctx 到实例变量，方便后续排查问题时回溯初始化参数
+        if ctx and ctx.capabilities is None:
+            ctx.capabilities = _default_tool_capabilities(ctx.agent_name)
         self._ctx = ctx
 
         # 1. 获取 LLM
@@ -112,15 +203,20 @@ class AgentRuntime:
             try:
                 # ToolLoader.load() 内部会根据 ctx.capabilities 过滤和配置工具，实现按租户/Agent 的差异化工具集
                 self.mcp_tools = await self.tool_loader.load(ctx)
-                logger.info("agent_runtime_tool_loader_complete",
-                            tool_count=len(self.mcp_tools),
-                            capabilities=ctx.capabilities)
+                logger.info(
+                    "agent_runtime_tool_loader_complete",
+                    tool_count=len(self.mcp_tools),
+                    capabilities=ctx.capabilities,
+                )
             except Exception as e:
                 logger.warning("agent_runtime_tool_loader_failed", error=str(e))
                 # 降级到 Registry —— 这是关键的容错机制：
                 # 当 MCP 服务不可用时，不能因为工具加载失败就让整个 Runtime 不可用，
                 # 所以回退到本地注册表，至少保证基础工具可用
-                from app.tools.registry import registry  # 延迟导入：只有降级时才引入，正常路径不加载此模块
+                from app.tools.registry import (
+                    registry,  # 延迟导入：只有降级时才引入，正常路径不加载此模块
+                )
+
                 tool_names = registry.list_registered_tools()
                 self.mcp_tools = registry.get_tools_by_names(tool_names)
                 logger.info("agent_runtime_registry_fallback", tool_count=len(self.mcp_tools))
@@ -128,6 +224,7 @@ class AgentRuntime:
             # ctx 为 None 时也走 registry 降级——适用于不需要租户隔离的简单场景
             logger.warning("agent_runtime_no_context_fallback_to_registry")
             from app.tools.registry import registry
+
             tool_names = registry.list_registered_tools()
             self.mcp_tools = registry.get_tools_by_names(tool_names)
 
@@ -143,7 +240,8 @@ class AgentRuntime:
         # 文档依据: 3.docx - Agent Loop 安全兜底
         # 最大重试次数改为 MAX_AGENT_LOOP_ITERATIONS (10轮)，防止无限循环
         # 同时加入 Token 消耗阈值检查，超过阈值时强制终止
-        MAX_RETRIES = MAX_AGENT_LOOP_ITERATIONS
+        eval_mode = os.getenv("AGENT_EVAL_MODE", "").lower() in {"1", "true", "yes", "on"}
+        MAX_RETRIES = 0 if eval_mode else MAX_AGENT_LOOP_ITERATIONS
 
         # RuntimeState 定义在 _build_graph 内部而不是模块顶层，是因为它引用的字段含义
         # 与 AgentRuntime 的上下文紧密绑定——放在内部暗示"这个 State 只服务于当前流程图"
@@ -175,7 +273,9 @@ class AgentRuntime:
         #    避免底层节点函数直接依赖 AgentRuntime 实例，保持节点函数的纯函数特性
         def planner_wrapper(state: RuntimeState):
             with trace_span("planner"):
-                return _planner_node(state, self.llm, self.skill_registry, self.memory_manager, self.mcp_tools)
+                return _planner_node(
+                    state, self.llm, self.skill_registry, self.memory_manager, self.mcp_tools
+                )
 
         async def executor_wrapper(state: RuntimeState):
             # 从 state 中读取 current_step 并 +1，因为 executor 每次执行的是"下一步"而非"当前步"
@@ -205,14 +305,18 @@ class AgentRuntime:
                 return END  # 达到上限强制终止，宁可返回不完美结果也不能无限跑
             # Token消耗阈值检查 - 文档依据: 3.docx
             if total_tokens >= MAX_AGENT_TOKEN_THRESHOLD:
-                logger.warning("agent_runtime_token_threshold_exceeded",
-                               total_tokens=total_tokens,
-                               threshold=MAX_AGENT_TOKEN_THRESHOLD)
+                logger.warning(
+                    "agent_runtime_token_threshold_exceeded",
+                    total_tokens=total_tokens,
+                    threshold=MAX_AGENT_TOKEN_THRESHOLD,
+                )
                 return END  # 超过Token阈值强制终止，防止成本失控
             if total_tokens >= MAX_AGENT_TOKEN_THRESHOLD * TOKEN_THRESHOLD_WARNING_RATIO:
-                logger.warning("agent_runtime_token_threshold_warning",
-                               total_tokens=total_tokens,
-                               ratio=TOKEN_THRESHOLD_WARNING_RATIO)
+                logger.warning(
+                    "agent_runtime_token_threshold_warning",
+                    total_tokens=total_tokens,
+                    ratio=TOKEN_THRESHOLD_WARNING_RATIO,
+                )
             return "executor"  # 还有机会，回到 executor 重做
 
         # increment_retry 作为独立的中间节点而非嵌入 executor，是为了保持状态变更的单一职责：
@@ -221,7 +325,7 @@ class AgentRuntime:
             return {
                 "retry_count": state.get("retry_count", 0) + 1,
                 "current_step": 0,  # 重置步骤，让 executor 从头开始
-                "step_results": []  # 清空旧结果，避免与新尝试的结果混淆
+                "step_results": [],  # 清空旧结果，避免与新尝试的结果混淆
             }
 
         workflow.add_node("planner", planner_wrapper)
@@ -237,7 +341,10 @@ class AgentRuntime:
         workflow.add_conditional_edges(
             "reflector",
             should_retry,  # 条件函数决定下一步走哪个分支
-            {"executor": "increment_retry", END: END}  # 注意：走 executor 前必须先经过 increment_retry
+            {
+                "executor": "increment_retry",
+                END: END,
+            },  # 注意：走 executor 前必须先经过 increment_retry
         )
         workflow.add_edge("increment_retry", "executor")  # 计数后必然回到 executor
 
@@ -245,8 +352,9 @@ class AgentRuntime:
         self.graph = workflow.compile(checkpointer=get_redis_saver())
         logger.info("agent_runtime_state_graph_built", max_retries=MAX_RETRIES)
 
-    def _build_initial_state(self, message: str, agent_name: str,
-                              company_id: str, trace_id: str) -> dict:
+    def _build_initial_state(
+        self, message: str, agent_name: str, company_id: str, trace_id: str
+    ) -> dict:
         """构建初始状态，包含 WorkingMemory"""
         # 每次 run() 都创建新的 WorkingMemory 实例，保证不同请求之间记忆隔离
         wm = WorkingMemory()
@@ -295,9 +403,7 @@ class AgentRuntime:
             steps = plan.get("steps", [])
             if not wm.pending_actions and steps:
                 # 将 plan 中的 steps 转换为 pending_actions，提取描述信息供记忆持久化
-                wm.pending_actions = [
-                    s.get("description", str(s)) for s in steps
-                ]
+                wm.pending_actions = [s.get("description", str(s)) for s in steps]
 
         # current_step 转为字符串存储，因为 WorkingMemory 内部统一用字符串表示步骤索引
         wm.current_step = str(state.get("current_step", wm.current_step))
@@ -323,9 +429,7 @@ class AgentRuntime:
         # 达到上限后不再重规划，直接标记完成并放弃——避免无限重规划消耗资源
         if replan_count >= MAX_DYNAMIC_REPLAN:
             logger.warning(
-                "dynamic_replan_max_reached",
-                replan_count=replan_count,
-                max=MAX_DYNAMIC_REPLAN
+                "dynamic_replan_max_reached", replan_count=replan_count, max=MAX_DYNAMIC_REPLAN
             )
             return {
                 "plan_completed": True,  # 即使没完全成功也标记完成，让流程终止
@@ -411,14 +515,17 @@ class AgentRuntime:
             # 延迟导入 HumanMessage, SystemMessage：这两个只在 LLM 分类路径中使用，
             # 如果走 fallback 路径则不需要加载，减少不必要的模块导入
             from langchain_core.messages import HumanMessage, SystemMessage
+
             # SystemMessage 用于设定角色约束，限制 LLM 输出范围为单个词，防止输出多余解释
-            response = self.llm.invoke([
-                SystemMessage(content="你是一个任务分类专家。仅输出一个词作为分类结果。"),
-                HumanMessage(content=prompt)
-            ])
+            response = self.llm.invoke(
+                [
+                    SystemMessage(content="你是一个任务分类专家。仅输出一个词作为分类结果。"),
+                    HumanMessage(content=prompt),
+                ]
+            )
 
             # 用 hasattr 防御性检查 content 属性：不同 LLM 实现的 response 对象结构可能不同
-            content = response.content.strip().lower() if hasattr(response, 'content') else ""
+            content = response.content.strip().lower() if hasattr(response, "content") else ""
             # 用集合做白名单校验：即使 LLM 输出了奇怪的内容，也能拦截并走降级
             valid_modes = {"workflow", "agent", "engine_first", "hybrid"}
             if content in valid_modes:
@@ -463,26 +570,44 @@ class AgentRuntime:
     async def run(self, message: str, agent_name: str = "", company_id: str = "") -> dict[str, Any]:
         # 用 company_id + agent_name 组合生成 trace_id，保证同租户同 Agent 的请求可追踪到同一链路
         trace_id = generate_trace_id(company_id, agent_name)
+        guard_decision = detect_high_risk_action(message, agent_name)
+        if guard_decision:
+            logger.info(
+                "high_risk_action_guarded",
+                agent=agent_name,
+                risk_level=guard_decision.risk_level,
+                risk_domain=guard_decision.risk_domain,
+            )
+            return _build_high_risk_guard_result(guard_decision, message, agent_name)
+
+        sop_decision = detect_safe_sop_response(message, agent_name)
+        if sop_decision:
+            logger.info(
+                "safe_sop_response_short_circuited",
+                agent=agent_name,
+                risk_domain=sop_decision.risk_domain,
+            )
+            return _build_high_risk_guard_result(sop_decision, message, agent_name)
+
         # 惰性初始化：首次 run() 时自动初始化，让调用方无需关心初始化时机
         if not self._initialized:
             ctx = ToolLoadContext(
                 company_id=company_id,
                 agent_name=agent_name,
                 trace_id=trace_id,
+                capabilities=_default_tool_capabilities(agent_name),
             )
             await self.initialize(ctx)
 
         # 将整个执行包裹在 trace_span 中，使得 tracing 系统能按 agent_runtime 维度聚合
         with trace_span("agent_runtime", {"trace_id": trace_id}):
-            initial_state = self._build_initial_state(
-                message, agent_name, company_id, trace_id
-            )
+            initial_state = self._build_initial_state(message, agent_name, company_id, trace_id)
 
             # ainvoke 是异步的图执行方法：内部会按图的拓扑结构依次（或必要时并行）调用各节点
             # thread_id 作为 checkpoint 的隔离键：同 trace_id 的多次调用共享状态，不同 trace_id 完全隔离
-            result = await self.graph.ainvoke(initial_state, {
-                "configurable": {"thread_id": trace_id}
-            })
+            result = await self.graph.ainvoke(
+                initial_state, {"configurable": {"thread_id": trace_id}}
+            )
 
         # 从结果中解包各字段：用 .get() 而非 [] 取值，防止节点异常时 KeyError
         final_messages = result.get("messages", [])
@@ -506,24 +631,40 @@ class AgentRuntime:
     async def run_stream(self, message: str, agent_name: str = "", company_id: str = ""):
         # 流式执行的 trace_id 和懒初始化逻辑与 run() 相同
         trace_id = generate_trace_id(company_id, agent_name)
+        guard_decision = detect_high_risk_action(message, agent_name)
+        if guard_decision:
+            logger.info(
+                "high_risk_action_stream_guarded",
+                agent=agent_name,
+                risk_level=guard_decision.risk_level,
+                risk_domain=guard_decision.risk_domain,
+            )
+            yield {
+                "type": "guardrail",
+                "data": _build_high_risk_guard_result(
+                    guard_decision, message, agent_name
+                ),
+            }
+            yield {"type": "done"}
+            return
+
         if not self._initialized:
             ctx = ToolLoadContext(
                 company_id=company_id,
                 agent_name=agent_name,
                 trace_id=trace_id,
+                capabilities=_default_tool_capabilities(agent_name),
             )
             await self.initialize(ctx)
 
         with trace_span("agent_runtime_stream", {"trace_id": trace_id}):
-            initial_state = self._build_initial_state(
-                message, agent_name, company_id, trace_id
-            )
+            initial_state = self._build_initial_state(message, agent_name, company_id, trace_id)
 
         # astream 是异步生成器，每走完一个节点就 yield 一次中间状态——
         # 这样前端可以实时看到 planner 产出的计划、executor 每步的结果，而不是等到全部完成后一次性返回
-        async for event in self.graph.astream(initial_state, {
-            "configurable": {"thread_id": trace_id}
-        }):
+        async for event in self.graph.astream(
+            initial_state, {"configurable": {"thread_id": trace_id}}
+        ):
             # LangGraph astream 的事件格式是 {node_name: node_output}，取第一个 key 作为节点名
             node_name = list(event.keys())[0]
             node_output = event[node_name]
@@ -543,7 +684,7 @@ class AgentRuntime:
                         "step": latest.get("step"),
                         "description": latest.get("description"),
                         "tool_used": latest.get("tool_used"),
-                        "result": latest.get("result")
+                        "result": latest.get("result"),
                     }
 
             elif node_name == "reflector":
@@ -574,23 +715,28 @@ class AgentRuntime:
                 "usage_ratio": float,
             }
         """
-        ratio = self._total_tokens_consumed / MAX_AGENT_TOKEN_THRESHOLD if MAX_AGENT_TOKEN_THRESHOLD > 0 else 0
+        ratio = (
+            self._total_tokens_consumed / MAX_AGENT_TOKEN_THRESHOLD
+            if MAX_AGENT_TOKEN_THRESHOLD > 0
+            else 0
+        )
         return {
             "safe": self._total_tokens_consumed < MAX_AGENT_TOKEN_THRESHOLD,
             "total_tokens": self._total_tokens_consumed,
             "threshold": MAX_AGENT_TOKEN_THRESHOLD,
-            "warning": self._total_tokens_consumed >= MAX_AGENT_TOKEN_THRESHOLD * TOKEN_THRESHOLD_WARNING_RATIO,
+            "warning": self._total_tokens_consumed
+            >= MAX_AGENT_TOKEN_THRESHOLD * TOKEN_THRESHOLD_WARNING_RATIO,
             "usage_ratio": round(ratio, 3),
             "max_iterations": MAX_AGENT_LOOP_ITERATIONS,
             "current_iterations": self._loop_iterations,
         }
 
-    async def recover(self, thread_id: str) -> Optional[dict[str, Any]]:
+    async def recover(self, thread_id: str) -> dict[str, Any] | None:
         """从 checkpoint 恢复中断的任务
-        
+
         Args:
             thread_id: 任务的 thread_id (trace_id)
-            
+
         Returns:
             恢复后的执行结果，如果 checkpoint 不存在则返回 None
         """
@@ -600,7 +746,7 @@ class AgentRuntime:
 
         # config 的格式必须与 run() 中 ainvoke 传入的完全一致，否则 LangGraph 找不到对应的 checkpoint
         config = {"configurable": {"thread_id": thread_id}}
-        
+
         # 检查 checkpoint 是否存在 —— 先查后调，避免 LangGraph 内部报出难以理解的错误
         saver = get_redis_saver()
         state = saver.get_tuple(config)
@@ -610,17 +756,17 @@ class AgentRuntime:
             return None
 
         logger.info("agent_runtime_recovering", thread_id=thread_id)
-        
+
         with trace_span("agent_runtime_recover", {"thread_id": thread_id}):
             # 传递 None 作为初始状态，让 LangGraph 从 checkpoint 恢复——
             # 这是 LangGraph 的标准恢复方式：ainvoke(None, config) 会从 thread_id 对应的
             # checkpoint 中读取上次中断时的状态并继续执行，而不是从头开始
             result = await self.graph.ainvoke(None, config)
-        
+
         final_messages = result.get("messages", [])
         step_results = result.get("step_results", [])
         reflection = result.get("reflection", {})
-        
+
         return {
             "response": final_messages[-1].content if final_messages else "",
             "step_results": step_results,

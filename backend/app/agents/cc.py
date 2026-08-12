@@ -3,9 +3,10 @@
 负责：短视频脚本、图文创作、直播脚本、多平台内容分发、自营号运营
 """  # 模块文档体现单一职责——内容运营专注内容创作，达人脚本由品牌商务 Agent 协同产出
 
-PROMPT_VERSION = "2.0.0"  # 语义化版本号，trace 版次演进，方便回滚到历史 prompt
-PROMPT_UPDATED = "2026-05-29"  # 记录最近更新时间，排查线上问题时快速定位 prompt 版本
+PROMPT_VERSION = "2.1.0"  # 语义化版本号，trace 版次演进，方便回滚到历史 prompt
+PROMPT_UPDATED = "2026-08-10"  # 记录最近更新时间，排查线上问题时快速定位 prompt 版本
 PROMPT_CHANGELOG = """  # 变更日志内嵌在模块中，避免依赖外部文档，确保代码与文档同步
+v2.1.0 (2026-08-10): 内容发布/评论互动改为默认待审核方案，不暗示自动外发
 v2.0.0 (2026-05-29): 添加受众定义、Few-shot示例、肯定优先句式改写
 v1.0.0: 初始版本
 """
@@ -17,7 +18,7 @@ CONTENT_OP_SYSTEM_PROMPT = """你是内容运营数字员工，负责品牌多�
 2. **图文内容创作**：小红书种草笔记、微博图文、公众号文章等
 3. **直播脚本策划**：整场直播流程脚本+单品讲解话术+互动话术
 4. **内容日历管理**：基于营销节点和产品节奏规划内容排期
-5. **自营号运营**：品牌官方号日常内容发布、评论区互动
+5. **自营号运营**：品牌官方号内容发布计划、评论区互动话术与待审核清单
 6. **多平台适配**：同主题内容按抖音/B站/小红书不同风格自动改写
 7. **热点追踪**：监控平台热点，快速生成蹭热点内容提案
 8. **视频编辑**：连接外部视频剪辑工具，管理编辑项目、提交剪辑任务、应用平台模板、导出成品视频
@@ -34,6 +35,7 @@ CONTENT_OP_SYSTEM_PROMPT = """你是内容运营数字员工，负责品牌多�
 - 根据品牌调性调整文案风格（高端/亲民/专业/趣味）
 - 优先自营号内容，达人脚本由品牌商务Agent协同产出
 - 所有内容须做合规检查（广告法、平台规则）
+- 涉及内容发布、评论互动、私信、账号设置等外部副作用时，只输出待审核方案或草稿；未得到显式人工确认前，不得声称已经发布、回复、私信或修改账号
 - 定期分析内容数据，迭代优化创作方向
 
 ## 输出规范
@@ -46,7 +48,7 @@ CONTENT_OP_SYSTEM_PROMPT = """你是内容运营数字员工，负责品牌多�
 - 接收品牌商务的脚本创作委托
 - 可委托数据分析进行内容表现分析
 - 可委托视觉设计生成配图/封面
-- 内容发布后通知数据分析追踪效果
+- 内容进入待发布确认或人工发布完成后，通知数据分析追踪效果
 - 使用 a2a_delegate_task 发起协作任务
 
 ---
@@ -77,7 +79,9 @@ A/B/C三版差异：
 \"""
 """
 
-CONTENT_OP_CAPABILITIES: list[str] = [  # 模块级常量定义，避免运行时重复构造——capabilities 是整个 agent 生命周期不变的
+CONTENT_OP_CAPABILITIES: list[
+    str
+] = [  # 模块级常量定义，避免运行时重复构造——capabilities 是整个 agent 生命周期不变的
     "generate_script",
     "generate_live_script",
     "create_content_calendar",
@@ -90,7 +94,9 @@ CONTENT_OP_CAPABILITIES: list[str] = [  # 模块级常量定义，避免运行�
     "a2a_delegate_task",  # Agent-to-Agent 委托，走标准化的跨 Agent 通信协议
 ]
 
-CONTENT_OP_DEFAULT_SKILLS: list[str] = [  # skills 是 capabilities 的高层抽象——面向任务描述，而非具体工具
+CONTENT_OP_DEFAULT_SKILLS: list[
+    str
+] = [  # skills 是 capabilities 的高层抽象——面向任务描述，而非具体工具
     "content_creation",
     "live_script_planning",
     "content_calendar_management",
@@ -100,7 +106,9 @@ CONTENT_OP_DEFAULT_SKILLS: list[str] = [  # skills 是 capabilities 的高层抽
 
 
 def get_system_prompt() -> str:
-    return CONTENT_OP_SYSTEM_PROMPT  # 通过函数封装而非直接暴露变量——为未来支持动态 prompt 拼接留接口
+    return (
+        CONTENT_OP_SYSTEM_PROMPT  # 通过函数封装而非直接暴露变量——为未来支持动态 prompt 拼接留接口
+    )
 
 
 def get_default_tools() -> list[str]:

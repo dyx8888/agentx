@@ -2,11 +2,11 @@
 Parallel Agent Execution - 并行Agent分派与结果汇总
 支持 asyncio.gather 并行分派、全局超时、部分失败容错
 """
+
 import asyncio  # 并行执行的核心：asyncio.gather 并发调度多个协程
 import json  # 冲突检测时序列化结果进行文本比对
 from dataclasses import dataclass, field  # 数据类减少样板代码
 from datetime import datetime  # 精确记录任务执行时间，计算耗时
-from typing import Any
 
 from app.core.logging import get_logger
 
@@ -18,6 +18,7 @@ DEFAULT_PARALLEL_TIMEOUT = 60  # 默认全局超时秒数，并行任务应在 6
 @dataclass
 class ParallelTask:
     """并行任务定义"""
+
     target_agent: str  # 目标 Agent 名称
     task_description: str  # 任务描述
     task_type: str = "general"  # 任务类型，用于路由
@@ -28,6 +29,7 @@ class ParallelTask:
 @dataclass
 class ParallelTaskResult:
     """并行任务执行结果"""
+
     task: ParallelTask  # 关联原始任务
     task_id: str = ""  # A2A 任务 ID
     success: bool = False  # 执行是否成功
@@ -41,6 +43,7 @@ class ParallelTaskResult:
 @dataclass
 class ParallelExecutionResult:
     """并行执行汇总结果"""
+
     tasks: list[ParallelTaskResult]  # 所有任务结果
     total_tasks: int = 0  # 总任务数
     completed: int = 0  # 成功数
@@ -87,7 +90,7 @@ class ParallelAgentDispatcher:
                 ),
                 timeout=self._global_timeout,  # 全局超时保护
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("parallel_dispatch_timeout", task_count=len(tasks))
             # 超时后返回已完成的任务结果
             return ParallelExecutionResult(
@@ -104,12 +107,14 @@ class ParallelAgentDispatcher:
         for i, result in enumerate(results):
             task = tasks[i]
             if isinstance(result, Exception):  # return_exceptions=True 时异常不抛出，需要手动检查
-                task_results.append(ParallelTaskResult(
-                    task=task,
-                    success=False,
-                    error=str(result),
-                    partial_failure=True,
-                ))
+                task_results.append(
+                    ParallelTaskResult(
+                        task=task,
+                        success=False,
+                        error=str(result),
+                        partial_failure=True,
+                    )
+                )
             else:
                 task_results.append(result)
 
@@ -158,7 +163,8 @@ class ParallelAgentDispatcher:
                         result=result,
                         started_at=started_at.isoformat(),
                         completed_at=completed_at.isoformat(),
-                        duration_ms=(completed_at - started_at).total_seconds() * 1000,  # 精确计算单个任务耗时
+                        duration_ms=(completed_at - started_at).total_seconds()
+                        * 1000,  # 精确计算单个任务耗时
                     )
                 else:
                     return ParallelTaskResult(
@@ -176,8 +182,7 @@ class ParallelAgentDispatcher:
                 )
 
         except Exception as e:
-            logger.error("parallel_single_task_error",
-                         agent=task.target_agent, error=str(e))
+            logger.error("parallel_single_task_error", agent=task.target_agent, error=str(e))
             return ParallelTaskResult(
                 task=task,
                 success=False,
@@ -195,14 +200,16 @@ class ParallelAgentDispatcher:
         for agent_name, agent_tasks in agent_results.items():
             successes = [r for r in agent_tasks if r.success]
             failures = [r for r in agent_tasks if not r.success]
-            merged.append({  # 汇总每个 Agent 的执行情况
-                "agent": agent_name,
-                "total_tasks": len(agent_tasks),
-                "completed": len(successes),
-                "failed": len(failures),
-                "results": [r.result for r in successes],
-                "errors": [r.error for r in failures if r.error],
-            })
+            merged.append(
+                {  # 汇总每个 Agent 的执行情况
+                    "agent": agent_name,
+                    "total_tasks": len(agent_tasks),
+                    "completed": len(successes),
+                    "failed": len(failures),
+                    "results": [r.result for r in successes],
+                    "errors": [r.error for r in failures if r.error],
+                }
+            )
         return merged
 
     def detect_conflicts(self, results: list[ParallelTaskResult]) -> list[dict]:
@@ -292,12 +299,12 @@ def a2a_delegate_parallel(tasks: list[dict]) -> list[dict]:
         ]
 
         from app.communication.a2a_adapter import get_a2a_adapter  # 延迟导入避免循环依赖
+
         adapter = get_a2a_adapter()
         dispatcher = get_parallel_dispatcher(a2a_adapter=adapter)
 
         loop = asyncio.get_event_loop()
         if loop.is_running():  # 已在事件循环中（如 FastAPI 请求处理），通过线程安全方式调度
-            import concurrent.futures
             future = asyncio.run_coroutine_threadsafe(  # 线程安全地将协程提交到运行中的事件循环
                 dispatcher.dispatch(parallel_tasks), loop
             )

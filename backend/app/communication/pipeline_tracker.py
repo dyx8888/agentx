@@ -4,6 +4,7 @@ Pipeline Tracker - 串行流水线增强
 - 流水线进度追踪
 - 流水线可视化（Mermaid格式）
 """
+
 from dataclasses import dataclass, field  # 数据类减少样板代码
 from datetime import datetime  # 精确记录步骤执行时间
 from enum import StrEnum  # 字符串枚举，便于序列化和日志输出
@@ -20,6 +21,7 @@ class PipelineStepStatus(StrEnum):
 @dataclass
 class PipelineContext:
     """流水线上下文 - 在Agent之间传递的结构化数据"""
+
     task_id: str = ""  # 关联的任务 ID
     upstream_output: dict = field(default_factory=dict)  # 上游 Agent 的原始输出
     key_findings: list[str] = field(default_factory=list)  # 上游提取的关键发现，注入下游 prompt
@@ -43,27 +45,24 @@ class PipelineContext:
         """转为自然语言上下文，注入下游Agent"""
         parts = []
         if self.key_findings:
-            parts.append("【上游Agent关键发现】\n" + "\n".join(
-                f"- {f}" for f in self.key_findings
-            ))
+            parts.append("【上游Agent关键发现】\n" + "\n".join(f"- {f}" for f in self.key_findings))
         if self.recommendations:
-            parts.append("【上游Agent建议】\n" + "\n".join(
-                f"- {r}" for r in self.recommendations
-            ))
+            parts.append("【上游Agent建议】\n" + "\n".join(f"- {r}" for r in self.recommendations))
         if self.errors_from_upstream:
-            parts.append("【上游注意事项】\n" + "\n".join(
-                f"- 警告: {e}" for e in self.errors_from_upstream
-            ))  # 用警告前缀突出显示，下游 Agent 不会忽略
+            parts.append(
+                "【上游注意事项】\n" + "\n".join(f"- 警告: {e}" for e in self.errors_from_upstream)
+            )  # 用警告前缀突出显示，下游 Agent 不会忽略
         if self.data_snapshots:
-            parts.append("【上游数据】\n" + "\n".join(
-                f"- {k}: {v}" for k, v in self.data_snapshots.items()
-            ))
+            parts.append(
+                "【上游数据】\n" + "\n".join(f"- {k}: {v}" for k, v in self.data_snapshots.items())
+            )
         return "\n\n".join(parts)  # 双换行分隔各段，确保 LLM 能正确解析
 
 
 @dataclass
 class PipelineStepState:
     """流水线步骤状态"""
+
     agent_name: str  # 执行的 Agent 名称
     step_index: int  # 步骤索引，从 0 开始
     status: PipelineStepStatus = PipelineStepStatus.WAITING  # 默认等待状态
@@ -77,6 +76,7 @@ class PipelineStepState:
 @dataclass
 class PipelineState:
     """流水线整体状态"""
+
     pipeline_id: str = ""  # 流水线唯一标识
     pipeline_name: str = ""  # 流水线名称
     steps: list[PipelineStepState] = field(default_factory=list)  # 所有步骤状态
@@ -98,7 +98,9 @@ class PipelineTracker:
             pipeline_id=pipeline_id,
             pipeline_name=pipeline_name,
             steps=[
-                PipelineStepState(agent_name=name, step_index=i)  # 按顺序初始化步骤，每个 Agent 一个步骤
+                PipelineStepState(
+                    agent_name=name, step_index=i
+                )  # 按顺序初始化步骤，每个 Agent 一个步骤
                 for i, name in enumerate(agents)
             ],
             created_at=datetime.now().isoformat(),
@@ -113,8 +115,7 @@ class PipelineTracker:
             state.steps[step_index].status = PipelineStepStatus.RUNNING
             state.steps[step_index].started_at = datetime.now().isoformat()  # 记录开始时间
 
-    def step_complete(self, pipeline_id: str, step_index: int,
-                      context: PipelineContext = None):
+    def step_complete(self, pipeline_id: str, step_index: int, context: PipelineContext = None):
         """标记步骤完成"""
         state = self._active_pipelines.get(pipeline_id)
         if state and step_index < len(state.steps):
@@ -123,9 +124,7 @@ class PipelineTracker:
             step.completed_at = datetime.now().isoformat()
             if step.started_at:  # 有开始时间才计算耗时，防御无效状态
                 start = datetime.fromisoformat(step.started_at)
-                step.duration_ms = (
-                    datetime.now() - start
-                ).total_seconds() * 1000  # 转为毫秒
+                step.duration_ms = (datetime.now() - start).total_seconds() * 1000  # 转为毫秒
             if context:
                 step.output_context = context  # 保存步骤产出，供下游步骤获取
 
@@ -177,7 +176,9 @@ class PipelineTracker:
 
         for i, step in enumerate(state.steps):
             icon = status_icons.get(step.status, "❓")  # 未知状态使用问号
-            duration = f"<br/>{step.duration_ms:.0f}ms" if step.duration_ms else ""  # 耗时显示在节点内
+            duration = (
+                f"<br/>{step.duration_ms:.0f}ms" if step.duration_ms else ""
+            )  # 耗时显示在节点内
             node_id = f"S{i}"
             label = f"{icon} {step.agent_name}{duration}"
             style = ""
@@ -219,13 +220,12 @@ class MixedModeDispatcher:
         Returns:
             汇总结果
         """
-        import asyncio
         from app.communication.parallel import ParallelTask, get_parallel_dispatcher  # 延迟导入
 
         results = []
         parallel_groups = plan.get("parallel_groups", [])
 
-        for group_idx, group in enumerate(parallel_groups):
+        for _group_idx, group in enumerate(parallel_groups):
             if len(group) == 1:
                 # 单个任务 → 串行执行：无需并行开销
                 task = group[0]
@@ -244,12 +244,14 @@ class MixedModeDispatcher:
                 dispatcher = get_parallel_dispatcher()
                 parallel_result = await dispatcher.dispatch(parallel_tasks)
                 for r in parallel_result.tasks:
-                    results.append({
-                        "agent": r.task.target_agent,
-                        "success": r.success,
-                        "result": r.result,
-                        "error": r.error,
-                    })
+                    results.append(
+                        {
+                            "agent": r.task.target_agent,
+                            "success": r.success,
+                            "result": r.result,
+                            "error": r.error,
+                        }
+                    )
 
         return {
             "total_groups": len(parallel_groups),
@@ -278,6 +280,7 @@ class MixedModeDispatcher:
             stage_type = stage.get("type", "serial")
             if stage_type == "parallel":
                 from app.communication.parallel import ParallelTask, get_parallel_dispatcher
+
                 tasks = [
                     ParallelTask(
                         target_agent=t.get("agent", ""),
@@ -287,25 +290,29 @@ class MixedModeDispatcher:
                 ]
                 dispatcher = get_parallel_dispatcher()
                 stage_result = await dispatcher.dispatch(tasks)
-                results.append({
-                    "stage": stage_idx,
-                    "type": "parallel",
-                    "completed": stage_result.completed,
-                    "failed": stage_result.failed,
-                    "tasks": [
-                        {"agent": r.task.target_agent, "success": r.success}
-                        for r in stage_result.tasks
-                    ],
-                })
+                results.append(
+                    {
+                        "stage": stage_idx,
+                        "type": "parallel",
+                        "completed": stage_result.completed,
+                        "failed": stage_result.failed,
+                        "tasks": [
+                            {"agent": r.task.target_agent, "success": r.success}
+                            for r in stage_result.tasks
+                        ],
+                    }
+                )
             else:
                 task = stage.get("task", {})
                 result = await self._execute_single(task)
-                results.append({  # 串行阶段结果
-                    "stage": stage_idx,
-                    "type": "serial",
-                    "success": result.get("success"),
-                    "result": result,
-                })
+                results.append(
+                    {  # 串行阶段结果
+                        "stage": stage_idx,
+                        "type": "serial",
+                        "success": result.get("success"),
+                        "result": result,
+                    }
+                )
 
         return {
             "master_agent": plan.get("master_agent"),
@@ -317,6 +324,7 @@ class MixedModeDispatcher:
         """执行单个任务"""
         try:
             from app.communication.a2a_adapter import get_a2a_adapter  # 延迟导入
+
             adapter = get_a2a_adapter()
             return adapter.send_task(
                 target_agent_name=task.get("agent", ""),

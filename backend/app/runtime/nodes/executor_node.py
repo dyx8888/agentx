@@ -3,32 +3,42 @@ Executor Node - 任务执行节点
 按计划逐步执行，内部用 ReAct 循环调用 MCP 工具。
 支持结构化错误包装、审批门、幂等性、循环检测、超时重试、降级、调用次数上限。
 """
+
 # asyncio 用于异步超时控制和重试等待，避免同步阻塞导致整个 Agent 卡死
 import asyncio
+
 # hashlib 用于生成工具调用指纹，检测 Agent 是否陷入执行循环
 import hashlib
+
 # json 用于序列化步骤参数生成指纹，以及解析 MCP 工具返回的 ToolResult JSON
 import json
+
 # time 用于记录工具调用耗时，便于性能监控和超时分析
 import time
+
 # Any 和 Optional 类型注解，标记灵活返回值和可选参数类型
-from typing import Any, Optional
+from typing import Any
 
 # HumanMessage/SystemMessage 用于构造 LLM 输入消息，区分用户指令和系统指令
 from langchain_core.messages import HumanMessage, SystemMessage
 
 # State 是全局状态类型定义，确保各节点对状态字段的读写一致
-from app.agent import State
+State = dict[str, Any]
+
 # enrich_system_prompt 为系统 prompt 注入防护栏规则，防止 LLM 越权执行
 from app.core.agent_robustness import enrich_system_prompt
+
 # 幂等管理器：对有副作用的工具调用生成唯一键，执行前检查缓存、执行后存储结果，防止重复执行
 from app.core.idempotency import get_idempotency_manager
+
 # wrap_system_instructions/wrap_user_input 包裹边界标记，防止用户输入污染系统指令
 from app.core.instruction_boundary import wrap_system_instructions, wrap_user_input
+
 # 结构化日志记录器，所有日志使用结构化字段便于检索
 from app.core.logging import get_logger
+
 # ToolResult 封装工具调用的三种结果（ok/error/pending_approval），ErrorCode 统一错误码，ERROR_SUGGESTIONS 映射错误码到修复建议
-from app.tools.result import ToolResult, ErrorCode, ERROR_SUGGESTIONS
+from app.tools.result import ERROR_SUGGESTIONS, ErrorCode, ToolResult
 
 # 模块级日志实例，__name__ 确保日志前缀为此文件路径
 logger = get_logger(__name__)
@@ -47,8 +57,8 @@ def _check_approval_gate(tool_name: str, available_tools: list) -> tuple[bool, s
     for t in available_tools:
         if t.name == tool_name:
             # 从工具 metadata 中读取 requires_approval 标记，| {} 防止 metadata 为 None 时 get 报错
-            metadata = getattr(t, 'metadata', {}) or {}
-            if metadata.get('requires_approval', False):
+            metadata = getattr(t, "metadata", {}) or {}
+            if metadata.get("requires_approval", False):
                 return True, f"Tool '{tool_name}' requires approval."
     # 未找到对应工具或工具不需要审批，返回默认值，空字符串表示无审批消息
     return False, ""
@@ -59,8 +69,8 @@ def _is_side_effect_tool(tool_name: str, available_tools: list) -> bool:
     for t in available_tools:
         if t.name == tool_name:
             # 从 metadata 中取 side_effect 标记，| {} 兜底防止 None 值
-            metadata = getattr(t, 'metadata', {}) or {}
-            return metadata.get('side_effect', False)
+            metadata = getattr(t, "metadata", {}) or {}
+            return metadata.get("side_effect", False)
     # 未找到工具默认视为无副作用，保守策略：不阻止执行
     return False
 
@@ -70,7 +80,7 @@ def _get_tool_metadata(tool_name: str, available_tools: list) -> dict:
     for t in available_tools:
         if t.name == tool_name:
             # 返回完整 metadata 字典，供调用方自行读取 timeout_ms/retry/degradation 等字段
-            return getattr(t, 'metadata', {}) or {}
+            return getattr(t, "metadata", {}) or {}
     # 未找到工具返回空字典，调用方用 .get() 取默认值不会报错
     return {}
 
@@ -107,13 +117,14 @@ def _build_step_result(
 
 # ── 循环检测 ────────────────────────────────────────────────────
 
+
 def _detect_loop(
     fingerprint_window: list,
     current_tool_name: str,
     current_step_data: dict,
     window_size: int = 5,
     repeat_threshold: int = 3,
-) -> tuple[list, bool, Optional[str]]:
+) -> tuple[list, bool, str | None]:
     """检测 Agent 是否陷入执行循环"""
     # 提取步骤参数，生成指纹时考虑参数变化（同一工具不同参数不算循环）
     step_params = current_step_data.get("params", {})
@@ -124,15 +135,19 @@ def _detect_loop(
     ).hexdigest()[:16]
 
     # 滑动窗口：保留最近 window_size-1 个指纹 + 当前指纹，保持窗口大小稳定
-    new_window = fingerprint_window[-(window_size - 1):] + [fingerprint]
+    new_window = fingerprint_window[-(window_size - 1) :] + [fingerprint]
 
     # 统计当前指纹在窗口内出现的次数，如果在窗口内重复超过阈值说明陷入循环
     count = new_window.count(fingerprint)
     if count >= repeat_threshold:
         # 返回更新后的窗口 + 循环标记 + 人类可读的循环描述
-        return new_window, True, (
-            f"检测到执行循环：工具 '{current_tool_name}' 在最近 {window_size} 步中重复调用了 "
-            f"{count} 次。建议停止当前任务并告知用户。"
+        return (
+            new_window,
+            True,
+            (
+                f"检测到执行循环：工具 '{current_tool_name}' 在最近 {window_size} 步中重复调用了 "
+                f"{count} 次。建议停止当前任务并告知用户。"
+            ),
         )
 
     # 未检测到循环：返回更新后的窗口供下一次检测使用
@@ -150,15 +165,15 @@ def _wrap_tool_result(
     同时检测 MCP 工具返回的 ToolResult JSON 并解析。
     """
     # 检查是否有工具调用：response.tool_calls 是 LangChain 的 tool_call 响应格式
-    if hasattr(response, 'tool_calls') and response.tool_calls:
+    if hasattr(response, "tool_calls") and response.tool_calls:
         for tc in response.tool_calls:
             # 审批门检查：在工具实际执行前先判断是否需要审批，避免绕过审批直接执行敏感操作
-            needs_approval, msg = _check_approval_gate(tc['name'], available_tools)
+            needs_approval, msg = _check_approval_gate(tc["name"], available_tools)
             if needs_approval:
                 # 返回 pending_approval 状态，携带工具名和参数，等待审批通过后再执行
                 return ToolResult.pending_approval(
-                    tool_name=tc['name'],
-                    proposed_params=tc.get('args', {}),
+                    tool_name=tc["name"],
+                    proposed_params=tc.get("args", {}),
                     message=msg,
                 )
 
@@ -173,7 +188,7 @@ def _wrap_tool_result(
 
     # 尝试解析 MCP 工具返回的 ToolResult JSON：有些 MCP 工具直接返回 ToolResult 格式的 JSON 字符串
     # 这样可以跳过 LLM 的二次解析，直接使用工具端产出的结构化结果
-    content = response.content if hasattr(response, 'content') else str(response)
+    content = response.content if hasattr(response, "content") else str(response)
     try:
         parsed = json.loads(content)
         # 同时检查 isinstance 和 "status" 键，确保解析结果确实是 ToolResult 格式
@@ -198,9 +213,13 @@ def _wrap_tool_result(
                     proposed_params=parsed.get("proposed_params", {}),
                     message=parsed.get("message", ""),
                 )
-    except (json.JSONDecodeError, TypeError):
-        # JSON 解析失败或类型不匹配时静默忽略，走兜底逻辑
-        pass
+    except (json.JSONDecodeError, TypeError) as exc:
+        if str(content).lstrip().startswith(("{", "[")):
+            return ToolResult.error(
+                error_code=ErrorCode.UNKNOWN_ERROR,
+                message=f"Executor tool result JSON parse failed: {exc}",
+                suggestion="Return a valid ToolResult JSON object or plain user-facing text.",
+            )
 
     # 正常结果（非 ToolResult 格式）：LLM 返回了纯文本描述，包装为成功结果
     return ToolResult.ok(data=content, message="Execution completed.")
@@ -227,6 +246,7 @@ def _wrap_exception(e: Exception) -> ToolResult:
 
 
 # ── 超时控制与重试 (async) ─────────────────────────────────────
+
 
 async def _execute_with_timeout(
     llm_with_tools,
@@ -265,26 +285,22 @@ async def _execute_with_timeout(
             # 成功后立即计算耗时（毫秒）并返回，不再重试
             duration_ms = (time.time() - start_time) * 1000
             return response, duration_ms
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # 构造包含重试信息的异常，保留原始超时参数和尝试次数
-            last_exception = asyncio.TimeoutError(
+            last_exception = TimeoutError(
                 f"工具调用超时 ({timeout_ms}ms)，已重试 {attempt + 1}/{max_retries}"
             )
-            logger.warning("tool_call_timeout",
-                           attempt=attempt + 1,
-                           timeout_ms=timeout_ms)
+            logger.warning("tool_call_timeout", attempt=attempt + 1, timeout_ms=timeout_ms)
             if attempt < max_retries - 1:
                 # 指数退避：1秒/2秒/4秒，避免瞬时高并发导致服务端雪崩
-                wait_time = 2 ** attempt  # 指数退避: 1s/2s/4s
+                wait_time = 2**attempt  # 指数退避: 1s/2s/4s
                 await asyncio.sleep(wait_time)
         except Exception as e:
             # 捕获其他所有异常（网络错误、LLM 返回异常等），同样走重试逻辑
             last_exception = e
-            logger.warning("tool_call_error",
-                           attempt=attempt + 1,
-                           error=str(e))
+            logger.warning("tool_call_error", attempt=attempt + 1, error=str(e))
             if attempt < max_retries - 1:
-                wait_time = 2 ** attempt
+                wait_time = 2**attempt
                 await asyncio.sleep(wait_time)
 
     # 所有重试均失败，抛出最后一次捕获的异常，让上层调用方统一处理
@@ -292,6 +308,7 @@ async def _execute_with_timeout(
 
 
 # ── 四级降级策略 ─────────────────────────────────────────────────
+
 
 def _degrade_tool(
     tool_name: str,
@@ -338,6 +355,7 @@ def _degrade_tool(
     # 级别 4: 转人工工单
     # 在函数内部 import uuid 而非顶部，因为只有真正需要时才加载，属于惰性加载优化
     import uuid
+
     # 生成 TICKET-XXXXXXXX 格式的工单号，hex 取 8 位平衡可读性和唯一性
     ticket_id = f"TICKET-{uuid.uuid4().hex[:8].upper()}"
     return ToolResult.error(
@@ -348,6 +366,7 @@ def _degrade_tool(
 
 
 # ── 主执行节点 (async) ──────────────────────────────────────────
+
 
 async def executor_node(state: State, llm, available_tools: list) -> dict[str, Any]:
     # 从状态中取出执行计划，.get("plan", {}) 防止 plan 未初始化时崩溃
@@ -372,6 +391,20 @@ async def executor_node(state: State, llm, available_tools: list) -> dict[str, A
     # tool_name 可能为空字符串：表示该步骤不需要特定工具，由 LLM 自行判断
     tool_name = current_step_data.get("tool", "")
 
+    # 可选幂等令牌（idempotency_key / request_id）：调用方可放在 step 数据顶层或 params 内。
+    # 同一逻辑请求的意外重试携带相同令牌 => 幂等键相同 => 去重（保留现有保护）；
+    # 不同真实操作携带不同令牌 => 幂等键不同 => 都能执行（修复"相同参数被误拦"）。
+    # 未提供（None / 空字符串）时退回原有 params-hash 逻辑，保持向后兼容。
+    # 这里只取一次，预检(check_only)与存储(store)共用，保证两处幂等键算法一致、查存对得上。
+    _step_params_for_idem = current_step_data.get("params") or {}
+    step_idempotency_key = (
+        current_step_data.get("idempotency_key")
+        or current_step_data.get("request_id")
+        or _step_params_for_idem.get("idempotency_key")
+        or _step_params_for_idem.get("request_id")
+        or None
+    )
+
     # 构建包含当前计划、步骤序号、可用工具列表的系统提示词
     system_prompt = _build_executor_prompt(skill_content, plan, current_step, available_tools)
 
@@ -381,9 +414,9 @@ async def executor_node(state: State, llm, available_tools: list) -> dict[str, A
     # 构造消息列表：System + Human，顺序保证 LangChain 正确解析角色
     messages = [
         SystemMessage(content=wrap_system_instructions(enrich_system_prompt(system_prompt))),
-        HumanMessage(content=wrap_user_input(
-            f"执行步骤 {current_step + 1}/{len(steps)}: {step_description}"
-        ))
+        HumanMessage(
+            content=wrap_user_input(f"执行步骤 {current_step + 1}/{len(steps)}: {step_description}")
+        ),
     ]
 
     # 历史执行结果注入：让 LLM 知道前面步骤做了什么，避免重复或遗漏
@@ -426,12 +459,14 @@ async def executor_node(state: State, llm, available_tools: list) -> dict[str, A
     if _is_side_effect_tool(tool_name, available_tools):
         idempotency_mgr = get_idempotency_manager()
         step_params = current_step_data.get("params", {})
-        # 生成幂等键：公司+Agent+工具+参数 的组合，确保不同租户/不同参数被视为不同操作
+        # 生成幂等键：公司+Agent+工具+参数 的组合，确保不同租户/不同参数被视为不同操作；
+        # 透传可选幂等令牌，使不同令牌的相同参数操作各自独立（修复误拦）
         idem_key = idempotency_mgr.generate_key(
             company_id=company_id,
             agent_name=agent_name,
             tool_name=tool_name,
             params=step_params,
+            idempotency_key=step_idempotency_key,
         )
         # 仅检查缓存不写入（check_only），因为执行成功后才写入
         cached_result = idempotency_mgr.check_only(idem_key)
@@ -442,7 +477,10 @@ async def executor_node(state: State, llm, available_tools: list) -> dict[str, A
                 message=f"[幂等命中] 此操作已执行过，返回缓存结果 (key: {idem_key})",
             )
             step_result = _build_step_result(
-                current_step, step_description, tool_name, tool_result,
+                current_step,
+                step_description,
+                tool_name,
+                tool_result,
             )
             return {
                 "current_step": current_step + 1,
@@ -465,25 +503,25 @@ async def executor_node(state: State, llm, available_tools: list) -> dict[str, A
     try:
         # 使用异步超时控制 + 重试 + 耗时追踪：一次调用集成了三个能力
         response, duration_ms = await _execute_with_timeout(
-            llm_with_tools, messages,
+            llm_with_tools,
+            messages,
             timeout_ms=timeout_ms,
             max_retries=max_retries,
         )
         # 包装 LLM 响应为结构化 ToolResult，统一后续处理逻辑
         # tool_call_count + 1 是因为当前这次调用正在执行中，尚未计入
         tool_result = _wrap_tool_result(response, tool_call_count + 1, available_tools)
-        logger.info("tool_call_completed",
-                    tool=tool_name,
-                    duration_ms=round(duration_ms, 2),  # 四舍五入到两位小数，避免浮点精度问题
-                    step=current_step + 1,
-                    timeout_ms=timeout_ms)
+        logger.info(
+            "tool_call_completed",
+            tool=tool_name,
+            duration_ms=round(duration_ms, 2),  # 四舍五入到两位小数，避免浮点精度问题
+            step=current_step + 1,
+            timeout_ms=timeout_ms,
+        )
     except Exception as e:
         # 将异常包装为结构化 ToolResult，统一错误处理
         tool_result = _wrap_exception(e)
-        logger.warning("tool_call_failed",
-                       tool=tool_name,
-                       error=str(e),
-                       step=current_step + 1)
+        logger.warning("tool_call_failed", tool=tool_name, error=str(e), step=current_step + 1)
         # 应用降级策略：根据工具 metadata 配置，尝试备用数据源/跳过/转人工
         degraded = _degrade_tool(tool_name, current_step_data, available_tools, step_results)
         # 如果降级策略产出了可用的替代结果（ok 或包含 fallback_tool），则使用降级结果
@@ -504,6 +542,7 @@ async def executor_node(state: State, llm, available_tools: list) -> dict[str, A
                 agent_name=agent_name,
                 tool_name=tool_name,
                 params=step_params,
+                idempotency_key=step_idempotency_key,
             )
             # 将成功结果写入缓存，下次相同参数调用时直接命中
             idempotency_mgr.store(idem_key, tool_result.data)
@@ -534,7 +573,9 @@ async def executor_node(state: State, llm, available_tools: list) -> dict[str, A
     }
 
 
-def _build_executor_prompt(skill_content: str, plan: dict, current_step: int, available_tools: list) -> str:
+def _build_executor_prompt(
+    skill_content: str, plan: dict, current_step: int, available_tools: list
+) -> str:
     # ensure_ascii=False 保证中文在 JSON 中不被转义为 \uXXXX，LLM 能直接理解中文内容
     prompt = f"""
 你是一位专业的执行者。请严格按照计划执行当前步骤。
@@ -565,7 +606,7 @@ def _get_tool_descriptions(tools: list) -> str:
     descriptions = []
     for tool_obj in tools:
         # 同时检查 name 和 description 属性，缺少任一都说明工具配置不完整，跳过
-        if hasattr(tool_obj, 'name') and hasattr(tool_obj, 'description'):
+        if hasattr(tool_obj, "name") and hasattr(tool_obj, "description"):
             descriptions.append(f"- {tool_obj.name}: {tool_obj.description}")
     # 用换行符连接，生成类似 markdown 列表的格式，方便 LLM 阅读
     return "\n".join(descriptions)

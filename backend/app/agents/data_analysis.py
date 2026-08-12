@@ -42,10 +42,7 @@ def calculate_roi(gmv: float, ad_spend: float, cost: float = 0) -> dict:
     Returns:
         dict: 包含 roi, gmv, ad_spend, profit 等指标
     """
-    if ad_spend == 0:
-        roi = 0.0
-    else:
-        roi = round(gmv / ad_spend, 2)
+    roi = 0.0 if ad_spend == 0 else round(gmv / ad_spend, 2)
 
     profit = gmv - ad_spend - cost
 
@@ -218,11 +215,13 @@ async def get_agent_function():
 
         elif any(kw in message_lower for kw in ["数据质量", "数据完整性", "数据准确性"]):
             # 数据质量分析
-            quality_result = analyze_data_quality({
-                "gmv": 100000,
-                "orders": 500,
-                "roi": 3.0,
-            })
+            quality_result = analyze_data_quality(
+                {
+                    "gmv": 100000,
+                    "orders": 500,
+                    "roi": 3.0,
+                }
+            )
             return format_analysis_report(quality_data=quality_result)
 
         elif any(kw in message_lower for kw in ["竞品", "对标", "竞争分析"]):
@@ -236,11 +235,13 @@ async def get_agent_function():
         else:
             # 综合报告
             roi_result = calculate_roi(gmv=100000, ad_spend=20000)
-            quality_result = analyze_data_quality({
-                "gmv": 100000,
-                "orders": 500,
-                "roi": 3.0,
-            })
+            quality_result = analyze_data_quality(
+                {
+                    "gmv": 100000,
+                    "orders": 500,
+                    "roi": 3.0,
+                }
+            )
             return format_analysis_report(
                 roi_data=roi_result,
                 quality_data=quality_result,

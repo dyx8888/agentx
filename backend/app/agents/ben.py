@@ -87,7 +87,9 @@ DATA_ANALYST_SYSTEM_PROMPT = """你是数据分析数字员工，负责电商全
 \"""
 """
 
-DATA_ANALYST_CAPABILITIES: list[str] = [  # 模块级常量定义，避免运行时重复构造——capabilities 是整个 agent 生命周期不变的
+DATA_ANALYST_CAPABILITIES: list[
+    str
+] = [  # 模块级常量定义，避免运行时重复构造——capabilities 是整个 agent 生命周期不变的
     "calculate_metrics",
     "anomaly_detection",
     "trend_forecast",
@@ -100,7 +102,9 @@ DATA_ANALYST_CAPABILITIES: list[str] = [  # 模块级常量定义，避免运行
     "a2a_delegate_task",  # Agent-to-Agent 委托，走标准化的跨 Agent 通信协议
 ]
 
-DATA_ANALYST_DEFAULT_SKILLS: list[str] = [  # skills 是 capabilities 的高层抽象——面向任务描述，而非具体工具
+DATA_ANALYST_DEFAULT_SKILLS: list[
+    str
+] = [  # skills 是 capabilities 的高层抽象——面向任务描述，而非具体工具
     "performance_analysis",
     "anomaly_alert",
     "trend_forecast",
@@ -111,7 +115,9 @@ DATA_ANALYST_DEFAULT_SKILLS: list[str] = [  # skills 是 capabilities 的高层�
 
 
 def get_system_prompt() -> str:
-    return DATA_ANALYST_SYSTEM_PROMPT  # 通过函数封装而非直接暴露变量——为未来支持动态 prompt 拼接留接口
+    return (
+        DATA_ANALYST_SYSTEM_PROMPT  # 通过函数封装而非直接暴露变量——为未来支持动态 prompt 拼接留接口
+    )
 
 
 def get_default_tools() -> list[str]:

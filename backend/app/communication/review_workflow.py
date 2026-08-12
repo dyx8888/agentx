@@ -4,6 +4,7 @@
 """
 
 import asyncio  # 超时检查使用 asyncio.sleep 和 asyncio.create_task 调度
+from contextlib import suppress
 from enum import StrEnum  # 字符串枚举，状态值可直接序列化
 
 from app.core.logging import get_logger
@@ -48,8 +49,11 @@ class ReviewWorkflowEngine:
         mandatory_rules = REVIEW_LEVEL_RULES.get("mandatory", {})
         for entry in mandatory_rules.get("applies_to", []):  # 检查强制审核白名单
             parts = entry.split(" ")
-            if (len(parts) >= 2 and parts[0] == agent_key
-                    and (task_type and parts[1] == task_type or not task_type)):  # 精确或模糊匹配
+            if (
+                len(parts) >= 2
+                and parts[0] == agent_key
+                and (task_type and parts[1] == task_type or not task_type)
+            ):  # 精确或模糊匹配
                 return ReviewLevel.MANDATORY
 
         agent_info = get_agent_definition(agent_key)
@@ -59,9 +63,15 @@ class ReviewWorkflowEngine:
 
         return ReviewLevel.RECOMMENDED  # 兜底为推荐审核
 
-    async def submit_for_review(self, task_id: int, agent_key: str, company_id: int,
-                                  result: dict, review_level: ReviewLevel = None,
-                                  task_type: str = None) -> int:
+    async def submit_for_review(
+        self,
+        task_id: int,
+        agent_key: str,
+        company_id: int,
+        result: dict,
+        review_level: ReviewLevel = None,
+        task_type: str = None,
+    ) -> int:
         from app.database import db  # 延迟导入
 
         if review_level is None:
@@ -81,10 +91,14 @@ class ReviewWorkflowEngine:
             if review_level == ReviewLevel.AUTO:
                 await self.auto_approve(review_id, company_id)  # 自动级别直接通过
             elif review_level == ReviewLevel.RECOMMENDED:
-                await self._notify_review_available(review_id, company_id, agent_key, review_level)  # 通知但不阻塞
+                await self._notify_review_available(
+                    review_id, company_id, agent_key, review_level
+                )  # 通知但不阻塞
             elif review_level == ReviewLevel.MANDATORY:
                 await self._notify_review_required(review_id, company_id, agent_key)  # 强制通知
-                self._schedule_timeout_check(review_id, company_id, agent_key, 240)  # 4 小时超时检查
+                self._schedule_timeout_check(
+                    review_id, company_id, agent_key, 240
+                )  # 4 小时超时检查
 
             return review_id
         except Exception as e:
@@ -93,9 +107,11 @@ class ReviewWorkflowEngine:
 
     async def approve(self, review_id: int, reviewer_id: int, comment: str = None) -> bool:
         from app.database import db
+
         try:
-            db.update_review_status(review_id, ReviewStatus.APPROVED.value,
-                                     reviewer_id=reviewer_id, comment=comment)  # 更新数据库状态
+            db.update_review_status(
+                review_id, ReviewStatus.APPROVED.value, reviewer_id=reviewer_id, comment=comment
+            )  # 更新数据库状态
             logger.info("review_approved", review_id=review_id, reviewer=reviewer_id)
             await self._notify_review_result(review_id, "approved")  # 通知审核结果
             return True
@@ -105,22 +121,32 @@ class ReviewWorkflowEngine:
 
     async def reject(self, review_id: int, reviewer_id: int, reason: str) -> bool:
         from app.database import db
+
         try:
-            db.update_review_status(review_id, ReviewStatus.REJECTED.value,
-                                     reviewer_id=reviewer_id, comment=reason)
-            logger.info("review_rejected", review_id=review_id, reason=reason[:100])  # 截断日志中的驳回理由
+            db.update_review_status(
+                review_id, ReviewStatus.REJECTED.value, reviewer_id=reviewer_id, comment=reason
+            )
+            logger.info(
+                "review_rejected", review_id=review_id, reason=reason[:100]
+            )  # 截断日志中的驳回理由
             await self._notify_review_result(review_id, "rejected")
             return True
         except Exception as e:
             logger.error("review_reject_failed", review_id=review_id, error=str(e))
             return False
 
-    async def request_modification(self, review_id: int, reviewer_id: int,
-                                     modification_note: str) -> bool:
+    async def request_modification(
+        self, review_id: int, reviewer_id: int, modification_note: str
+    ) -> bool:
         from app.database import db
+
         try:
-            db.update_review_status(review_id, ReviewStatus.MODIFIED.value,
-                                     reviewer_id=reviewer_id, comment=modification_note)
+            db.update_review_status(
+                review_id,
+                ReviewStatus.MODIFIED.value,
+                reviewer_id=reviewer_id,
+                comment=modification_note,
+            )
             logger.info("review_modification_requested", review_id=review_id)
             await self._notify_review_result(review_id, "modification_requested")
             return True
@@ -130,8 +156,11 @@ class ReviewWorkflowEngine:
 
     async def auto_approve(self, review_id: int, company_id: int) -> bool:
         from app.database import db
+
         try:
-            db.update_review_status(review_id, ReviewStatus.APPROVED.value, comment="自动通过")  # 自动通过标记
+            db.update_review_status(
+                review_id, ReviewStatus.APPROVED.value, comment="自动通过"
+            )  # 自动通过标记
             logger.info("review_auto_approved", review_id=review_id)
             return True
         except Exception as e:
@@ -140,6 +169,7 @@ class ReviewWorkflowEngine:
 
     def get_pending_reviews(self, company_id: int, level: str = None) -> list[dict]:
         from app.database import db
+
         try:
             return db.get_pending_reviews(company_id, level)  # 委托数据库查询
         except Exception as e:
@@ -148,10 +178,13 @@ class ReviewWorkflowEngine:
 
     async def escalate_timeout(self, review_id: int, company_id: int, agent_key: str):
         from app.database import db
+
         try:
-            db.update_review_status(review_id, ReviewStatus.TIMEOUT_ESCALATED.value,
-                                     comment="审核超时自动升级")  # 标记为超时升级
+            db.update_review_status(
+                review_id, ReviewStatus.TIMEOUT_ESCALATED.value, comment="审核超时自动升级"
+            )  # 标记为超时升级
             from app.communication.collaboration import collaboration_engine  # 延迟导入
+
             await collaboration_engine.create_alert(  # 创建告警通知管理员
                 company_id=company_id,
                 alert_type="review_timeout",
@@ -164,27 +197,34 @@ class ReviewWorkflowEngine:
         except Exception as e:
             logger.error("review_escalate_failed", review_id=review_id, error=str(e))
 
-    def _schedule_timeout_check(self, review_id: int, company_id: int, agent_key: str,
-                                  timeout_minutes: int):
+    def _schedule_timeout_check(
+        self, review_id: int, company_id: int, agent_key: str, timeout_minutes: int
+    ):
         async def _check():
             await asyncio.sleep(timeout_minutes * 60)  # 等待超时时长（分钟转秒）
             from app.database import db
+
             try:
                 status = db.get_review_status(review_id)
                 if status == ReviewStatus.PENDING.value:  # 仅在仍为 pending 时才升级
                     await self.escalate_timeout(review_id, company_id, agent_key)
-            except Exception:  # 静默处理，超时检查失败不影响主流程
-                pass
+            except Exception as exc:  # 超时检查失败不影响主流程，但要记录诊断线索
+                logger.warning(
+                    "review_timeout_check_failed",
+                    review_id=review_id,
+                    company_id=company_id,
+                    error=str(exc),
+                )
 
-        try:
+        with suppress(RuntimeError):
             asyncio.create_task(_check())  # 创建后台任务，不阻塞当前请求
-        except RuntimeError:  # 无事件循环时静默失败
-            pass
 
-    async def _notify_review_available(self, review_id: int, company_id: int, agent_key: str,
-                                         level: ReviewLevel):
+    async def _notify_review_available(
+        self, review_id: int, company_id: int, agent_key: str, level: ReviewLevel
+    ):
         try:
             from app.ws import ws_manager  # 延迟导入
+
             await ws_manager.broadcast_to_company(
                 company_id,
                 {
@@ -194,12 +234,19 @@ class ReviewWorkflowEngine:
                     "level": level.value,
                 },
             )
-        except Exception:  # WebSocket 推送失败不影响审核流程
-            pass
+        except Exception as exc:  # WebSocket 推送失败不影响审核流程
+            logger.warning(
+                "review_available_notify_failed",
+                review_id=review_id,
+                company_id=company_id,
+                agent_key=agent_key,
+                error=str(exc),
+            )
 
     async def _notify_review_required(self, review_id: int, company_id: int, agent_key: str):
         try:
             from app.ws import ws_manager
+
             await ws_manager.broadcast_to_company(
                 company_id,
                 {
@@ -210,12 +257,19 @@ class ReviewWorkflowEngine:
                     "message": f"{agent_key} 的任务需要强制审核",  # 明确告知需要人工审核
                 },
             )
-        except Exception:  # WebSocket 推送失败不影响审核流程
-            pass
+        except Exception as exc:  # WebSocket 推送失败不影响审核流程
+            logger.warning(
+                "review_required_notify_failed",
+                review_id=review_id,
+                company_id=company_id,
+                agent_key=agent_key,
+                error=str(exc),
+            )
 
     async def _notify_review_result(self, review_id: int, result: str, company_id: int = None):
         try:
             from app.ws import ws_manager
+
             target_company = company_id or 0  # 未指定公司 ID 时使用 0 作为默认值
             await ws_manager.broadcast_to_company(
                 target_company,
@@ -225,8 +279,14 @@ class ReviewWorkflowEngine:
                     "result": result,
                 },
             )
-        except Exception:  # WebSocket 推送失败不影响审核流程
-            pass
+        except Exception as exc:  # WebSocket 推送失败不影响审核流程
+            logger.warning(
+                "review_result_notify_failed",
+                review_id=review_id,
+                company_id=target_company,
+                result=result,
+                error=str(exc),
+            )
 
 
 review_engine = ReviewWorkflowEngine()  # 模块级单例，全局复用

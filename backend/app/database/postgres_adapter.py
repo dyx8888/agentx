@@ -11,10 +11,10 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.logging import get_logger
 
-logger = get_logger(__name__)
-
 from .core import get_engine
 from .models import Agent, Company, EvolutionLog, Feedback, Task, User
+
+logger = get_logger(__name__)
 
 
 class PostgresAdapter:
@@ -23,9 +23,11 @@ class PostgresAdapter:
     def __init__(self):
         self.engine = get_engine()
         if self.engine is None:
-            raise RuntimeError("PostgreSQL not configured. Please set DATABASE_URL environment variable.")
+            raise RuntimeError(
+                "PostgreSQL not configured. Please set DATABASE_URL environment variable."
+            )
 
-        self.SessionLocal = sessionmaker(bind=self.engine)
+        self.SessionLocal = sessionmaker(bind=self.engine, expire_on_commit=False)
 
     def health_check(self) -> dict:
         """Check database connectivity and return health status"""
@@ -123,7 +125,14 @@ class PostgresAdapter:
         """Get companies by user"""
         try:
             with self.get_session() as session:
-                return session.query(Company).filter(Company.id == user_id).all()
+                # 修正：原先错误地用 Company.id == user_id 比较，实际应通过 User.company_id 关联
+                # User.company_id 是指向 companies.id 的外键，需 join 后按 User.id 过滤
+                return (
+                    session.query(Company)
+                    .join(User, User.company_id == Company.id)
+                    .filter(User.id == user_id)
+                    .all()
+                )
         except SQLAlchemyError as e:
             logger.error("postgres_get_companies_by_user", resource_id=user_id, error=str(e))
             return []
@@ -135,6 +144,21 @@ class PostgresAdapter:
                 return session.query(Company).all()
         except SQLAlchemyError as e:
             logger.error("postgres_get_all_companies", error=str(e))
+            return []
+
+    def get_active_company_ids(self) -> list[int]:
+        """获取有 Agent 的活跃租户 company_id 列表。
+
+        用于定时任务（如睡眠巩固）遍历需要处理的租户。
+        以 agents 表中出现的 distinct company_id 为"活跃"判据——
+        没有 Agent 的租户无需做进化/巩固，避免对空租户无意义运算。
+        """
+        try:
+            with self.get_session() as session:
+                rows = session.query(Agent.company_id).distinct().all()
+                return [r[0] for r in rows if r[0] is not None]
+        except SQLAlchemyError as e:
+            logger.error("postgres_get_active_company_ids", error=str(e))
             return []
 
     def update_company(self, company_id: int, company: Company) -> bool:
@@ -274,16 +298,23 @@ class PostgresAdapter:
             logger.error("postgres_delete_agent", resource_id=agent_id, error=str(e))
             return False
 
-    def create_task(self, company_id: int, source_agent_id: int = None, target_agent_name: str = None, task_description: str = None) -> int:
+    def create_task(
+        self,
+        company_id: int,
+        source_agent_id: int = None,
+        target_agent_name: str = None,
+        task_description: str = None,
+    ) -> int:
         """Create a new task"""
         try:
             from .models import Task
+
             task = Task(
                 company_id=company_id,
                 source_agent_id=source_agent_id,
                 target_agent_name=target_agent_name,
                 task_description=task_description,
-                status="pending"
+                status="pending",
             )
             with self.get_session() as session:
                 session.add(task)
@@ -303,7 +334,7 @@ class PostgresAdapter:
                 task.status = status
                 if result is not None:
                     task.result = result
-                task.completed_at = datetime.utcnow() if status in ['completed', 'failed'] else None
+                task.completed_at = datetime.utcnow() if status in ["completed", "failed"] else None
 
                 session.commit()
                 return True
@@ -328,7 +359,7 @@ class PostgresAdapter:
                     "status": task.status,
                     "result": task.result,
                     "created_at": task.created_at.isoformat() if task.created_at else None,
-                    "completed_at": task.completed_at.isoformat() if task.completed_at else None
+                    "completed_at": task.completed_at.isoformat() if task.completed_at else None,
                 }
         except SQLAlchemyError as e:
             logger.error("postgres_get_task", resource_id=task_id, error=str(e))
@@ -338,14 +369,14 @@ class PostgresAdapter:
         """Get all pending tasks"""
         try:
             with self.get_session() as session:
-                tasks = session.query(Task).filter(Task.status == 'pending').all()
+                tasks = session.query(Task).filter(Task.status == "pending").all()
                 return [
                     {
                         "id": task.id,
                         "company_id": task.company_id,
                         "source_agent_id": task.source_agent_id,
                         "target_agent_name": task.target_agent_name,
-                        "task_description": task.task_description
+                        "task_description": task.task_description,
                     }
                     for task in tasks
                 ]
@@ -357,7 +388,13 @@ class PostgresAdapter:
         """Get tasks for a specific company"""
         try:
             with self.get_session() as session:
-                tasks = session.query(Task).filter(Task.company_id == company_id).order_by(Task.created_at.desc()).limit(limit).all()
+                tasks = (
+                    session.query(Task)
+                    .filter(Task.company_id == company_id)
+                    .order_by(Task.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
                 return [
                     {
                         "id": task.id,
@@ -368,7 +405,9 @@ class PostgresAdapter:
                         "status": task.status,
                         "result": task.result,
                         "created_at": task.created_at.isoformat() if task.created_at else None,
-                        "completed_at": task.completed_at.isoformat() if task.completed_at else None
+                        "completed_at": task.completed_at.isoformat()
+                        if task.completed_at
+                        else None,
                     }
                     for task in tasks
                 ]
@@ -390,22 +429,35 @@ class PostgresAdapter:
         """Get feedback for an agent"""
         try:
             with self.get_session() as session:
-                feedbacks = session.query(Feedback).filter(Feedback.agent_id == agent_id).order_by(Feedback.created_at.desc()).limit(limit).all()
+                feedbacks = (
+                    session.query(Feedback)
+                    .filter(Feedback.agent_id == agent_id)
+                    .order_by(Feedback.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
                 return feedbacks
         except SQLAlchemyError as e:
             logger.error("postgres_get_feedback", resource_id=agent_id, error=str(e))
             return []
 
-    def create_evolution_log(self, agent_id: int, suggestion_text: str, tool_name: str = None, training_data_path: str = None) -> int:
+    def create_evolution_log(
+        self,
+        agent_id: int,
+        suggestion_text: str,
+        tool_name: str = None,
+        training_data_path: str = None,
+    ) -> int:
         """Create evolution log entry"""
         try:
             from .models import EvolutionLog
+
             evolution_log = EvolutionLog(
                 agent_id=agent_id,
                 tool_name=tool_name,
                 suggestion_text=suggestion_text,
                 training_data_path=training_data_path,
-                applied=False
+                applied=False,
             )
             with self.get_session() as session:
                 session.add(evolution_log)
@@ -413,6 +465,33 @@ class PostgresAdapter:
                 return evolution_log.id
         except SQLAlchemyError as e:
             raise RuntimeError(f"Failed to create evolution log: {e}")
+
+    def create_evolution_review(
+        self,
+        agent_id: int,
+        tool_name: str = None,
+        suggestion_text: str = None,
+        knowledge_entries: str = None,
+        prompt_changes: str = None,
+    ) -> int:
+        """Create evolution review entry (pending human approval)"""
+        try:
+            from .models import EvolutionReview
+
+            review = EvolutionReview(
+                agent_id=agent_id,
+                tool_name=tool_name,
+                suggestion_text=suggestion_text,
+                knowledge_entries=knowledge_entries,
+                prompt_changes=prompt_changes,
+                status="pending",
+            )
+            with self.get_session() as session:
+                session.add(review)
+                session.commit()
+                return review.id
+        except SQLAlchemyError as e:
+            raise RuntimeError(f"Failed to create evolution review: {e}")
 
     def get_evolution_logs_by_agent(self, agent_id: int) -> list[EvolutionLog]:
         """Get evolution logs for an agent"""
@@ -427,7 +506,9 @@ class PostgresAdapter:
         """Mark evolution as applied"""
         try:
             with self.get_session() as session:
-                evolution_log = session.query(EvolutionLog).filter(EvolutionLog.id == evolution_log_id).first()
+                evolution_log = (
+                    session.query(EvolutionLog).filter(EvolutionLog.id == evolution_log_id).first()
+                )
                 if not evolution_log:
                     return False
 
@@ -435,30 +516,42 @@ class PostgresAdapter:
                 session.commit()
                 return True
         except SQLAlchemyError as e:
-            logger.error("postgres_update_evolution_log", resource_id=evolution_log_id, error=str(e))
+            logger.error(
+                "postgres_update_evolution_log", resource_id=evolution_log_id, error=str(e)
+            )
             return False
 
     # ─── A2A Messages & Workflows ───────────────────────────────────
 
-    def create_a2a_message(self, sender: str, recipients, task: str, task_type: str,
-                           company_id: int, payload: dict = None) -> str:
+    def create_a2a_message(
+        self,
+        sender: str,
+        recipients,
+        task: str,
+        task_type: str,
+        company_id: int,
+        payload: dict = None,
+    ) -> str:
         """Create an A2A message"""
         import json
         import uuid
 
         from .models import A2AMessage
+
         message_id = uuid.uuid4().hex
         try:
             with self.get_session() as session:
                 msg = A2AMessage(
                     message_id=message_id,
                     sender_agent_name=sender,
-                    recipient_agent_name=json.dumps(recipients) if isinstance(recipients, list) else recipients,
+                    recipient_agent_name=json.dumps(recipients)
+                    if isinstance(recipients, list)
+                    else recipients,
                     task_description=task,
                     task_type=task_type,
                     payload=json.dumps(payload) if payload else None,
                     company_id=company_id,
-                    status="pending"
+                    status="pending",
                 )
                 session.add(msg)
                 session.commit()
@@ -469,6 +562,7 @@ class PostgresAdapter:
     def update_a2a_message_status(self, message_id: str, status: str, result: str = None) -> bool:
         """Update A2A message status"""
         from .models import A2AMessage
+
         try:
             with self.get_session() as session:
                 msg = session.query(A2AMessage).filter(A2AMessage.message_id == message_id).first()
@@ -490,6 +584,7 @@ class PostgresAdapter:
         import json
 
         from .models import A2AMessage
+
         try:
             with self.get_session() as session:
                 msgs = session.query(A2AMessage).filter(A2AMessage.status == "pending").all()
@@ -515,13 +610,14 @@ class PostgresAdapter:
     def create_workflow(self, company_id: int, name: str, definition_json: str) -> int:
         """Create a new workflow"""
         from .models import Workflow
+
         try:
             with self.get_session() as session:
                 workflow = Workflow(
                     company_id=company_id,
                     name=name,
                     definition_json=definition_json,
-                    status="pending"
+                    status="pending",
                 )
                 session.add(workflow)
                 session.commit()
@@ -532,12 +628,64 @@ class PostgresAdapter:
     def get_workflow(self, workflow_id: int):
         """Get workflow by ID"""
         from .models import Workflow
+
         try:
             with self.get_session() as session:
                 return session.query(Workflow).filter(Workflow.id == workflow_id).first()
         except SQLAlchemyError as e:
             logger.error("postgres_get_workflow", resource_id=workflow_id, error=str(e))
             return None
+
+    def get_pending_workflows(self) -> list:
+        """Get pending workflows for the background workflow worker."""
+        from .models import Workflow
+
+        try:
+            with self.get_session() as session:
+                return session.query(Workflow).filter(Workflow.status == "pending").all()
+        except SQLAlchemyError as e:
+            logger.error("postgres_get_pending_workflows", error=str(e))
+            return []
+
+    def get_workflow_status(self, workflow_id: int) -> dict | None:
+        """Get workflow status as a serializable dictionary."""
+        workflow = self.get_workflow(workflow_id)
+        if not workflow:
+            return None
+        return {
+            "id": workflow.id,
+            "company_id": workflow.company_id,
+            "name": workflow.name,
+            "status": workflow.status,
+            "definition_json": workflow.definition_json,
+            "result_json": workflow.result_json,
+            "created_at": workflow.created_at.isoformat() if workflow.created_at else None,
+            "completed_at": workflow.completed_at.isoformat() if workflow.completed_at else None,
+        }
+
+    def update_workflow_status(
+        self, workflow_id: int, status: str, result_json: str = None
+    ) -> bool:
+        """Update workflow status and optionally store results"""
+        from datetime import datetime
+
+        from .models import Workflow
+
+        try:
+            with self.get_session() as session:
+                workflow = session.query(Workflow).filter(Workflow.id == workflow_id).first()
+                if not workflow:
+                    return False
+                workflow.status = status
+                if result_json is not None:
+                    workflow.result_json = result_json
+                if status in ("completed", "failed"):
+                    workflow.completed_at = datetime.utcnow()
+                session.commit()
+                return True
+        except SQLAlchemyError as e:
+            logger.error("postgres_update_workflow_status", resource_id=workflow_id, error=str(e))
+            return False
 
     # ─── Company Credentials ────────────────────────────────────────
 
@@ -555,15 +703,37 @@ class PostgresAdapter:
             logger.error("postgres_update_credentials", resource_id=company_id, error=str(e))
             return False
 
+    def update_company_llm_config(self, company_id: int, config_json: str) -> bool:
+        """Update company LLM config (multi-provider JSON, stored encrypted in llm_api_key column).
+
+        复用 Company.llm_api_key (EncryptedText) 字段存储多厂商 LLM 配置 JSON，
+        与 platform_credentials 同样享受 EncryptedText 透明加解密保护。
+        """
+        try:
+            with self.get_session() as session:
+                company = session.query(Company).filter(Company.id == company_id).first()
+                if not company:
+                    return False
+                company.llm_api_key = config_json
+                session.commit()
+                return True
+        except SQLAlchemyError as e:
+            logger.error("postgres_update_llm_config", resource_id=company_id, error=str(e))
+            return False
+
     # ─── Subscription ───────────────────────────────────────────────
 
     def get_subscription_plans(self) -> list:
         """Get all subscription plans"""
         from .models import SubscriptionPlan
+
         try:
             with self.get_session() as session:
-                plans = session.query(SubscriptionPlan).filter(SubscriptionPlan.is_active == True).all()
-                return [dict(p.__dict__) for p in plans]
+                plans = session.query(SubscriptionPlan).filter(SubscriptionPlan.is_active).all()
+                # 过滤掉 _sa_instance_state 等 SQLAlchemy 内部字段，避免泄漏到 API 响应
+                return [
+                    {k: v for k, v in p.__dict__.items() if not k.startswith("_")} for p in plans
+                ]
         except SQLAlchemyError as e:
             logger.error("postgres_get_subscription_plans", error=str(e))
             return []
@@ -571,11 +741,15 @@ class PostgresAdapter:
     def get_subscription_plan(self, plan_id: int):
         """Get subscription plan by ID"""
         from .models import SubscriptionPlan
+
         try:
             with self.get_session() as session:
-                plan = session.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
+                plan = (
+                    session.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).first()
+                )
                 if plan:
-                    return dict(plan.__dict__)
+                    # 过滤掉 _sa_instance_state 等 SQLAlchemy 内部字段，避免泄漏到 API 响应
+                    return {k: v for k, v in plan.__dict__.items() if not k.startswith("_")}
                 return None
         except SQLAlchemyError as e:
             logger.error("postgres_get_subscription_plan", resource_id=plan_id, error=str(e))
@@ -584,15 +758,21 @@ class PostgresAdapter:
     def get_company_subscription_by_agent(self, company_id: int, agent_name: str):
         """Get company subscription by agent name"""
         from .models import CompanySubscription
+
         try:
             with self.get_session() as session:
-                sub = session.query(CompanySubscription).filter(
-                    CompanySubscription.company_id == company_id,
-                    CompanySubscription.agent_name == agent_name,
-                    CompanySubscription.status == "active"
-                ).first()
+                sub = (
+                    session.query(CompanySubscription)
+                    .filter(
+                        CompanySubscription.company_id == company_id,
+                        CompanySubscription.agent_name == agent_name,
+                        CompanySubscription.status == "active",
+                    )
+                    .first()
+                )
                 if sub:
-                    return dict(sub.__dict__)
+                    # 过滤掉 _sa_instance_state 等 SQLAlchemy 内部字段，避免泄漏到 API 响应
+                    return {k: v for k, v in sub.__dict__.items() if not k.startswith("_")}
                 return None
         except SQLAlchemyError as e:
             logger.error("postgres_get_company_subscription", error=str(e))
@@ -601,23 +781,30 @@ class PostgresAdapter:
     def get_company_subscription(self, subscription_id: int):
         """Get company subscription by ID"""
         from .models import CompanySubscription
+
         try:
             with self.get_session() as session:
-                sub = session.query(CompanySubscription).filter(
-                    CompanySubscription.id == subscription_id
-                ).first()
+                sub = (
+                    session.query(CompanySubscription)
+                    .filter(CompanySubscription.id == subscription_id)
+                    .first()
+                )
                 if sub:
-                    return dict(sub.__dict__)
+                    # 过滤掉 _sa_instance_state 等 SQLAlchemy 内部字段，避免泄漏到 API 响应
+                    return {k: v for k, v in sub.__dict__.items() if not k.startswith("_")}
                 return None
         except SQLAlchemyError as e:
-            logger.error("postgres_get_company_subscription", resource_id=subscription_id, error=str(e))
+            logger.error(
+                "postgres_get_company_subscription", resource_id=subscription_id, error=str(e)
+            )
             return None
 
-    def create_company_subscription(self, company_id: int, plan_id: int,
-                                     agent_name: str, status: str = "active",
-                                     end_date=None) -> int:
+    def create_company_subscription(
+        self, company_id: int, plan_id: int, agent_name: str, status: str = "active", end_date=None
+    ) -> int:
         """Create a new company subscription"""
         from .models import CompanySubscription
+
         try:
             with self.get_session() as session:
                 sub = CompanySubscription(
@@ -626,7 +813,7 @@ class PostgresAdapter:
                     agent_name=agent_name,
                     status=status,
                     end_date=end_date,
-                    start_date=datetime.utcnow()
+                    start_date=datetime.utcnow(),
                 )
                 session.add(sub)
                 session.commit()
@@ -645,22 +832,103 @@ class PostgresAdapter:
                 session.commit()
                 return True
         except SQLAlchemyError as e:
-            logger.error("postgres_update_subscription_status", resource_id=company_id, error=str(e))
+            logger.error(
+                "postgres_update_subscription_status", resource_id=company_id, error=str(e)
+            )
             return False
 
     def get_company_active_subscriptions(self, company_id: int) -> list:
         """Get all active subscriptions for a company"""
         from .models import CompanySubscription
+
         try:
             with self.get_session() as session:
-                subs = session.query(CompanySubscription).filter(
-                    CompanySubscription.company_id == company_id,
-                    CompanySubscription.status == "active"
-                ).all()
-                return [dict(s.__dict__) for s in subs]
+                subs = (
+                    session.query(CompanySubscription)
+                    .filter(
+                        CompanySubscription.company_id == company_id,
+                        CompanySubscription.status == "active",
+                    )
+                    .all()
+                )
+                # 过滤掉 _sa_instance_state 等 SQLAlchemy 内部字段，避免泄漏到 API 响应
+                return [
+                    {k: v for k, v in s.__dict__.items() if not k.startswith("_")} for s in subs
+                ]
         except SQLAlchemyError as e:
             logger.error("postgres_get_active_subscriptions", resource_id=company_id, error=str(e))
             return []
+
+    def extend_subscription_end_date(self, subscription_id: int, months: int) -> bool:
+        """Extend a subscription's end_date by the given number of months"""
+        from .models import CompanySubscription
+
+        try:
+            with self.get_session() as session:
+                sub = (
+                    session.query(CompanySubscription)
+                    .filter(CompanySubscription.id == subscription_id)
+                    .first()
+                )
+                if not sub:
+                    return False
+                # end_date 为空时从当前时间开始计算，否则在现有 end_date 基础上延长
+                base_date = sub.end_date if sub.end_date else datetime.utcnow()
+                # 按月延长：近似为 30 天/月，避免引入 dateutil 依赖
+                from datetime import timedelta
+
+                sub.end_date = base_date + timedelta(days=30 * months)
+                session.commit()
+                return True
+        except SQLAlchemyError as e:
+            logger.error(
+                "postgres_extend_subscription_end_date", resource_id=subscription_id, error=str(e)
+            )
+            return False
+
+    def update_subscription_auto_renew(self, subscription_id: int, auto_renew: bool) -> bool:
+        """Update a subscription's auto_renew flag"""
+        from .models import CompanySubscription
+
+        try:
+            with self.get_session() as session:
+                sub = (
+                    session.query(CompanySubscription)
+                    .filter(CompanySubscription.id == subscription_id)
+                    .first()
+                )
+                if not sub:
+                    return False
+                sub.auto_renew = auto_renew
+                session.commit()
+                return True
+        except SQLAlchemyError as e:
+            logger.error(
+                "postgres_update_subscription_auto_renew", resource_id=subscription_id, error=str(e)
+            )
+            return False
+
+    def update_subscription_status(self, subscription_id: int, status: str) -> bool:
+        """Update a subscription's status (e.g. active / cancelled / expired)"""
+        from .models import CompanySubscription
+
+        try:
+            with self.get_session() as session:
+                sub = (
+                    session.query(CompanySubscription)
+                    .filter(CompanySubscription.id == subscription_id)
+                    .first()
+                )
+                if not sub:
+                    return False
+                sub.status = status
+                session.commit()
+                return True
+        except SQLAlchemyError as e:
+            logger.error(
+                "postgres_update_subscription_status", resource_id=subscription_id, error=str(e)
+            )
+            return False
 
 
 class ConnectionContext:
@@ -671,17 +939,22 @@ class ConnectionContext:
         self.connection = None
 
     def __enter__(self):
-        # Create a raw connection for direct SQL execution
-        self.connection = self.engine.raw_connection()
-        return self.connection
+        # 返回 self 而非 raw connection，使调用方可以使用本类提供的 execute 方法
+        # 之前返回 raw connection 会导致本类的 execute 方法无法被调用（with...as 拿到的是 connection 而非 context）
+        self.connection = self.engine.connect()
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.connection:
             self.connection.close()
         return False
 
-    def execute(self, query: str, params: tuple = None):
-        """Execute SQL query (for backward compatibility)"""
+    def execute(self, query: str, params: dict = None):
+        """Execute SQL query (for backward compatibility)
+
+        使用内部 connection 执行 SQL。params 推荐使用命名参数字典，
+        与 SQLAlchemy text() 命名参数风格一致。
+        """
         if not self.connection:
             raise RuntimeError("No active database connection")
 

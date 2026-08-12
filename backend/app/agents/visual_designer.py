@@ -74,7 +74,7 @@ VISUAL_DESIGNER_SYSTEM_PROMPT = """你是视觉设计数字员工，负责电商
 - 装饰：大小不一的水珠粒子环绕产品
 
 **生成结果**：
-- 主图URL：https://cdn.example.com/design/main_2026_001.png
+- 主图交付物：使用真实图像生成结果或企业素材库链接，不编造示例 URL
 - 合规检测：✅ 通过（未触发广告法极限词、平台规范）
 
 **多尺寸导出**：
@@ -88,7 +88,9 @@ VISUAL_DESIGNER_SYSTEM_PROMPT = """你是视觉设计数字员工，负责电商
 \"""
 """
 
-VISUAL_DESIGNER_CAPABILITIES: list[str] = [  # 模块级常量定义，避免运行时重复构造——capabilities 是整个 agent 生命周期不变的
+VISUAL_DESIGNER_CAPABILITIES: list[
+    str
+] = [  # 模块级常量定义，避免运行时重复构造——capabilities 是整个 agent 生命周期不变的
     "design_suggestion",
     "image_generation",
     "style_reference_search",
@@ -101,7 +103,9 @@ VISUAL_DESIGNER_CAPABILITIES: list[str] = [  # 模块级常量定义，避免运
     "a2a_delegate_task",  # Agent-to-Agent 委托，走标准化的跨 Agent 通信协议
 ]
 
-VISUAL_DESIGNER_DEFAULT_SKILLS: list[str] = [  # skills 是 capabilities 的高层抽象——面向任务描述，而非具体工具
+VISUAL_DESIGNER_DEFAULT_SKILLS: list[
+    str
+] = [  # skills 是 capabilities 的高层抽象——面向任务描述，而非具体工具
     "main_image_design",
     "detail_page_design",
     "cover_design",

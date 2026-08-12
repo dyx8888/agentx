@@ -3,9 +3,10 @@
 负责：库存监控、订单履约、物流跟踪、异常处理、ERP对接
 """  # 模块文档体现单一职责——仓储物流只负责库存和配送，不涉及客服和销售
 
-PROMPT_VERSION = "2.0.0"  # 语义化版本号，trace 版次演进，方便回滚到历史 prompt
-PROMPT_UPDATED = "2026-05-29"  # 记录最近更新时间，排查线上问题时快速定位 prompt 版本
+PROMPT_VERSION = "2.1.0"  # 语义化版本号，trace 版次演进，方便回滚到历史 prompt
+PROMPT_UPDATED = "2026-08-10"  # 记录最近更新时间，排查线上问题时快速定位 prompt 版本
 PROMPT_CHANGELOG = """  # 变更日志内嵌在模块中，避免依赖外部文档，确保代码与文档同步
+v2.1.0 (2026-08-10): 补发、退款、ERP更新、协作通知改为待审核建议
 v2.0.0 (2026-05-29): 添加受众定义、Few-shot示例、肯定优先句式改写
 v1.0.0: 初始版本
 """
@@ -34,7 +35,7 @@ WAREHOUSE_LOGISTICS_SYSTEM_PROMPT = """你是仓储物流数字员工，负责�
 ## 异常处理SOP
 - 发货超时(>24h未揽收) → 催促仓库+通知客服
 - 物流中断(>48h未更新) → 联系快递网点+通知客户
-- 签收异常(显示签收但客户说未收到) → 快递核实+补发/退款
+- 签收异常(显示签收但客户说未收到) → 快递核实+补发/退款建议，必须人工确认后执行
 - 退货入库 → 质检→入库/报废 分流处理
 
 ## 输出规范
@@ -60,7 +61,7 @@ WAREHOUSE_LOGISTICS_SYSTEM_PROMPT = """你是仓储物流数字员工，负责�
 1. 库存查询：inventory_check(sku="SKU-2024") → 当前库存850件
 2. 安全线计算：日均销量200 × 补货周期5天 = 1000件
 3. 预警判断：850 < 1000 → 触发爆款缺货预警（库存 < 最近3天日均 × 2 = 1200）
-4. 工具调用：inventory_check() + erp_sync_bridge() + 自动推送选品师和品牌商务
+4. 工具调用：inventory_check() + erp_sync_bridge() + 生成待审核协作通知草稿
 
 输出格式：
 **库存日报 - SKU-2024（热销面膜）**
@@ -73,15 +74,17 @@ WAREHOUSE_LOGISTICS_SYSTEM_PROMPT = """你是仓储物流数字员工，负责�
 | 建议采购量 | 1500件（覆盖7.5天+2天缓冲） | - |
 
 **行动建议**：
-1. 🔴 立即：通知采购部下单补货，建议采购量1500件
-2. 🟡 今天：通知品牌商务评估是否暂停该SKU的达人推广
-3. 🟢 本周：同步ERP系统更新安全库存阈值
+1. 🔴 立即：建议通知采购部复核并下单补货，建议采购量1500件
+2. 🟡 今天：建议通知品牌商务评估是否暂停该SKU的达人推广，暂停动作需人工确认
+3. 🟢 本周：提交ERP安全库存阈值更新建议，人工确认后执行
 
 警告：按当前销售速度，4天后将面临断货风险，补货周期5天意味着至少有1天断货窗口。
 \"""
 """
 
-WAREHOUSE_LOGISTICS_CAPABILITIES: list[str] = [  # 模块级常量定义，避免运行时重复构造——capabilities 是整个 agent 生命周期不变的
+WAREHOUSE_LOGISTICS_CAPABILITIES: list[
+    str
+] = [  # 模块级常量定义，避免运行时重复构造——capabilities 是整个 agent 生命周期不变的
     "inventory_check",
     "shipment_tracking",
     "logistics_alert",
@@ -95,7 +98,9 @@ WAREHOUSE_LOGISTICS_CAPABILITIES: list[str] = [  # 模块级常量定义，避�
     "a2a_delegate_task",  # Agent-to-Agent 委托，走标准化的跨 Agent 通信协议
 ]
 
-WAREHOUSE_LOGISTICS_DEFAULT_SKILLS: list[str] = [  # skills 是 capabilities 的高层抽象——面向任务描述，而非具体工具
+WAREHOUSE_LOGISTICS_DEFAULT_SKILLS: list[
+    str
+] = [  # skills 是 capabilities 的高层抽象——面向任务描述，而非具体工具
     "inventory_monitoring",
     "order_fulfillment",
     "logistics_tracking",

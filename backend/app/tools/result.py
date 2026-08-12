@@ -5,7 +5,7 @@ ToolResult - 统一的工具调用结果结构
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 
 @dataclass
@@ -17,12 +17,13 @@ class ToolResult:
       - "error": 执行失败，suggestion 和 fallback_tool 供 LLM 自愈
       - "pending_approval": 需人工审批后执行
     """
+
     status: Literal["ok", "error", "pending_approval"]
     data: Any = None
-    error_code: Optional[str] = None
+    error_code: str | None = None
     message: str = ""
-    suggestion: Optional[str] = None
-    fallback_tool: Optional[str] = None
+    suggestion: str | None = None
+    fallback_tool: str | None = None
     # pending_approval 相关
     tool_name: str = ""
     proposed_params: dict = field(default_factory=dict)
@@ -37,8 +38,8 @@ class ToolResult:
         cls,
         error_code: str,
         message: str = "",
-        suggestion: Optional[str] = None,
-        fallback_tool: Optional[str] = None,
+        suggestion: str | None = None,
+        fallback_tool: str | None = None,
     ) -> "ToolResult":
         """错误结果（带自愈建议）"""
         return cls(
@@ -84,6 +85,7 @@ class ToolResult:
     def to_json(self) -> str:
         """序列化为 JSON 字符串（注入 LLM 消息历史）"""
         import json
+
         return json.dumps(self.to_dict(), ensure_ascii=False, default=str)
 
     def is_error(self) -> bool:
@@ -97,6 +99,7 @@ class ToolResult:
 
 
 # ── 错误码常量 ──────────────────────────────────────────────────
+
 
 class ErrorCode:
     TOOL_TIMEOUT = "TOOL_TIMEOUT"

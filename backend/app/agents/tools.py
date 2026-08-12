@@ -14,6 +14,7 @@ logger = get_logger(__name__)
 # ── Data Analysis Agent Tools ──────────────────────────────────────────
 # 数据分析工具的入参设计为全可选+默认值——LLM 可能只传部分参数，默认值防止计算崩溃
 
+
 @tool
 def calculate_ecommerce_metrics(
     payment_amount: float = 0.0,  # 所有参数默认 0.0/0——避免 LLM 遗漏参数时工具调用失败
@@ -27,7 +28,10 @@ def calculate_ecommerce_metrics(
     repeat_buyers: int = 0,
 ) -> dict:
     """计算电商核心指标：GMV/ROI/CPA/CTR/CVR/GPM/客单价/复购率/退款率"""
-    from app.engines.metrics_engine import MetricsEngine  # 延迟导入——只在实际调用时才加载引擎，减少 cold start 内存
+    from app.engines.metrics_engine import (
+        MetricsEngine,  # 延迟导入——只在实际调用时才加载引擎，减少 cold start 内存
+    )
+
     metrics = MetricsEngine.calculate_metrics(  # 静态方法调用，无需实例化——MetricsEngine 设计为无状态工具类
         payment_amount=payment_amount,
         refund_amount=refund_amount,
@@ -69,6 +73,7 @@ def detect_metric_anomaly(
 ) -> dict:
     """检测指标异常：对比当前值与上期值，输出告警等级和描述"""
     from app.engines.metrics_engine import MetricsEngine  # 延迟导入引擎，减少模块间耦合
+
     alert = MetricsEngine.detect_anomaly(metric_name, current_value, previous_value)
     return {
         "metric": metric_name,
@@ -88,7 +93,10 @@ def generate_metrics_report(
 ) -> dict:
     """生成经营指标报告：汇总指标、趋势分析、异常告警"""
     from app.engines.metrics_engine import MetricsEngine
-    report = MetricsEngine.generate_report(company_id, period, metrics_data or [])  # or [] 确保 None 不会传入引擎
+
+    report = MetricsEngine.generate_report(
+        company_id, period, metrics_data or []
+    )  # or [] 确保 None 不会传入引擎
     return report
 
 
@@ -100,12 +108,14 @@ def forecase_trend(
 ) -> dict:
     """预测指标趋势：基于历史数据预测未来N天走势"""
     from app.engines.metrics_engine import MetricsEngine
+
     result = MetricsEngine.forecast_trend(metric_name, historical_data, forecast_days)
     return result
 
 
 # ── Warehouse Logistics Agent Tools ────────────────────────────────────
 # 仓储物流工具的数据结构（InventoryItem）封装了库存检查的核心字段，确保不同类型数据不会混淆
+
 
 @tool
 def check_inventory(
@@ -118,7 +128,11 @@ def check_inventory(
     expiry_date: str = None,
 ) -> dict:
     """检查库存状态：返回库存状态（正常/预警/缺货/滞销/临期）及建议"""
-    from app.engines.logistics_engine import InventoryItem, LogisticsEngine  # 同时导入数据类和引擎，两者耦合但属于同一模块
+    from app.engines.logistics_engine import (  # 同时导入数据类和引擎，两者耦合但属于同一模块
+        InventoryItem,
+        LogisticsEngine,
+    )
+
     item = InventoryItem(  # 使用数据类而非字典——InventoryItem 提供类型安全和字段校验
         sku=sku,
         name=name,
@@ -129,7 +143,9 @@ def check_inventory(
         expiry_date=expiry_date,
     )
     status, message, suggestions = LogisticsEngine.check_inventory_status(
-        item, avg_daily_sales_30d or avg_daily_sales_7d * 30  # 优先用 30d 数据，fallback 到 7d 估算——保证总有历史基准
+        item,
+        avg_daily_sales_30d
+        or avg_daily_sales_7d * 30,  # 优先用 30d 数据，fallback 到 7d 估算——保证总有历史基准
     )
     return {
         "sku": sku,
@@ -152,6 +168,7 @@ def calculate_replenishment(
 ) -> dict:
     """计算补货建议：基于日均销量和交期计算建议补货量"""
     from app.engines.logistics_engine import LogisticsEngine
+
     result = LogisticsEngine.calculate_replenishment(
         sku, name, current_stock, avg_daily_sales, lead_time_days, safety_stock_days
     )
@@ -164,7 +181,10 @@ def track_shipment(
     provider: str = "auto",  # 默认 auto 自动识别快递公司，避免 LLM 需要额外判断快递公司
 ) -> dict:
     """追踪物流状态：查询快递单号的最新物流轨迹"""
-    from app.services.erp_bridge import ERPBridge  # 物流追踪走 ERP 桥接层而非直接调用快递 API——统一多平台接口
+    from app.services.erp_bridge import (
+        ERPBridge,  # 物流追踪走 ERP 桥接层而非直接调用快递 API——统一多平台接口
+    )
+
     return ERPBridge.query_express(tracking_no, provider)
 
 
@@ -176,6 +196,7 @@ def detect_shipment_exception(
 ) -> dict:
     """检测物流异常：超时未揽收/中断/签收异常等"""
     from app.engines.logistics_engine import LogisticsEngine
+
     return LogisticsEngine.detect_shipment_exception(tracking_no, last_update_hours, status)
 
 
@@ -188,10 +209,12 @@ def recommend_packaging(
 ) -> dict:
     """推荐包材方案：根据产品类型/重量/易碎性推荐包材"""
     from app.engines.logistics_engine import LogisticsEngine
+
     return LogisticsEngine.recommend_packaging(product_type, weight_kg, fragile, quantity)
 
 
 # ── Customer Service Agent Tools ───────────────────────────────────────
+
 
 @tool
 def analyze_sentiment(
@@ -200,6 +223,7 @@ def analyze_sentiment(
 ) -> dict:
     """分析客户消息情绪：低风险/中风险/高风险分级"""
     from app.engines.customer_service_engine import CustomerServiceEngine
+
     engine = CustomerServiceEngine()
     emotion = engine._detect_emotion(customer_message)
     level = emotion.value
@@ -218,18 +242,24 @@ def evaluate_send_strategy(
     agent_reply: str = "",
     context: dict = None,
 ) -> dict:
-    """评估消息发送策略：静默发送/批量确认/逐条审核/拦截"""
+    """评估消息发送策略：快速审核/批量确认/逐条审核/拦截"""
     from app.services.send_strategy import SendStrategyEngine
+
     decision = SendStrategyEngine.evaluate(
         message_id, customer_message, confidence, agent_reply, context
     )
+    requires_review = (not decision.auto_send) or decision.level.value != "auto_send"
     return {
         "message_id": message_id,
-        "send_level": decision.send_level.value,
+        "send_level": decision.level.value,
         "confidence": confidence,
-        "requires_review": decision.requires_review,
+        "requires_review": requires_review,
+        "requires_escalation": decision.requires_escalation,
         "sentiment_risk": decision.sentiment_risk.value if decision.sentiment_risk else "normal",
-        "action": decision.action,
+        "action": "auto_send" if decision.auto_send else decision.level.value,
+        "auto_send": decision.auto_send,
+        "batch_group": decision.batch_group,
+        "escalation_note": decision.escalation_note,
         "reason": decision.reason,
     }
 
@@ -246,11 +276,16 @@ def generate_auto_reply(
         "reply": f"感谢您的咨询！关于{inquiry_type}的问题，我们的客服正在为您处理。",
         "confidence": 0.85,
         "template_used": f"auto_reply_{inquiry_type}",
+        "status": "pending_review",
+        "auto_send": False,
+        "requires_human_review": True,
+        "message": "当前仅生成客服回复草稿，未接入外发渠道，也不会自动发送。",
     }
 
 
 # ── Visual Designer Agent Tools ────────────────────────────────────────
 # 视觉设计工具涉及异步操作和外部 API 调用——需要 async/await 和异常处理
+
 
 @tool
 async def generate_design_image(  # async 函数——图片生成是 I/O 密集型操作，需要异步等待外部 API
@@ -262,7 +297,11 @@ async def generate_design_image(  # async 函数——图片生成是 I/O 密集
     product_name: str = "",
 ) -> dict:
     """生成电商设计图：主图/详情页/封面等"""
-    from app.services.image_pipeline import ImageDesignRequest, ImageGenerationPipeline  # 同时导入请求数据类和流水线
+    from app.services.image_pipeline import (  # 同时导入请求数据类和流水线
+        ImageDesignRequest,
+        ImageGenerationPipeline,
+    )
+
     pipeline = ImageGenerationPipeline()  # 流水线实例化——每次调用创建新实例，避免状态污染
     request = ImageDesignRequest(  # 使用请求数据类封装——字段校验在数据类内部完成
         product_name=product_name,
@@ -272,7 +311,9 @@ async def generate_design_image(  # async 函数——图片生成是 I/O 密集
         style_reference=style_reference,
         brand_template_id=brand_template_id,
     )
-    result = await pipeline.run_full_pipeline(request)  # await 等待流水线完成，确保调用方拿到最终结果
+    result = await pipeline.run_full_pipeline(
+        request
+    )  # await 等待流水线完成，确保调用方拿到最终结果
     return result
 
 
@@ -285,14 +326,18 @@ def search_style_reference(
 ) -> dict:
     """搜索设计风格参考：通过多模态RAG检索品牌历史素材和参考风格"""
     try:
-        from app.rag.multimodal_retriever import get_multimodal_retriever  # 延迟导入多模态检索器——避免启动时就加载 Milvus 连接
+        from app.rag.multimodal_retriever import (
+            get_multimodal_retriever,  # 延迟导入多模态检索器——避免启动时就加载 Milvus 连接
+        )
 
         keywords = style_keywords or []
         query = product_category
         if keywords:
             query += " " + " ".join(keywords)  # 拼接关键词到查询字符串，提升检索召回率
 
-        retriever = get_multimodal_retriever(brand_id or "default")  # 默认品牌 ID 兜底——未指定品牌时使用通用检索
+        retriever = get_multimodal_retriever(
+            brand_id or "default"
+        )  # 默认品牌 ID 兜底——未指定品牌时使用通用检索
         results = retriever.search_by_text(query, top_k=top_k)
 
         return {
@@ -303,15 +348,22 @@ def search_style_reference(
                     "id": r.image_id,
                     "url": r.image_path or "",
                     "caption": r.caption,
-                    "score": round(r.similarity, 4),  # 四舍五入到 4 位小数——相似度分数精度不需要太高
+                    "score": round(
+                        r.similarity, 4
+                    ),  # 四舍五入到 4 位小数——相似度分数精度不需要太高
                 }
                 for r in results
             ],
         }
     except Exception as e:
-        from app.core.logging import get_logger  # 异常处理中重新导入 logger——确保异常时 logger 一定可用
+        from app.core.logging import (
+            get_logger,  # 异常处理中重新导入 logger——确保异常时 logger 一定可用
+        )
+
         logger = get_logger(__name__)
-        logger.warning("multimodal_search_failed", error=str(e))  # 警告级别而非错误——多模态检索失败不阻塞主流程
+        logger.warning(
+            "multimodal_search_failed", error=str(e)
+        )  # 警告级别而非错误——多模态检索失败不阻塞主流程
         return {
             "category": product_category,
             "keywords": style_keywords or [],
@@ -326,13 +378,15 @@ def check_image_compliance(
     platform: str = "douyin",
 ) -> dict:
     """检查图片合规性：广告法合规检查+平台规范校验+文字检测"""
-    return {  # 当前返回硬编码结果——合规检查逻辑后续接入外部服务
+    return {
         "image_url": image_url,
         "platform": platform,
-        "compliant": True,
+        "status": "unverified",
+        "compliant": False,
+        "requires_human_review": True,
         "violations": [],
-        "warnings": [],
-        "suggestions": ["建议添加品牌Logo", "文字对比度可通过"],
+        "warnings": ["图片合规检测服务未接入，不能自动判定通过。"],
+        "suggestions": ["请接入真实合规检测服务，或由人工审核后再发布。"],
     }
 
 
@@ -344,13 +398,24 @@ def export_multi_format(
 ) -> dict:
     """多尺寸导出：一键导出多平台多尺寸图片"""
     from app.services.image_pipeline import ImageGenerationPipeline
+
     pipeline = ImageGenerationPipeline()
-    sizes = pipeline.PLATFORM_SIZE_MAP.get(platform, {})  # 从流水线类属性获取平台尺寸映射——避免硬编码尺寸
+    sizes = pipeline.PLATFORM_SIZE_MAP.get(
+        platform, {}
+    )  # 从流水线类属性获取平台尺寸映射——避免硬编码尺寸
     return {
         "source": image_url,
         "platform": platform,
+        "status": "unavailable",
+        "requires_external_renderer": True,
+        "message": "多尺寸导出服务未接入，未生成任何真实导出文件。",
         "exports": [
-            {"size": size, "url": f"{image_url}?size={size}", "format": "jpg"}  # URL 后缀拼接模拟导出——实际需接入 CDN 处理
+            {
+                "size": size,
+                "url": "",
+                "format": "jpg",
+                "status": "not_generated",
+            }
             for size_list in sizes.values()
             for size in size_list
         ],
@@ -359,6 +424,7 @@ def export_multi_format(
 
 # ── Product Selector Agent Tools ───────────────────────────────────────
 # 选品工具的核心是评分引擎——多维度量化评估商品潜力
+
 
 @tool
 def evaluate_product(
@@ -377,7 +443,10 @@ def evaluate_product(
     current_month: int = None,
 ) -> dict:
     """多维度商品评估打分：市场容量+竞争强度+利润空间+供应链+季节匹配"""
-    from app.engines.product_scoring import ProductScoringEngine  # 评分引擎是静态方法类——无状态，不需要实例化
+    from app.engines.product_scoring import (
+        ProductScoringEngine,  # 评分引擎是静态方法类——无状态，不需要实例化
+    )
+
     score = ProductScoringEngine.evaluate(
         product_name=product_name,
         category=category,
@@ -421,7 +490,10 @@ def calculate_profit_chain(
     tax_rate: float = 0.01,
 ) -> dict:
     """利润全成本链测算：采购→物流→平台费用→推广→退货→税费→净利"""
-    from app.engines.product_scoring import ProfitCalculator  # 利润计算器独立于评分引擎——单一职责分离
+    from app.engines.product_scoring import (
+        ProfitCalculator,  # 利润计算器独立于评分引擎——单一职责分离
+    )
+
     profit = ProfitCalculator.calculate(
         selling_price=selling_price,
         purchase_cost=purchase_cost,
@@ -462,8 +534,12 @@ def evaluate_supplier(
 ) -> dict:
     """供应商评估：资质/稳定性/品控/灵活性/价格竞争力 五维度打分"""
     scores = {}  # 纯 Python 逻辑计算——供应商评估暂不需要外部引擎，直接内联计算
-    scores["qualification"] = 80 if company_type == "工厂" else 65 if company_type == "贸易商" else 50  # 工厂资质最高，贸易商次之
-    scores["stability"] = max(0, min(100, int(delivery_reliability * 100)))  # 交付可靠性百分比化，钳制在 0-100
+    scores["qualification"] = (
+        80 if company_type == "工厂" else 65 if company_type == "贸易商" else 50
+    )  # 工厂资质最高，贸易商次之
+    scores["stability"] = max(
+        0, min(100, int(delivery_reliability * 100))
+    )  # 交付可靠性百分比化，钳制在 0-100
     scores["quality"] = max(0, min(100, int((1 - defect_rate) * 100)))  # 次品率越低品质分越高
     flexibility_base = 60  # 基础灵活度 60 分
     if min_order_qty <= 100:  # 起订量 ≤100 件加分——小批量支持灵活合作
@@ -473,7 +549,12 @@ def evaluate_supplier(
     if can_oem:  # OEM 能力加分——支持定制化生产
         flexibility_base += 10
     scores["flexibility"] = min(100, flexibility_base)
-    price_map = {"低于市场均价": 90, "等于市场均价": 75, "略高于市场均价": 50, "远高于市场均价": 30}  # 价格竞争力映射表
+    price_map = {
+        "低于市场均价": 90,
+        "等于市场均价": 75,
+        "略高于市场均价": 50,
+        "远高于市场均价": 30,
+    }  # 价格竞争力映射表
     scores["price"] = price_map.get(price_competitiveness, 50)
     overall = sum(scores.values()) / len(scores)  # 等权平均——五个维度同等重要
     return {
@@ -486,7 +567,8 @@ def evaluate_supplier(
 
 
 # ── Smart Ad Delivery Agent Tools ──────────────────────────────────────
-# 投流工具的核心是风险控制——自动止损和 A/B 测试确保投放效率
+# 投流工具的核心是风险控制——止损复核建议和 A/B 测试确保投放效率
+
 
 @tool
 def evaluate_stop_loss(
@@ -500,19 +582,35 @@ def evaluate_stop_loss(
     daily_budget: float,
     current_spend: float,
     consecutive_low_roi_days: int = 0,
+    campaign_name: str | None = None,
+    platform: str = "unknown",
+    industry_avg_ctr: float = 0.02,
+    impressions: int = 0,
+    clicks: int = 1,
+    conversions: int = 1,
 ) -> dict:
-    """评估广告止损规则：检查是否触发止损条件并建议动作"""
-    from app.engines.stop_loss import CampaignMetrics, StopLossEngine  # 止损引擎独立模块——可被其他投放系统复用
+    """评估广告止损规则：检查是否触发止损条件并生成待确认建议"""
+    from app.engines.stop_loss import (  # 止损引擎独立模块——可被其他投放系统复用
+        CampaignMetrics,
+        StopLossEngine,
+    )
+
     metrics = CampaignMetrics(  # 数据类封装投放指标——避免参数散落
         campaign_id=campaign_id,
+        campaign_name=campaign_name or campaign_id,
+        platform=platform,
+        daily_budget=daily_budget,
+        current_spend=current_spend,
         cpa=cpa,
         target_cpa=target_cpa,
         roi=roi,
-        target_roi=target_roi,
+        breakeven_roi=target_roi,
         ctr=ctr,
+        industry_avg_ctr=industry_avg_ctr,
+        impressions=impressions,
+        clicks=clicks,
+        conversions=conversions,
         running_hours=running_hours,
-        daily_budget=daily_budget,
-        current_spend=current_spend,
     )
     engine = StopLossEngine()  # 止损引擎实例化——每次评估创建新实例，避免状态残留
     triggers = engine.evaluate(metrics, consecutive_low_roi_days)
@@ -521,15 +619,19 @@ def evaluate_stop_loss(
         "triggers": [
             {
                 "rule_id": t.rule_id,
-                "description": t.description,
+                "description": t.reason,
                 "action": t.action.value,
                 "severity": t.severity.value,
-                "auto_execute": t.auto_execute,  # 区分自动执行和需人工确认的止损动作
+                "auto_execute": t.auto_executed,  # 兼容字段：预算/暂停类规则应为False
+                "requires_human_review": not t.auto_executed,
+                "recommended_action": t.recommended_action,
             }
             for t in triggers
         ],
         "trigger_count": len(triggers),
-        "has_critical": any(t.severity.value == "critical" for t in triggers),  # 快速判断是否有严重触发——前端可据此高亮告警
+        "has_critical": any(
+            t.severity.value == "critical" for t in triggers
+        ),  # 快速判断是否有严重触发——前端可据此高亮告警
     }
 
 
@@ -545,6 +647,7 @@ def design_ab_test(
 ) -> dict:
     """设计A/B测试方案：单变量测试设计及流量分配"""
     from app.engines.ab_test import ABTestEngine, ABTestVariable  # A/B 测试引擎——科学实验方法论封装
+
     var = ABTestVariable(variable)  # 变量枚举——确保只测试合法变量（素材/人群/出价）
     design = ABTestEngine.design_test(
         test_name=test_name,
@@ -590,6 +693,7 @@ def analyze_ab_test_result(
         ABTestVariable,
         ABTestVariantResult,
     )  # 导入多个数据类——A/B 测试分析需要完整的实验设计+结果数据
+
     design = ABTestDesign(
         test_id=test_id,
         test_name="analysis",
@@ -614,7 +718,9 @@ def analyze_ab_test_result(
         spend=experiment_spend,
         revenue=experiment_revenue,
     )
-    result = ABTestEngine.analyze(design, control, experiment)  # 引擎执行统计分析——p 值检验和胜出判定
+    result = ABTestEngine.analyze(
+        design, control, experiment
+    )  # 引擎执行统计分析——p 值检验和胜出判定
     return {
         "test_id": test_id,
         "winner": result.winner,
@@ -629,6 +735,7 @@ def analyze_ab_test_result(
 # ── Content Operation Agent Tools ──────────────────────────────────────
 # 内容运营工具涉及跨平台适配和外部视频编辑桥接
 
+
 @tool
 def adapt_content_for_platform(
     content: str,
@@ -637,11 +744,16 @@ def adapt_content_for_platform(
     brand_voice: str = "",
 ) -> dict:
     """跨平台内容适配：自动改写内容以匹配目标平台风格和规范"""
-    from app.platforms.platform_context_router import PlatformContextRouter  # 平台路由——统一管理多平台适配逻辑
+    from app.platforms.platform_context_router import (
+        PlatformContextRouter,  # 平台路由——统一管理多平台适配逻辑
+    )
+
     router = PlatformContextRouter()
     result = router.adapt_content(content, from_platform, to_platform)
     return {
-        "adapted_content": result.get("adapted_content", content),  # fallback 到原始内容——适配失败时不丢失内容
+        "adapted_content": result.get(
+            "adapted_content", content
+        ),  # fallback 到原始内容——适配失败时不丢失内容
         "changes": result.get("changes", []),
         "platform_tips": result.get("platform_tips", ""),
     }
@@ -656,8 +768,11 @@ def create_platform_context(
 ) -> dict:
     """创建平台上下文沙箱：为指定平台创建隔离的内容创作环境"""
     from app.platforms.platform_context_router import PlatformContextRouter
+
     router = PlatformContextRouter()
-    ctx = router.create_sandbox(company_id, agent_id, platform, brand_voice)  # 沙箱隔离——不同平台上下文互不干扰
+    ctx = router.create_sandbox(
+        company_id, agent_id, platform, brand_voice
+    )  # 沙箱隔离——不同平台上下文互不干扰
     return {
         "sandbox_id": ctx.sandbox_id,
         "platform": platform,
@@ -678,81 +793,26 @@ def bridge_video_editor(
     project_name: str = "",
 ) -> dict:
     """视频编辑桥接：连接外部视频编辑工具，管理编辑项目、提交编辑任务、查询渲染进度"""
-    valid_actions = ["create_project", "submit_edit_task", "query_progress", "export_clip", "apply_template"]  # 白名单校验——防止非法 action 调用
+    valid_actions = [
+        "create_project",
+        "submit_edit_task",
+        "query_progress",
+        "export_clip",
+        "apply_template",
+    ]  # 白名单校验——防止非法 action 调用
     if action not in valid_actions:
         return {"error": f"无效操作，支持: {', '.join(valid_actions)}"}
 
-    if action == "create_project":
-        project_id = f"proj_{project_name or 'untitled'}_{hash(source_video_url or '') % 10000}"  # hash 生成唯一 ID——避免 URL 冲突
+    if action in {"create_project", "submit_edit_task", "query_progress", "export_clip"}:
         return {
-            "action": "create_project",
-            "project_id": project_id,
-            "project_name": project_name or "未命名项目",
+            "action": action,
+            "project_name": project_name,
             "source_video": source_video_url,
             "target_platform": target_platform,
-            "status": "created",
-            "message": f"视频编辑项目 {project_name} 已创建，可提交编辑任务",
-        }
-
-    if action == "submit_edit_task":
-        config = edit_config or {}
-        task_id = f"task_{hash(str(config)) % 100000}"  # hash 配置生成任务 ID——相同配置产生相同 ID
-        return {
-            "action": "submit_edit_task",
-            "task_id": task_id,
-            "config": {
-                "trim_start": config.get("trim_start", 0),
-                "trim_end": config.get("trim_end", 0),
-                "crop_ratio": config.get("crop_ratio", "16:9"),
-                "subtitles": config.get("subtitles", True),
-                "background_music": config.get("background_music", ""),
-                "transitions": config.get("transitions", []),
-                "filters": config.get("filters", []),
-                "overlay_text": config.get("overlay_text", []),
-                "output_quality": config.get("output_quality", "1080p"),
-                "output_format": output_format,
-            },
-            "target_platform": target_platform,
-            "estimated_duration": config.get("source_duration", 60),
-            "status": "queued",
-            "message": "编辑任务已提交到渲染队列",
-        }
-
-    if action == "query_progress":
-        return {  # 模拟渲染进度——实际需接入视频编辑服务 API
-            "action": "query_progress",
-            "project_name": project_name,
-            "tasks": [
-                {
-                    "task_id": "task_001",
-                    "type": "trim_and_crop",
-                    "status": "completed",
-                    "progress": 100,
-                    "output_url": f"/media/edited/{project_name}_v1.{output_format}",
-                },
-                {
-                    "task_id": "task_002",
-                    "type": "add_captions",
-                    "status": "rendering",
-                    "progress": 65,
-                    "estimated_remaining": "3分钟",
-                },
-            ],
-            "overall_progress": 82,
-            "message": "渲染中，已完成 82%",
-        }
-
-    if action == "export_clip":
-        return {
-            "action": "export_clip",
-            "project_name": project_name,
-            "output_url": f"/media/exports/{project_name}_final.{output_format}",
             "output_format": output_format,
-            "file_size_mb": 45.2,
-            "duration_seconds": 58,
-            "resolution": "1920x1080",
-            "exported_at": __import__('datetime').datetime.utcnow().isoformat(),  # 动态导入 datetime——避免模块级导入污染
-            "message": f"视频已导出: {project_name}_final.{output_format}",
+            "status": "unavailable",
+            "requires_external_editor": True,
+            "message": "视频编辑服务未接入，未创建项目、提交任务、查询进度或生成导出文件。",
         }
 
     if action == "apply_template":
@@ -768,9 +828,15 @@ def bridge_video_editor(
             "template_name": template,
             "project_name": project_name,
             "preset_config": {
-                "aspect_ratio": "9:16" if target_platform in ("douyin_short", "xiaohongshu") else "16:9",  # 竖屏平台默认 9:16
-                "max_duration": 60 if target_platform == "douyin_short" else 180,  # 抖音短视频限制 60 秒
-                "subtitle_style": "bold_yellow" if target_platform == "douyin_short" else "clean_white",
+                "aspect_ratio": "9:16"
+                if target_platform in ("douyin_short", "xiaohongshu")
+                else "16:9",  # 竖屏平台默认 9:16
+                "max_duration": 60
+                if target_platform == "douyin_short"
+                else 180,  # 抖音短视频限制 60 秒
+                "subtitle_style": "bold_yellow"
+                if target_platform == "douyin_short"
+                else "clean_white",
                 "intro_hook_required": True,
             },
             "message": f"已应用 {target_platform} 模板: {template}",
@@ -781,6 +847,7 @@ def bridge_video_editor(
 
 # ── Brand BD Agent Tools ───────────────────────────────────────────────
 
+
 @tool
 def check_delivery_status(
     sample_id: str,
@@ -788,11 +855,13 @@ def check_delivery_status(
     """查询寄样物流状态"""
     return {
         "sample_id": sample_id,
-        "status": "in_transit",
-        "carrier": "顺丰速运",
-        "tracking_no": f"SF{sample_id[-8:]}",
-        "estimated_delivery": "1-2天",
-        "current_location": "转运中心",
+        "status": "unavailable",
+        "requires_logistics_backend": True,
+        "message": "寄样物流查询服务未接入真实物流或ERP后端，未返回模拟物流轨迹。",
+        "carrier": "",
+        "tracking_no": "",
+        "estimated_delivery": "",
+        "current_location": "",
     }
 
 
@@ -840,86 +909,74 @@ def manage_kol_relationship(
     schedule_date: str = "",
 ) -> dict:
     """达人关系管理：档案维护、合作状态追踪、档期管理、历史合作记录查询"""
-    valid_actions = ["add_profile", "update_status", "query_schedule", "list_active", "cooperation_history"]
+    valid_actions = [
+        "add_profile",
+        "update_status",
+        "query_schedule",
+        "list_active",
+        "cooperation_history",
+    ]
     if action not in valid_actions:
         return {"error": f"无效操作，支持: {', '.join(valid_actions)}"}
 
-    from datetime import datetime
+    base_response = {
+        "action": action,
+        "kol_name": kol_name,
+        "platform": kol_platform,
+        "company_id": company_id,
+        "status": "unavailable",
+        "requires_crm_backend": True,
+        "message": "达人关系管理需要接入真实CRM或企业达人库写入后端；当前未创建、未更新、未返回样例记录。",
+    }
 
     if action == "add_profile":
         return {
-            "action": "add_profile",
-            "kol_name": kol_name,
-            "platform": kol_platform,
-            "profile": {
-                "name": kol_name,
-                "platform": kol_platform,
-                "followers": "待补充",
-                "engagement_rate": "待补充",
-                "niche": "待补充",
-                "cooperation_status": "new",
-                "first_contact_date": datetime.utcnow().isoformat(),
-                "notes": notes,
-                "scheduled_campaigns": [],
-            },
-            "message": f"已创建 {kol_name} 的达人档案",
+            **base_response,
+            "profile": None,
+            "notes": notes,
+            "created": False,
         }
 
     if action == "update_status":
-        valid_statuses = ["contacted", "negotiating", "confirmed", "in_progress", "completed", "dormant", "blacklisted"]
+        valid_statuses = [
+            "contacted",
+            "negotiating",
+            "confirmed",
+            "in_progress",
+            "completed",
+            "dormant",
+            "blacklisted",
+        ]
         if cooperation_status not in valid_statuses:
             return {"error": f"无效状态，支持: {', '.join(valid_statuses)}"}
         return {
-            "action": "update_status",
-            "kol_name": kol_name,
-            "previous_status": "contacted",
+            **base_response,
             "new_status": cooperation_status,
-            "updated_at": datetime.utcnow().isoformat(),
-            "message": f"已将 {kol_name} 的合作状态更新为: {cooperation_status}",
+            "updated": False,
         }
 
     if action == "query_schedule":
         return {
-            "action": "query_schedule",
-            "kol_name": kol_name or "全部达人",
-            "upcoming_campaigns": [
-                {"kol": "达人A", "product": "夏季新品", "scheduled_date": "2026-06-15", "status": "confirmed"},
-                {"kol": "达人B", "product": "品牌联名", "scheduled_date": "2026-06-20", "status": "negotiating"},
-            ],
-            "available_slots": [
-                {"week": "6月第三周", "available_days": 3, "kol_count": 2},
-                {"week": "6月第四周", "available_days": 5, "kol_count": 4},
-            ],
-            "company_id": company_id,
+            **base_response,
+            "kol_name": kol_name or "",
+            "upcoming_campaigns": [],
+            "available_slots": [],
         }
 
     if action == "list_active":
         return {
-            "action": "list_active",
-            "active_kols": [
-                {"name": "达人A", "platform": "douyin", "status": "in_progress", "last_campaign": "2026-05-20", "total_cooperations": 3},
-                {"name": "达人B", "platform": "xiaohongshu", "status": "confirmed", "last_campaign": "2026-05-15", "total_cooperations": 5},
-            ],
-            "total_active": 2,
-            "company_id": company_id,
+            **base_response,
+            "active_kols": [],
+            "total_active": 0,
         }
 
     if action == "cooperation_history":
         return {
-            "action": "cooperation_history",
-            "kol_name": kol_name or "全部达人",
-            "total_cooperations": 8,
-            "records": [
-                {"kol": "达人A", "campaign": "618大促", "date": "2026-05-01", "gmv": 125000, "roi": 3.2, "content_quality": "A"},
-                {"kol": "达人B", "campaign": "新品首发", "date": "2026-04-15", "gmv": 89000, "roi": 2.8, "content_quality": "B+"},
-                {"kol": "达人A", "campaign": "春季上新", "date": "2026-03-10", "gmv": 156000, "roi": 4.1, "content_quality": "A"},
-            ],
-            "summary": {
-                "total_gmv": 370000,
-                "avg_roi": 3.37,
-                "top_performer": "达人A",
-                "recommendation": "达人A 历史表现优异，建议优先合作",
-            },
+            **base_response,
+            "kol_name": kol_name or "",
+            "total_cooperations": 0,
+            "records": [],
+            "summary": {},
         }
 
     return {"error": "未知操作"}
@@ -977,15 +1034,19 @@ AGENT_TOOL_MAP: dict[str, list] = {  # 模块级常量，所有 agent 的工具�
 
 
 def get_agent_tools(agent_key: str) -> list:
-    return AGENT_TOOL_MAP.get(agent_key, [])  # 未知 agent 返回空列表——调用方安全遍历，不会 None 崩溃
+    return AGENT_TOOL_MAP.get(
+        agent_key, []
+    )  # 未知 agent 返回空列表——调用方安全遍历，不会 None 崩溃
 
 
 def register_agent_tools(registry) -> int:
     count = 0
-    for agent_key, tools in AGENT_TOOL_MAP.items():  # 遍历所有 agent 的所有工具
+    for _agent_key, tools in AGENT_TOOL_MAP.items():  # 遍历所有 agent 的所有工具
         for t in tools:
             name = t.name  # @tool 装饰器自动生成的 name 属性
-            if not hasattr(t, 'description') or not t.description:  # 跳过无描述的 tool——确保 LLM 能理解工具用途
+            if (
+                not hasattr(t, "description") or not t.description
+            ):  # 跳过无描述的 tool——确保 LLM 能理解工具用途
                 continue
             registry.register(name, t, description=t.description)  # 注册到 LangChain 工具注册表
             count += 1

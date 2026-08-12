@@ -2,9 +2,13 @@
 HierarchicalOrchestrator - 分层Agent编排（金字塔模式）
 支持多层嵌套：总指挥→组长→组员，最大3层
 """
+
 import asyncio  # 分层编排中每层内部任务并行执行，需要 asyncio 协程管理
 import json  # 层间传递结构化数据（摘要）使用 JSON 格式
-from dataclasses import dataclass, field  # dataclass 减少样板代码，SubTask/SubTaskResult 是纯数据结构
+from dataclasses import (  # dataclass 减少样板代码，SubTask/SubTaskResult 是纯数据结构
+    dataclass,
+    field,
+)
 from datetime import datetime  # 记录任务执行时间戳，用于耗时统计
 from enum import StrEnum  # 字符串枚举，便于序列化和日志输出
 from typing import Any
@@ -20,6 +24,7 @@ DEFAULT_LAYER_TIMEOUT = 30  # 每层默认超时秒数，平衡响应速度和�
 @dataclass
 class SubTask:
     """子任务定义"""
+
     id: str = ""  # 子任务唯一标识，用于结果匹配
     description: str = ""  # 任务描述，传递给执行 Agent
     assigned_agent: str = ""  # 目标 Agent 名称
@@ -31,6 +36,7 @@ class SubTask:
 @dataclass
 class SubTaskResult:
     """子任务执行结果"""
+
     task: SubTask  # 关联原始任务，便于回溯
     status: str = "pending"  # 执行状态：pending/completed/failed
     output: dict = field(default_factory=dict)  # Agent 返回的原始输出
@@ -96,7 +102,7 @@ class HierarchicalOrchestrator:
                 ),
                 timeout=layer_timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("hierarchical_layer_timeout", depth=current_depth)
             return {  # 超时时返回部分结果，不抛异常
                 "status": "timeout",
@@ -110,11 +116,13 @@ class HierarchicalOrchestrator:
         for i, result in enumerate(results):
             task = tasks[i]
             if isinstance(result, Exception):  # return_exceptions=True 时异常作为结果返回
-                task_results.append(SubTaskResult(
-                    task=task,
-                    status="failed",
-                    error=str(result),
-                ))
+                task_results.append(
+                    SubTaskResult(
+                        task=task,
+                        status="failed",
+                        error=str(result),
+                    )
+                )
             else:
                 task_results.append(result)
 
@@ -129,7 +137,9 @@ class HierarchicalOrchestrator:
         )
 
         return {
-            "status": "completed" if failed == 0 else "partial",  # 部分失败也返回 partial，不丢弃成功结果
+            "status": "completed"
+            if failed == 0
+            else "partial",  # 部分失败也返回 partial，不丢弃成功结果
             "depth": current_depth,
             "completed_tasks": completed,
             "total_tasks": len(tasks),
@@ -174,7 +184,9 @@ class HierarchicalOrchestrator:
                 if a2a_result.get("success"):
                     result.status = "completed"
                     result.output = a2a_result
-                    result.summary = self._generate_summary(task, a2a_result)  # 生成结构化摘要供上层消费
+                    result.summary = self._generate_summary(
+                        task, a2a_result
+                    )  # 生成结构化摘要供上层消费
                 else:
                     result.status = "failed"
                     result.error = a2a_result.get("error", "Unknown error")
@@ -216,17 +228,20 @@ class HierarchicalOrchestrator:
         """构建子任务树：根据任务描述和可用Agent列表自动生成子任务"""
         subtasks = []
         for i, agent in enumerate(agents):  # 每个 Agent 分配一个子任务
-            subtasks.append(SubTask(
-                id=f"subtask_{i+1}",
-                description=f"[{agent}] {task_description}",  # 描述中带上 Agent 名，便于追踪
-                assigned_agent=agent,
-                depth=1,  # 初始深度为 1，根任务深度为 0
-                parent_task_id="root",  # 根节点标记
-            ))
+            subtasks.append(
+                SubTask(
+                    id=f"subtask_{i + 1}",
+                    description=f"[{agent}] {task_description}",  # 描述中带上 Agent 名，便于追踪
+                    assigned_agent=agent,
+                    depth=1,  # 初始深度为 1，根任务深度为 0
+                    parent_task_id="root",  # 根节点标记
+                )
+            )
         return subtasks
 
 
 # ── Collaboration Mode Selector ──────────────────────
+
 
 # 字符串枚举确保协作模式值可以直接序列化到 JSON 响应中
 class CollaborationMode(StrEnum):
@@ -239,6 +254,7 @@ class CollaborationMode(StrEnum):
 @dataclass
 class TaskCharacteristics:
     """任务特征分析结果"""
+
     complexity: float = 0.0  # 1-10 复杂度评分，LLM 评估得出
     independent_subtasks: int = 0  # 可独立并行执行的子任务数量
     requires_dynamic_scheduling: bool = False  # 是否需要根据中间结果动态调整计划
@@ -289,7 +305,11 @@ class CollaborationModeSelector:
             TaskCharacteristics
         """
         try:
-            from langchain_core.messages import HumanMessage, SystemMessage  # 使用 LangChain 消息格式
+            from langchain_core.messages import (  # 使用 LangChain 消息格式
+                HumanMessage,
+                SystemMessage,
+            )
+
             from app.services.model_gateway import get_global_model_gateway
 
             model_gateway = get_global_model_gateway()
@@ -310,21 +330,28 @@ class CollaborationModeSelector:
 - cross_domain: 是否需要多个不同领域的专业知识
 - requires_dynamic_scheduling: 是否需要根据中间结果动态调整计划"""
 
-            response = llm.invoke([  # 调用 LLM 进行任务特征分析
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=task_description),
-            ])
+            response = llm.invoke(
+                [  # 调用 LLM 进行任务特征分析
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=task_description),
+                ]
+            )
 
-            content = response.content if hasattr(response, 'content') else str(response)  # 兼容不同 LLM 返回格式
+            content = (
+                response.content if hasattr(response, "content") else str(response)
+            )  # 兼容不同 LLM 返回格式
 
             import re
-            json_match = re.search(r'\{[\s\S]*\}', content)  # 从 LLM 输出中提取 JSON，容错处理
+
+            json_match = re.search(r"\{[\s\S]*\}", content)  # 从 LLM 输出中提取 JSON，容错处理
             if json_match:
                 data = json.loads(json_match.group(0))
                 return TaskCharacteristics(
                     complexity=float(data.get("complexity", 5)),  # 默认中等复杂度 5
                     independent_subtasks=int(data.get("independent_subtasks", 1)),
-                    requires_dynamic_scheduling=bool(data.get("requires_dynamic_scheduling", False)),
+                    requires_dynamic_scheduling=bool(
+                        data.get("requires_dynamic_scheduling", False)
+                    ),
                     cross_domain=bool(data.get("cross_domain", False)),
                     estimated_steps=int(data.get("estimated_steps", 3)),
                 )

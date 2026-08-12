@@ -15,6 +15,7 @@ from app.workflow.engine import WorkflowEngine
 
 logger = get_logger(__name__)
 
+
 class WorkflowWorker:
     """Background worker for processing A2A workflows"""
 
@@ -59,7 +60,9 @@ class WorkflowWorker:
                         logger.info(f"Processing workflow: {workflow.name}")
 
                         # Execute workflow
-                        self.engine.submit_workflow(workflow.company_id, workflow.name, workflow.definition_json)
+                        self.engine.submit_workflow(
+                            workflow.company_id, workflow.name, workflow.definition_json
+                        )
 
                         # Brief pause between workflows
                         time.sleep(1)
@@ -75,5 +78,5 @@ class WorkflowWorker:
         return {
             "running": self.running,
             "active_workflows": len(self.engine.current_workflows) if self.running else 0,
-            "worker_thread_alive": self.worker_thread.is_alive() if self.worker_thread else False
+            "worker_thread_alive": self.worker_thread.is_alive() if self.worker_thread else False,
         }

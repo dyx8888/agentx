@@ -83,7 +83,9 @@ def query_logistics(
 
     # 按创建时间倒序，未完成状态优先
     q = q.order_by(
-        LogisticsTracking.status.in_(["pending", "shipped", "in_transit", "out_for_delivery"]).desc(),
+        LogisticsTracking.status.in_(
+            ["pending", "shipped", "in_transit", "out_for_delivery"]
+        ).desc(),
         LogisticsTracking.created_at.desc(),
     )
 
@@ -116,7 +118,9 @@ def format_logistics_result(logistics: list[dict]) -> str:
         if status_detail:
             lines.append(f"   - 状态详情: {status_detail}")
 
-        lines.append(f"   - 发件地: {item.get('origin', 'N/A')} → 目的地: {item.get('destination', 'N/A')}")
+        lines.append(
+            f"   - 发件地: {item.get('origin', 'N/A')} → 目的地: {item.get('destination', 'N/A')}"
+        )
 
         kol_name = item.get("kol_name")
         if kol_name:
@@ -154,6 +158,7 @@ async def get_agent_function():
 
         # 尝试从消息中提取运单号
         import re
+
         tracking_match = re.search(r"[A-Za-z]{2}\d{8,}", message)
 
         if session and company_id:
@@ -170,20 +175,22 @@ async def get_agent_function():
                     company_id=company_id,
                 )
 
-            formatted = format_logistics_result([
-                {
-                    "id": r.id,
-                    "tracking_number": r.tracking_number,
-                    "carrier": r.carrier,
-                    "status": r.status,
-                    "status_detail": r.status_detail,
-                    "origin": r.origin,
-                    "destination": r.destination,
-                    "kol_name": r.kol_name,
-                    "sample_name": r.sample_name,
-                }
-                for r in results
-            ])
+            formatted = format_logistics_result(
+                [
+                    {
+                        "id": r.id,
+                        "tracking_number": r.tracking_number,
+                        "carrier": r.carrier,
+                        "status": r.status,
+                        "status_detail": r.status_detail,
+                        "origin": r.origin,
+                        "destination": r.destination,
+                        "kol_name": r.kol_name,
+                        "sample_name": r.sample_name,
+                    }
+                    for r in results
+                ]
+            )
             return formatted
 
         # 无 session 时返回提示

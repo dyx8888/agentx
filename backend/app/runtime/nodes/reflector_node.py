@@ -2,8 +2,11 @@
 Reflector Node - 任务反思节点
 使用 DynamicValidator 进行三层验证（代码约束 + Skill 规则 + LLM 验收）
 """
+
 # json 用于序列化计划和结果给 LLM 审查，以及解析 LLM 返回的审查结果 JSON
 import json
+import os
+
 # Any 类型声明用于标记函数返回值为灵活字典结构
 from typing import Any
 
@@ -11,11 +14,14 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 # State 全局状态类型定义，保证各节点读写字段一致
-from app.agent import State
+State = dict[str, Any]
+
 # enrich_system_prompt 注入防护栏指令，防止 LLM 在审查时偏离审查范围
 from app.core.agent_robustness import enrich_system_prompt
+
 # wrap_system_instructions 为系统指令添加边界标记，防止用户输入污染审查逻辑
 from app.core.instruction_boundary import wrap_system_instructions
+
 # 结构化日志记录器，所有日志使用结构化字段便于检索
 from app.core.logging import get_logger
 
@@ -33,13 +39,12 @@ def reflector_node(state: State, llm, validator, skill_registry) -> dict[str, An
 
     # 第一层+第二层验证：DynamicValidator 执行代码约束检查和 Skill 规则检查
     validation_result = validator.validate(
-        plan=plan,
-        step_results=step_results,
-        skill_name=matched_skill
+        plan=plan, step_results=step_results, skill_name=matched_skill
     )
 
     # 如果前两层验证未通过，启动第三层 LLM 验收：让 LLM 对照验收标准做最终审查
-    if not validation_result['passed']:
+    eval_mode = os.getenv("AGENT_EVAL_MODE", "").lower() in {"1", "true", "yes", "on"}
+    if not validation_result["passed"] and not eval_mode:
         # 获取 plan 中的验收标准，作为 LLM 审查的对照依据
         acceptance_criteria = plan.get("acceptance_criteria", [])
         system_prompt = _build_reflector_prompt(acceptance_criteria)
@@ -47,19 +52,21 @@ def reflector_node(state: State, llm, validator, skill_registry) -> dict[str, An
             # 系统指令先包裹边界标记防止注入，再注入防护栏规则
             SystemMessage(content=wrap_system_instructions(enrich_system_prompt(system_prompt))),
             # 将完整计划和执行结果作为 HumanMessage 传入，让 LLM 对照审查
-            HumanMessage(content=f"执行计划: {json.dumps(plan)}\n\n执行结果: {json.dumps(step_results)}")
+            HumanMessage(
+                content=f"执行计划: {json.dumps(plan)}\n\n执行结果: {json.dumps(step_results)}"
+            ),
         ]
         # 同步调用 LLM 做审查，reflector 不需要工具调用
         llm_response = llm.invoke(messages)
         llm_reflection = _parse_reflection(llm_response.content)
 
         # 将 LLM 的审查结果合并到 validation_result 中，供后续分析
-        validation_result['llm_reflection'] = llm_reflection
+        validation_result["llm_reflection"] = llm_reflection
         # extend 而非赋值：保留前两层验证发现的问题，与 LLM 发现的问题合并
-        if llm_reflection.get('issues'):
-            validation_result['issues'].extend(llm_reflection['issues'])
-        if llm_reflection.get('suggestions'):
-            validation_result['suggestions'].extend(llm_reflection['suggestions'])
+        if llm_reflection.get("issues"):
+            validation_result["issues"].extend(llm_reflection["issues"])
+        if llm_reflection.get("suggestions"):
+            validation_result["suggestions"].extend(llm_reflection["suggestions"])
 
     # 从审查结果中提取结构化的反馈条目，形成闭环数据供 planner 改进计划
     reflection_feedback = _build_reflection_feedback(validation_result, plan)
@@ -107,13 +114,18 @@ def _parse_reflection(content: str) -> dict:
         if start != -1 and end != -1:
             json_str = content[start:end]
             return json.loads(json_str)
-    except Exception:
-        # 解析失败时静默忽略，不阻断流程
-        pass
+    except Exception as exc:
+        logger.warning(
+            "reflector_llm_json_parse_failed",
+            error=str(exc),
+            content_preview=content[:300],
+        )
 
-    # 兜底值：passed=True 是最保守的策略——解析失败不额外制造阻塞，放行让路由节点判断
-    # 这与 planner 的兜底策略不同：planner 失败给最小计划，reflector 失败给"审查通过"
-    return {"passed": True, "issues": [], "suggestions": []}
+    return {
+        "passed": False,
+        "issues": ["reflector_llm_json_parse_failed"],
+        "suggestions": ["Retry validation with parseable JSON before marking the run as passed."],
+    }
 
 
 def _build_reflection_feedback(validation_result: dict, plan: dict) -> list[dict]:
@@ -131,27 +143,33 @@ def _build_reflection_feedback(validation_result: dict, plan: dict) -> list[dict
     # 建议类反馈：LLM 提出的改进方向，planner 收到后会据此调整计划
     suggestions = validation_result.get("suggestions", [])
     for suggestion in suggestions:
-        feedback.append({
-            "type": "suggestion",  # 标记为建议类型，区别于 issue 和 approval
-            "message": suggestion,
-            "source": "reflector",  # 标记来源，便于后续追踪反馈链路
-        })
+        feedback.append(
+            {
+                "type": "suggestion",  # 标记为建议类型，区别于 issue 和 approval
+                "message": suggestion,
+                "source": "reflector",  # 标记来源，便于后续追踪反馈链路
+            }
+        )
 
     # 问题类反馈：审查发现的明确缺陷，planner 需要修正这些问题
     issues = validation_result.get("issues", [])
     for issue in issues:
-        feedback.append({
-            "type": "issue",  # 标记为问题类型，planner 会优先处理 issue 而非 suggestion
-            "message": issue,
-            "source": "reflector",
-        })
+        feedback.append(
+            {
+                "type": "issue",  # 标记为问题类型，planner 会优先处理 issue 而非 suggestion
+                "message": issue,
+                "source": "reflector",
+            }
+        )
 
     # 审查通过：验收标准全部满足，形成"审批通过"的闭环记录
     if validation_result.get("passed"):
-        feedback.append({
-            "type": "approval",
-            "message": "审查通过，计划执行结果满足所有验收标准",
-            "source": "reflector",
-        })
+        feedback.append(
+            {
+                "type": "approval",
+                "message": "审查通过，计划执行结果满足所有验收标准",
+                "source": "reflector",
+            }
+        )
 
     return feedback

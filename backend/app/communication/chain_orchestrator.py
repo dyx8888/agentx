@@ -6,7 +6,10 @@
 import asyncio  # 链式执行本质上是异步的，每个步骤需要等待 Agent 返回结果
 
 from app.communication.collaboration import CollaborationEngine  # 协作引擎负责链的定义和任务分发
-from app.communication.review_workflow import ReviewLevel, ReviewWorkflowEngine  # 审核引擎用于链中需要人工确认的节点
+from app.communication.review_workflow import (  # 审核引擎用于链中需要人工确认的节点
+    ReviewLevel,
+    ReviewWorkflowEngine,
+)
 from app.core.logging import get_logger  # 统一日志，便于追踪链执行全链路
 
 logger = get_logger(__name__)
@@ -26,12 +29,18 @@ class ChainOrchestrator:
             self._initialized = True
             self.collaboration = CollaborationEngine()  # 复用协作引擎单例，避免重复创建
             self.review = ReviewWorkflowEngine()  # 复用审核引擎单例
-            self._active_chains: dict[str, dict] = {}  # 内存中追踪活跃链，key 为 chain_key，用于进度查询
+            self._active_chains: dict[
+                str, dict
+            ] = {}  # 内存中追踪活跃链，key 为 chain_key，用于进度查询
             logger.info("chain_orchestrator_initialized")
 
-    async def launch_chain(self, chain_name: str, company_id: int,
-                            initiator_agent: str = "system",
-                            extra_context: dict = None) -> dict:
+    async def launch_chain(
+        self,
+        chain_name: str,
+        company_id: int,
+        initiator_agent: str = "system",
+        extra_context: dict = None,
+    ) -> dict:
         chain = self.collaboration.get_chain(chain_name)  # 从协作引擎获取预定义的链配置
         if not chain:
             return {"error": f"协作链 '{chain_name}' 不存在"}  # 链不存在时直接返回错误，不抛异常
@@ -56,22 +65,31 @@ class ChainOrchestrator:
             extra_context=extra_context,
         )
 
-        self._active_chains[chain_key]["task_ids"] = task_ids  # 回填任务 ID，供后续 on_task_completed 匹配
+        self._active_chains[chain_key]["task_ids"] = (
+            task_ids  # 回填任务 ID，供后续 on_task_completed 匹配
+        )
 
         self.collaboration.track_chain_progress(chain_name, company_id)  # 初始化进度追踪器
 
-        from app.ws import ws_manager  # 延迟导入避免循环依赖：ws_manager 可能依赖 communication 模块
-        await ws_manager.broadcast_to_company(company_id, {  # 实时推送链启动事件，前端可据此展示进度条
-            "type": "chain_started",
-            "chain": chain_name,
-            "chainName": chain["name"],
-            "totalSteps": len(chain["steps"]),
-            "taskIds": task_ids,
-            "initiator": initiator_agent,
-        })
+        from app.ws import (
+            ws_manager,  # 延迟导入避免循环依赖：ws_manager 可能依赖 communication 模块
+        )
 
-        logger.info("chain_launched", chain=chain_name, company=company_id,
-                     task_count=len(task_ids))
+        await ws_manager.broadcast_to_company(
+            company_id,
+            {  # 实时推送链启动事件，前端可据此展示进度条
+                "type": "chain_started",
+                "chain": chain_name,
+                "chainName": chain["name"],
+                "totalSteps": len(chain["steps"]),
+                "taskIds": task_ids,
+                "initiator": initiator_agent,
+            },
+        )
+
+        logger.info(
+            "chain_launched", chain=chain_name, company=company_id, task_count=len(task_ids)
+        )
 
         return {
             "chain_key": chain_key,  # 返回 chain_key 供调用方后续查询进度
@@ -80,8 +98,14 @@ class ChainOrchestrator:
             "total_steps": len(chain["steps"]),
         }
 
-    async def on_task_completed(self, agent_key: str, company_id: int, task_id: int,
-                                  result_summary: str, task_output: dict = None):
+    async def on_task_completed(
+        self,
+        agent_key: str,
+        company_id: int,
+        task_id: int,
+        result_summary: str,
+        task_output: dict = None,
+    ):
         await self.collaboration.on_agent_task_completed(  # 先完成上下文回写和 WebSocket 通知
             agent_key=agent_key,
             company_id=company_id,
@@ -90,9 +114,10 @@ class ChainOrchestrator:
             agent_output=task_output,
         )
 
-        for chain_key, chain_data in list(self._active_chains.items()):  # list() 复制避免迭代中删除导致 RuntimeError
-            if (chain_data["company_id"] == company_id
-                    and task_id in chain_data.get("task_ids", [])):
+        for chain_key, chain_data in list(
+            self._active_chains.items()
+        ):  # list() 复制避免迭代中删除导致 RuntimeError
+            if chain_data["company_id"] == company_id and task_id in chain_data.get("task_ids", []):
                 await self.collaboration.mark_chain_step_completed(  # 标记该步骤完成，推进进度条
                     chain_data["chain_name"], company_id, agent_key
                 )
@@ -117,9 +142,12 @@ class ChainOrchestrator:
             if d["company_id"] == company_id  # 仅返回指定公司的链，实现数据隔离
         ]
 
-    async def submit_for_review(self, task_id: int, agent_key: str, company_id: int,
-                                  result: dict, task_type: str = None) -> dict:
-        review_level = self.review.determine_review_level(agent_key, task_type)  # 根据 agent 和任务类型自动判定审核级别
+    async def submit_for_review(
+        self, task_id: int, agent_key: str, company_id: int, result: dict, task_type: str = None
+    ) -> dict:
+        review_level = self.review.determine_review_level(
+            agent_key, task_type
+        )  # 根据 agent 和任务类型自动判定审核级别
 
         if review_level == ReviewLevel.AUTO:  # 自动审核级别：直接通过，无需人工介入
             review_id = await self.review.submit_for_review(
@@ -132,6 +160,7 @@ class ChainOrchestrator:
         )
 
         from app.ws import ws_manager  # 延迟导入避免循环依赖
+
         await ws_manager.broadcast_review_notification(  # 推送审核通知到前端，提醒审核人员
             company_id, review_id, agent_key, review_level.value
         )
@@ -142,14 +171,16 @@ class ChainOrchestrator:
             "level": review_level.value,
         }
 
-    async def process_review_decision(self, review_id: int, company_id: int,
-                                        decision: str, reviewer_id: int,
-                                        comment: str = None) -> dict:
+    async def process_review_decision(
+        self, review_id: int, company_id: int, decision: str, reviewer_id: int, comment: str = None
+    ) -> dict:
         if decision == "approve":
             success = await self.review.approve(review_id, reviewer_id, comment)
             return {"review_id": review_id, "status": "approved", "success": success}
         elif decision == "reject":
-            success = await self.review.reject(review_id, reviewer_id, comment or "驳回")  # 默认驳回理由
+            success = await self.review.reject(
+                review_id, reviewer_id, comment or "驳回"
+            )  # 默认驳回理由
             return {"review_id": review_id, "status": "rejected", "success": success}
         elif decision == "modify":
             success = await self.review.request_modification(  # 修改请求：任务退回 Agent 重新执行

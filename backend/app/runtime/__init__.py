@@ -1,7 +1,16 @@
+﻿"""
+Runtime Module - Agent core orchestration engine.
+
+Keep exports lazy so importing runtime submodules for tests or static utilities does
+not initialize the full AgentRuntime stack or external memory clients.
 """
-Runtime Module - Agent 核心编排引擎
-实现 Plan-Execute-Reflect 三层架构
-"""
-from .orchestrator import AgentRuntime
 
 __all__ = ["AgentRuntime"]
+
+
+def __getattr__(name):
+    if name == "AgentRuntime":
+        from .orchestrator import AgentRuntime
+
+        return AgentRuntime
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

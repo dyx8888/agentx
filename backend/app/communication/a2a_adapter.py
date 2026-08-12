@@ -6,11 +6,15 @@ Enhanced with task lifecycle management, Redis state storage, and capability neg
 
 import json  # A2A 协议传输层使用 JSON 作为标准序列化格式，跨语言兼容
 import logging  # 结构化日志用于追踪 Agent 间通信的完整链路
+from contextlib import suppress
 from datetime import datetime  # 所有任务状态变更都需精确时间戳，便于审计和超时判断
-from typing import Any, Optional  # Any 用于灵活处理不同 Agent 返回的异构数据；Optional 用于可空字段的显式声明
+from typing import (  # Any 用于灵活处理不同 Agent 返回的异构数据；Optional 用于可空字段的显式声明
+    Any,
+)
 
 # 使用模块级 logger 而非 root logger，便于按通信模块过滤和分级查看日志
 logger = logging.getLogger(__name__)
+
 
 # 使用字符串常量而非 IntEnum，因为 A2A 协议规范要求字符串状态码，便于跨系统序列化
 class A2ATaskStatus:
@@ -21,10 +25,19 @@ class A2ATaskStatus:
     TIMEOUT = "timeout"  # 终态：超时未完成，与 FAILED 区分以便独立统计超时率
     CANCELLED = "cancelled"  # 终态：人为取消，可从 PENDING 或 RUNNING 进入，不可撤销
 
+
 # 显式定义状态流转白名单，防止非法状态跳跃（如从 PENDING 直接跳到 COMPLETED），确保状态机的严格性
 TASK_STATUS_TRANSITIONS = {
-    A2ATaskStatus.PENDING: [A2ATaskStatus.RUNNING, A2ATaskStatus.CANCELLED],  # 待处理只能开始执行或被取消
-    A2ATaskStatus.RUNNING: [A2ATaskStatus.COMPLETED, A2ATaskStatus.FAILED, A2ATaskStatus.TIMEOUT, A2ATaskStatus.CANCELLED],  # 运行中四种出口
+    A2ATaskStatus.PENDING: [
+        A2ATaskStatus.RUNNING,
+        A2ATaskStatus.CANCELLED,
+    ],  # 待处理只能开始执行或被取消
+    A2ATaskStatus.RUNNING: [
+        A2ATaskStatus.COMPLETED,
+        A2ATaskStatus.FAILED,
+        A2ATaskStatus.TIMEOUT,
+        A2ATaskStatus.CANCELLED,
+    ],  # 运行中四种出口
     A2ATaskStatus.COMPLETED: [],  # 终态无出口
     A2ATaskStatus.FAILED: [],  # 终态无出口
     A2ATaskStatus.TIMEOUT: [],  # 终态无出口
@@ -41,7 +54,7 @@ class A2AAdapter:
     def __init__(self, db_manager):
         """
         Initialize A2A adapter with database manager
-        
+
         Args:
             db_manager: Database manager instance for agent registration
         """
@@ -53,15 +66,24 @@ class A2AAdapter:
         if self._redis is None:  # 仅在首次调用时尝试连接，减少 Redis 不可用时的重复连接开销
             try:
                 import redis  # 延迟导入，避免 environments 未安装 redis 模块时 import 就报错
+
                 from app.core.config import get_settings
+
                 settings = get_settings()
-                redis_url = getattr(settings, 'REDIS_URL', 'redis://localhost:6379/0')  # 生产环境通过配置注入 Redis 地址
-                self._redis = redis.from_url(redis_url, decode_responses=True)  # decode_responses 避免手动 decode 字节串
+                redis_url = getattr(
+                    settings, "REDIS_URL", "redis://localhost:6379/0"
+                )  # 生产环境通过配置注入 Redis 地址
+                self._redis = redis.from_url(
+                    redis_url, decode_responses=True
+                )  # decode_responses 避免手动 decode 字节串
                 self._redis.ping()  # 立即验证连接可用性，连接失败则走数据库降级
                 logger.info("a2a_redis_connected")
             except Exception as e:
-                logger.warning("a2a_redis_unavailable", error=str(e),
-                               suggestion="Redis 不可用，A2A 任务状态将仅使用数据库存储")
+                logger.warning(
+                    "a2a_redis_unavailable",
+                    error=str(e),
+                    suggestion="Redis 不可用，A2A 任务状态将仅使用数据库存储",
+                )
                 self._redis = None  # 保持 None，后续所有操作走数据库降级路径
         return self._redis
 
@@ -71,8 +93,9 @@ class A2AAdapter:
         """生成 Redis key: a2a:task:{task_id}"""
         return f"a2a:task:{task_id}"  # 使用统一前缀命名空间，方便按前缀批量清理或监控 Redis 键
 
-    def set_task_status(self, task_id: str, status: str, result: dict = None,
-                        error: str = None) -> bool:
+    def set_task_status(
+        self, task_id: str, status: str, result: dict = None, error: str = None
+    ) -> bool:
         """
         设置任务状态，支持状态流转校验。
         使用 Redis 存储: a2a:task:{task_id} → {status, result, created_at, updated_at}
@@ -92,10 +115,18 @@ class A2AAdapter:
         if redis:  # Redis 优先：高性能状态读写，适合高频轮询场景
             try:
                 # 获取当前状态，校验流转
-                current = redis.hget(self._make_task_key(task_id), "status")  # 先读后写，确保状态流转合法性
-                if current and status not in TASK_STATUS_TRANSITIONS.get(current, []):  # 白名单校验，拒绝非法跳跃
-                    logger.warning("a2a_invalid_status_transition",
-                                   task_id=task_id, from_status=current, to_status=status)
+                current = redis.hget(
+                    self._make_task_key(task_id), "status"
+                )  # 先读后写，确保状态流转合法性
+                if current and status not in TASK_STATUS_TRANSITIONS.get(
+                    current, []
+                ):  # 白名单校验，拒绝非法跳跃
+                    logger.warning(
+                        "a2a_invalid_status_transition",
+                        task_id=task_id,
+                        from_status=current,
+                        to_status=status,
+                    )
                     return False  # 返回 False 而非抛异常，让调用方可以优雅处理
 
                 task_data = {
@@ -103,14 +134,22 @@ class A2AAdapter:
                     "updated_at": now,
                 }
                 if result is not None:
-                    task_data["result"] = json.dumps(result, ensure_ascii=False)  # ensure_ascii=False 保留中文可读性
+                    task_data["result"] = json.dumps(
+                        result, ensure_ascii=False
+                    )  # ensure_ascii=False 保留中文可读性
                 if error is not None:
                     task_data["error"] = error
-                if status in (A2ATaskStatus.COMPLETED, A2ATaskStatus.FAILED,
-                              A2ATaskStatus.TIMEOUT, A2ATaskStatus.CANCELLED):  # 终态统一记录完成时间
+                if status in (
+                    A2ATaskStatus.COMPLETED,
+                    A2ATaskStatus.FAILED,
+                    A2ATaskStatus.TIMEOUT,
+                    A2ATaskStatus.CANCELLED,
+                ):  # 终态统一记录完成时间
                     task_data["completed_at"] = now
 
-                redis.hset(self._make_task_key(task_id), mapping=task_data)  # HSET 原子操作，避免并发覆盖
+                redis.hset(
+                    self._make_task_key(task_id), mapping=task_data
+                )  # HSET 原子操作，避免并发覆盖
                 logger.info("a2a_task_status_updated", task_id=task_id, status=status)
                 return True
             except Exception as e:
@@ -130,14 +169,16 @@ class A2AAdapter:
         redis = self._get_redis()
         if redis:  # Redis 优先，因为状态更新也优先写 Redis，保证读到的数据是最新的
             try:
-                data = redis.hgetall(self._make_task_key(task_id))  # HGETALL 一次性获取所有字段，减少网络往返
+                data = redis.hgetall(
+                    self._make_task_key(task_id)
+                )  # HGETALL 一次性获取所有字段，减少网络往返
                 if data:
                     result = dict(data)
                     if "result" in result:
-                        try:
-                            result["result"] = json.loads(result["result"])  # 反序列化 JSON 字符串为 Python 对象
-                        except (json.JSONDecodeError, TypeError):  # 容错：如果 result 不是合法 JSON，保持原样
-                            pass
+                        with suppress(json.JSONDecodeError, TypeError):
+                            result["result"] = json.loads(
+                                result["result"]
+                            )  # 反序列化 JSON 字符串为 Python 对象
                     return result
             except Exception as e:
                 logger.warning("a2a_redis_status_read_failed", error=str(e))
@@ -146,7 +187,9 @@ class A2AAdapter:
 
     def _store_task(self, task_data: dict[str, Any]) -> str:
         """Store task and initialize Redis state"""
-        task_id = task_data.get('id', f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}")  # 如果没有提供 id，自动生成带时间戳的唯一 ID
+        task_id = task_data.get(
+            "id", f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )  # 如果没有提供 id，自动生成带时间戳的唯一 ID
 
         # 初始化 Redis 状态
         redis = self._get_redis()
@@ -158,12 +201,16 @@ class A2AAdapter:
                     "sender": task_data.get("sender", ""),
                     "recipient": task_data.get("recipient", ""),
                     "description": task_data.get("description", ""),
-                    "payload": json.dumps(task_data.get("payload", {}), ensure_ascii=False),  # 保存原始 payload 以便后续步骤回溯
+                    "payload": json.dumps(
+                        task_data.get("payload", {}), ensure_ascii=False
+                    ),  # 保存原始 payload 以便后续步骤回溯
                     "created_at": datetime.utcnow().isoformat(),
                     "updated_at": datetime.utcnow().isoformat(),
                 }
                 redis.hset(self._make_task_key(task_id), mapping=initial_data)
-                redis.expire(self._make_task_key(task_id), 86400)  # 24 小时 TTL，避免 Redis 内存被历史任务无限占用
+                redis.expire(
+                    self._make_task_key(task_id), 86400
+                )  # 24 小时 TTL，避免 Redis 内存被历史任务无限占用
             except Exception as e:
                 logger.warning("a2a_redis_state_init_failed", error=str(e))
 
@@ -171,17 +218,26 @@ class A2AAdapter:
         try:
             conn = self.db.get_connection()
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO a2a_messages (
-                    message_id, sender_agent_name, recipient_agent_name, 
-                    task_description, task_type, payload, 
+                    message_id, sender_agent_name, recipient_agent_name,
+                    task_description, task_type, payload,
                     company_id, status, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                task_id, task_data['sender'], task_data['recipient'],
-                task_data['description'], task_data['type'], json.dumps(task_data['payload']),
-                1, A2ATaskStatus.PENDING, datetime.utcnow().isoformat()
-            ))
+            """,
+                (
+                    task_id,
+                    task_data["sender"],
+                    task_data["recipient"],
+                    task_data["description"],
+                    task_data["type"],
+                    json.dumps(task_data["payload"]),
+                    1,
+                    A2ATaskStatus.PENDING,
+                    datetime.utcnow().isoformat(),
+                ),
+            )
             conn.commit()
             conn.close()  # 显式关闭连接，避免连接池耗尽
         except Exception as e:
@@ -197,7 +253,7 @@ class A2AAdapter:
             now = datetime.utcnow().isoformat()
             cursor.execute(
                 "UPDATE a2a_messages SET status = ?, completed_at = ? WHERE message_id = ?",
-                (status, now, task_id)
+                (status, now, task_id),
             )
             conn.commit()
             conn.close()
@@ -213,7 +269,7 @@ class A2AAdapter:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT status, created_at, completed_at FROM a2a_messages WHERE message_id = ?",
-                (task_id,)
+                (task_id,),
             )
             row = cursor.fetchone()
             conn.close()
@@ -252,14 +308,19 @@ class A2AAdapter:
                 "defaultOutputModes": ["text", "json"],  # 声明支持的输出格式
                 "company_id": agent.company_id,
                 "status": "active",
-                "registered_at": agent.created_at.isoformat() if hasattr(agent.created_at, 'isoformat') else str(agent.created_at),  # 兼容 datetime 和字符串两种类型
+                "registered_at": agent.created_at.isoformat()
+                if hasattr(agent.created_at, "isoformat")
+                else str(agent.created_at),  # 兼容 datetime 和字符串两种类型
             }
 
             # 动态同步 MCP 工具列表到 capabilities
             try:
                 from app.tools.loader import get_tool_loader  # 延迟导入，避免循环依赖
+
                 loader = get_tool_loader()
-                card["mcp_tools"] = loader.get_health_status()  # 附加 MCP 工具健康状态，帮助发现可用工具
+                card["mcp_tools"] = (
+                    loader.get_health_status()
+                )  # 附加 MCP 工具健康状态，帮助发现可用工具
             except Exception:  # MCP 工具加载失败不影响 Agent Card 的返回
                 pass
 
@@ -272,8 +333,10 @@ class A2AAdapter:
     def _extract_skills(self, agent) -> list[dict]:
         """Extract agent skills from registered capabilities"""
         capabilities = self._extract_capabilities(agent)
-        return [{"id": cap, "name": cap, "description": self._get_skill_description(cap)}
-                for cap in capabilities]  # 每个 capability 映射为一个 skill，提供中文描述
+        return [
+            {"id": cap, "name": cap, "description": self._get_skill_description(cap)}
+            for cap in capabilities
+        ]  # 每个 capability 映射为一个 skill，提供中文描述
 
     def _get_skill_description(self, skill_id: str) -> str:
         """Get skill description from registry"""
@@ -291,3 +354,179 @@ class A2AAdapter:
             "a2a_delegate_task": "A2A 任务委派",
         }
         return SKILL_DESCRIPTIONS.get(skill_id, skill_id)  # 未知技能返回原始 ID 作为兜底
+
+    def _resolve_registry_agent_key(self, agent_name: str) -> str | None:
+        """Resolve a configured built-in agent by key or display name."""
+        try:
+            from app.agents import get_active_agents
+
+            normalized = str(agent_name or "").strip().lower()
+            if not normalized:
+                return None
+
+            for key, info in get_active_agents().items():
+                aliases = {
+                    key,
+                    str(info.get("name_display", "")),
+                    str(info.get("module", "")).rsplit(".", 1)[-1],
+                }
+                if normalized in {alias.strip().lower() for alias in aliases if alias}:
+                    return key
+        except Exception as e:
+            logger.warning("a2a_registry_agent_resolve_failed", error=str(e))
+        return None
+
+    def _registry_capabilities(self, agent_key: str, info: dict) -> list[str]:
+        capabilities = [agent_key]
+        role = info.get("role")
+        if role:
+            capabilities.append(str(role))
+
+        try:
+            from app.agents import get_agent_definition
+
+            definition = get_agent_definition(agent_key) or {}
+            tools = definition.get("default_tools") or []
+            if isinstance(tools, list):
+                capabilities.extend(str(tool) for tool in tools if tool)
+        except Exception as e:
+            logger.warning("a2a_registry_capabilities_failed", agent=agent_key, error=str(e))
+
+        deduped = []
+        seen = set()
+        for capability in capabilities:
+            if capability not in seen:
+                seen.add(capability)
+                deduped.append(capability)
+        return deduped
+
+    def _registry_agent_card(self, agent_key: str, info: dict, company_id: int) -> dict:
+        display_name = info.get("name_display") or agent_key
+        role = info.get("role", "agent")
+        now = datetime.utcnow().isoformat() + "Z"
+        capabilities = self._registry_capabilities(agent_key, info)
+        return {
+            "name": agent_key,
+            "display_name": display_name,
+            "description": (
+                f"Built-in AgentX catalog agent '{agent_key}' ({role}). "
+                "This card describes configured system capability, not live runtime telemetry."
+            ),
+            "url": f"/a2a/agents/{agent_key}",
+            "version": "1.0.0",
+            "protocol": "a2a",
+            "capabilities": capabilities,
+            "skills": [
+                {
+                    "id": capability,
+                    "name": capability,
+                    "description": self._get_skill_description(capability),
+                }
+                for capability in capabilities
+            ],
+            "defaultInputModes": ["text", "json"],
+            "defaultOutputModes": ["text", "json"],
+            "company_id": company_id,
+            "status": "configured",
+            "source": "agent_registry",
+            "registered_at": now,
+        }
+
+    def _registry_agent_cards(self, company_id: int) -> list[dict]:
+        try:
+            from app.agents import get_active_agents
+
+            return [
+                self._registry_agent_card(agent_key, info, company_id)
+                for agent_key, info in get_active_agents().items()
+            ]
+        except Exception as e:
+            logger.warning("a2a_registry_discovery_failed", company_id=company_id, error=str(e))
+            return []
+
+    # ── Agent 发现与任务委派（供 app/api/a2a.py 路由调用） ──────────────────────────────────
+
+    def discover_agents(self, company_id: int) -> list[dict]:
+        """
+        发现当前公司下所有 active 状态的 Agent，转换为 A2A AgentCard 格式返回。
+        复用 get_agent_card 生成标准化卡片，单个 Agent 构建失败不影响整体返回。
+        """
+        try:
+            # 复用数据库管理器按公司查询 Agent 列表
+            agents = self.db.get_agents_by_company(company_id)
+        except Exception as e:
+            # 数据库查询失败时降级到内置 Agent 目录，避免阻断 A2A 发现端点
+            logger.warning(f"Failed to query agents for company {company_id}: {e}")
+            agents = []
+
+        cards = []
+        for agent in agents:
+            try:
+                # 复用 get_agent_card 生成标准化 AgentCard，避免重复构建逻辑
+                card = self.get_agent_card(agent.name)
+                if card:
+                    cards.append(card)
+            except Exception as e:
+                # 单个 Agent 卡片构建失败时跳过，继续处理其他 Agent
+                logger.warning(
+                    f"Failed to build agent card for {getattr(agent, 'name', 'unknown')}: {e}"
+                )
+                continue
+        if cards:
+            return cards
+        return self._registry_agent_cards(company_id)
+
+    def send_task(
+        self,
+        target_agent_name: str,
+        task_message: str,
+        task_type: str = "general",
+        payload: dict = None,
+    ) -> dict:
+        """
+        创建任务并委派给目标 Agent，初始状态为 pending。
+        复用 _store_task 持久化任务记录（内部已初始化 pending 状态）。
+        """
+        # 校验目标 Agent 是否存在，避免向不存在的 Agent 委派任务
+        try:
+            agent = self.db.get_agent_by_name(target_agent_name)
+        except Exception as e:
+            logger.warning("a2a_agent_lookup_failed", target=target_agent_name, error=str(e))
+            agent = None
+        registry_agent_key = self._resolve_registry_agent_key(target_agent_name)
+        if not agent and not registry_agent_key:
+            return {"success": False, "error": "Agent not found"}
+        recipient = agent.name if agent else registry_agent_key
+
+        # 构建任务数据字典，_store_task 期望 sender/recipient/description/type/payload 等键
+        task_data = {
+            "sender": "a2a_service",  # A2A 服务作为统一发送方
+            "recipient": recipient,
+            "description": task_message,
+            "type": task_type,
+            "payload": payload or {},
+        }
+
+        # 复用 _store_task 创建任务记录，内部已将 Redis/DB 状态初始化为 pending
+        task_id = self._store_task(task_data)
+
+        return {
+            "success": True,
+            "task_id": task_id,
+            "message": "Task delegated",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        }
+
+
+# 模块级单例变量：延迟初始化，避免在 import 阶段就创建数据库连接
+_a2a_adapter_instance = None
+
+
+def get_a2a_adapter() -> A2AAdapter:
+    """获取 A2A 适配器单例。首次调用时用全局 db 实例初始化，后续直接返回缓存实例"""
+    global _a2a_adapter_instance
+    if _a2a_adapter_instance is None:
+        from app.database import db  # 延迟导入避免循环依赖
+
+        _a2a_adapter_instance = A2AAdapter(db_manager=db)
+    return _a2a_adapter_instance

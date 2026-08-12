@@ -98,7 +98,9 @@ PRODUCT_SELECTOR_SYSTEM_PROMPT = """你是供应链选品师数字员工，负�
 \"""
 """
 
-PRODUCT_SELECTOR_CAPABILITIES: list[str] = [  # 模块级常量定义，避免运行时重复构造——capabilities 是整个 agent 生命周期不变的
+PRODUCT_SELECTOR_CAPABILITIES: list[
+    str
+] = [  # 模块级常量定义，避免运行时重复构造——capabilities 是整个 agent 生命周期不变的
     "market_research",
     "product_data_collector",
     "product_scorer",
@@ -111,7 +113,9 @@ PRODUCT_SELECTOR_CAPABILITIES: list[str] = [  # 模块级常量定义，避免�
     "a2a_delegate_task",  # Agent-to-Agent 委托，走标准化的跨 Agent 通信协议
 ]
 
-PRODUCT_SELECTOR_DEFAULT_SKILLS: list[str] = [  # skills 是 capabilities 的高层抽象——面向任务描述，而非具体工具
+PRODUCT_SELECTOR_DEFAULT_SKILLS: list[
+    str
+] = [  # skills 是 capabilities 的高层抽象——面向任务描述，而非具体工具
     "market_opportunity_discovery",
     "product_evaluation",
     "supplier_assessment",
