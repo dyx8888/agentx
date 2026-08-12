@@ -3,12 +3,11 @@
 The checker is intentionally conservative and secret-safe:
 - It never prints environment variable values.
 - It flags placeholder/default/fallback-looking values by key name only.
-- It can also probe a running backend /health endpoint.
+- It can also probe a running backend /ready endpoint.
 
 Usage:
     python tests/performance/deployment_readiness_check.py --env-file backend/.env.production --target local-docker --base http://127.0.0.1:8000
     python tests/performance/deployment_readiness_check.py --env-file backend/.env.production --target cloud --base https://api.example.com
-    python tests/performance/deployment_readiness_check.py --env-file backend/.env.production --target cloud --base https://api.example.com --health-path /health --runtime-secret JWT_SECRET_KEY
 """
 
 from __future__ import annotations
@@ -22,7 +21,6 @@ import time
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
 from urllib.request import urlopen
 
 
@@ -30,28 +28,26 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUT = PROJECT_ROOT / "tests" / "reports" / "deployment_readiness_check.json"
 
 REQUIRED_KEYS = (
-    "ENVIRONMENT",
     "ENV",
     "JWT_SECRET_KEY",
-    "FRONTEND_URL",
+    "ENCRYPTION_KEY",
     "CORS_ORIGINS",
     "DATABASE_URL",
-    "COOKIE_SECURE",
-    "ENABLE_PUBLIC_DOCS",
-)
-
-RECOMMENDED_KEYS = (
-    "ENCRYPTION_KEY",
-    "ALLOW_PLATFORM_MOCK_FALLBACK",
-    "ALLOW_ENTERPRISE_MOCK_INTEGRATIONS",
-    "LOG_TO_FILE",
-    "LOG_MAX_BYTES",
-    "LOG_BACKUP_COUNT",
     "REDIS_URL",
     "VECTOR_DB",
     "MILVUS_HOST",
     "MILVUS_PORT",
     "MILVUS_COLLECTION",
+)
+
+RECOMMENDED_KEYS = (
+    "FRONTEND_URL",
+    "COOKIE_SECURE",
+    "ALLOW_PLATFORM_MOCK_FALLBACK",
+    "ALLOW_ENTERPRISE_MOCK_INTEGRATIONS",
+    "LOG_TO_FILE",
+    "LOG_MAX_BYTES",
+    "LOG_BACKUP_COUNT",
     "EMBEDDING_MODE",
     "GRAPH_RAG_DYNAMIC_EXTRACTION_MODE",
 )
@@ -154,14 +150,14 @@ def check_env(
     elif not model_api_value:
         add_issue(
             issues,
-            "P1",
+            "P0",
             model_api_key,
             f"missing API key for configured model '{model_key}'",
         )
     elif looks_placeholder(model_api_value):
         add_issue(
             issues,
-            "P1",
+            "P0",
             model_api_key,
             f"API key for configured model '{model_key}' looks like a placeholder/default",
         )
@@ -174,15 +170,6 @@ def check_env(
     if env != "prod":
         add_issue(issues, "P0", "ENV", "production deployment should use ENV=prod")
 
-    environment = values.get("ENVIRONMENT", "").lower()
-    if environment != "production":
-        add_issue(
-            issues,
-            "P0",
-            "ENVIRONMENT",
-            "production deployment should use ENVIRONMENT=production",
-        )
-
     cors = values.get("CORS_ORIGINS", "")
     if "*" in cors:
         add_issue(issues, "P0", "CORS_ORIGINS", 'production CORS must not include "*"')
@@ -193,27 +180,18 @@ def check_env(
     if "sqlite" in database_url:
         add_issue(issues, "P0", "DATABASE_URL", "SQLite is a fallback/development database")
 
-    enable_public_docs = values.get("ENABLE_PUBLIC_DOCS", "").lower()
-    if enable_public_docs != "false":
-        add_issue(
-            issues,
-            "P0",
-            "ENABLE_PUBLIC_DOCS",
-            "public demo production deployment should disable public docs",
-        )
+    vector_db = values.get("VECTOR_DB", "").lower()
+    if vector_db != "milvus":
+        add_issue(issues, "P0", "VECTOR_DB", "production RAG validation expects VECTOR_DB=milvus")
 
-    cookie_secure = values.get("COOKIE_SECURE", "").lower()
-    if target == "cloud" and cookie_secure != "true":
-        add_issue(issues, "P0", "COOKIE_SECURE", "HTTPS cloud deployment should use secure cookies")
-
-    if values.get("ALLOW_PLATFORM_MOCK_FALLBACK", "false").lower() == "true":
+    if values.get("ALLOW_PLATFORM_MOCK_FALLBACK", "").lower() != "false":
         add_issue(
             issues,
             "P0",
             "ALLOW_PLATFORM_MOCK_FALLBACK",
             "production must not silently use mock/demo platform data",
         )
-    if values.get("ALLOW_ENTERPRISE_MOCK_INTEGRATIONS", "false").lower() == "true":
+    if values.get("ALLOW_ENTERPRISE_MOCK_INTEGRATIONS", "").lower() != "false":
         add_issue(
             issues,
             "P0",
@@ -225,19 +203,27 @@ def check_env(
         local_like = {"localhost", "127.0.0.1", "host.docker.internal"}
         for key in ("MILVUS_HOST", "REDIS_URL", "DATABASE_URL"):
             value = values.get(key, "").lower()
-            if value and any(token in value for token in local_like):
+            if any(token in value for token in local_like):
                 add_issue(issues, "P1", key, "cloud deployment should not point to localhost")
 
+    cookie_secure = values.get("COOKIE_SECURE", "").lower()
+    if target == "cloud" and cookie_secure != "true":
+        add_issue(issues, "P1", "COOKIE_SECURE", "HTTPS cloud deployment should use secure cookies")
+
     if target == "cloud":
-        for key in ("SMTP_HOST", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM"):
+        for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM"):
             value = values.get(key, "")
-            if value and looks_placeholder(value):
-                add_issue(issues, "P1", key, "SMTP configuration looks like a placeholder/default")
+            if key in SECRET_KEYS and key in runtime_secrets and not value:
+                continue
+            if not value:
+                add_issue(issues, "P0", key, "cloud password reset email requires real SMTP configuration")
+            elif looks_placeholder(value):
+                add_issue(issues, "P0", key, "SMTP configuration looks like a placeholder/default")
 
         smtp_host = values.get("SMTP_HOST", "").lower()
         smtp_port = values.get("SMTP_PORT", "")
         if "mailhog" in smtp_host or "localhost" in smtp_host or smtp_host == "127.0.0.1" or smtp_port == "1025":
-            add_issue(issues, "P1", "SMTP_HOST", "cloud password reset email must not use MailHog or local SMTP")
+            add_issue(issues, "P0", "SMTP_HOST", "cloud password reset email must not use MailHog or local SMTP")
 
     for key in SECRET_KEYS:
         value = values.get(key, "")
@@ -247,10 +233,9 @@ def check_env(
     return issues
 
 
-def probe_health(base: str, timeout: float, path: str = "/health") -> dict[str, Any]:
-    """Probe the public health endpoint and preserve non-200 response bodies."""
-    normalized_path = "/" + path.strip("/")
-    url = base.rstrip("/") + normalized_path
+def probe_health(base: str, timeout: float) -> dict[str, Any]:
+    """Probe the strict readiness endpoint and preserve non-200 response bodies."""
+    url = base.rstrip("/") + "/ready"
     started = time.perf_counter()
     status_code = 0
     try:
@@ -267,39 +252,24 @@ def probe_health(base: str, timeout: float, path: str = "/health") -> dict[str, 
 
 def check_health(health: dict[str, Any]) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
-    path = urlparse(str(health.get("url", "/health"))).path.rstrip("/") or "/health"
     body = health.get("body", {})
-    if not isinstance(body, dict):
-        add_issue(issues, "P0", path, "health response is not a JSON object")
-        return issues
     env = body.get("environment", {}) if isinstance(body, dict) else {}
     if health.get("status_code") != 200:
-        add_issue(issues, "P0", path, f"status code is {health.get('status_code')!r}")
-
-    if body.get("ready") is not None and body.get("ready") is not True:
-        add_issue(issues, "P0", path, f"ready is {body.get('ready')!r}")
-
-    overall = body.get("overall") or body.get("status")
-    if overall not in {"healthy", "degraded"}:
-        add_issue(issues, "P0", path, f"overall/status is {overall!r}")
-
+        add_issue(issues, "P0", "/ready", f"status code is {health.get('status_code')!r}")
+    if body.get("ready") is not True:
+        add_issue(issues, "P0", "/ready", f"ready is {body.get('ready')!r}")
+    if body.get("overall") != "healthy":
+        add_issue(issues, "P0", "/ready", f"overall is {body.get('overall')!r}")
     if body.get("database", {}).get("status") != "healthy":
         add_issue(issues, "P0", "database", "database is not healthy")
-
-    redis_status = body.get("redis", {}).get("status")
-    if redis_status and redis_status not in {"healthy", "not_configured"}:
-        add_issue(issues, "P1", "redis", f"redis is {redis_status!r}")
-
-    milvus_status = body.get("milvus", {}).get("status")
-    if milvus_status and milvus_status not in {"healthy", "not_configured", "unavailable"}:
-        add_issue(issues, "P2", "milvus", f"milvus is {milvus_status!r}")
-
-    chat_status = body.get("chat_agent", {}).get("status")
-    if chat_status and chat_status != "ready":
-        add_issue(issues, "P1", "chat_agent", "chat runtime is not ready")
-
-    if env.get("vector_db") and env.get("vector_db") != "milvus":
-        add_issue(issues, "P2", "vector_db", "health endpoint does not report Milvus mode")
+    if body.get("redis", {}).get("status") != "healthy":
+        add_issue(issues, "P0", "redis", "redis is not healthy")
+    if body.get("milvus", {}).get("status") != "healthy":
+        add_issue(issues, "P0", "milvus", "milvus is not healthy")
+    if body.get("chat_agent", {}).get("status") != "ready":
+        add_issue(issues, "P0", "chat_agent", "chat runtime is not ready")
+    if env.get("vector_db") != "milvus" or not env.get("milvus_configured"):
+        add_issue(issues, "P0", "vector_db", "readiness endpoint does not prove Milvus mode")
     return issues
 
 
@@ -320,8 +290,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--env-file", default="backend/.env.production")
     parser.add_argument("--target", choices=["local-docker", "cloud"], default="cloud")
-    parser.add_argument("--base", default="", help="Optional backend base URL to probe")
-    parser.add_argument("--health-path", default="/health", help="Health path to probe, default: /health")
+    parser.add_argument("--base", default="", help="Optional backend base URL to probe /ready")
     parser.add_argument("--timeout", type=float, default=15.0)
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     parser.add_argument(
@@ -345,10 +314,10 @@ def main() -> int:
 
     if args.base:
         try:
-            health = probe_health(args.base, args.timeout, args.health_path)
+            health = probe_health(args.base, args.timeout)
             issues.extend(check_health(health))
         except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-            add_issue(issues, "P0", args.health_path, f"health probe failed: {type(exc).__name__}")
+            add_issue(issues, "P0", "/ready", f"readiness probe failed: {type(exc).__name__}")
 
     summary = summarize(issues)
     report = {
@@ -358,7 +327,6 @@ def main() -> int:
             "env_file": str(env_path),
             "target": args.target,
             "base": args.base,
-            "health_path": args.health_path,
         },
         "summary": summary,
         "health": health,

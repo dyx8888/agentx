@@ -1,0 +1,122 @@
+# ============================================
+# .dockerignore — 根目录构建上下文忽略规则
+# ============================================
+# 适用说明：
+# - 当 build context 为项目根目录时，本文件直接生效
+# - 当前 docker-compose.yml 中 backend / frontend 的 build.context 设为各自子目录
+#   （./backend、./frontend），因各 Dockerfile 内 COPY 命令相对子目录；
+#   此时各子目录的 .dockerignore 各自生效，本根目录文件作为：
+#     1) 以根目录为 context 的 monorepo 构建模板
+#     2) 子目录 .dockerignore 的统一参考与同步来源
+# 排除原则：敏感信息、构建产物、缓存、IDE 配置、文档、日志、本地数据
+# ============================================
+
+# ── 敏感环境变量文件（保留 .env.example 作为配置模板）──
+.env
+.env.*
+*.env
+!.env.example
+
+# ── Git 版本控制元数据 ──
+.git
+.gitignore
+.gitattributes
+
+# ── Python 字节码与缓存 ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+.Python
+
+# ── Python 虚拟环境（镜像内通过 requirements.txt 重新安装）──
+.venv/
+venv/
+env/
+ENV/
+
+# ── Node.js 依赖（前端镜像内 npm ci 重新安装）──
+node_modules/
+
+# ── Python 测试与类型检查缓存 ──
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ── 本地数据文件（SQLite/ChromaDB，容器内应使用 volume 或托管 DB）──
+data/
+*.db
+*.sqlite
+*.sqlite3
+backend/data/chroma_db/
+
+# ── 日志 ──
+logs/
+*.log
+
+# ── 构建产物（镜像内重新构建，避免污染上下文）──
+dist/
+build/
+backend/dist/
+frontend/dist/
+frontend/test-results/
+
+# ── 文档（除 README 外不进镜像，减小体积并避免敏感信息泄露）──
+# 注意：*.md 会匹配所有 .md 文件，需用 ! 显式保留 README
+*.md
+!README.md
+!README*.md
+docs/
+
+# ── IDE 配置 ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── 操作系统文件 ──
+.DS_Store
+Thumbs.db
+
+# ── Docker 自身文件（避免递归包含，且 Dockerfile 不应进镜像）──
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# ── CI/CD 配置（生产镜像不需要）──
+.github/
+.gitlab-ci.yml
+
+# ── 测试代码（生产镜像不需要）──
+tests/
+test_*.py
+*_test.py
+backend/tests/
+backend/test_*.py
+
+# ── 临时与备份文件 ──
+tmp/
+temp/
+*.tmp
+*.bak
+
+# ── 性能测试产物 ──
+perf_*.json
+perf_*.txt
+perf_load_*.json
+perf_sse_*.json
+
+# ── 密钥与证书（防御性排除，避免意外打包进镜像）──
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/

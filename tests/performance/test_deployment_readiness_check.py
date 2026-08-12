@@ -3,14 +3,24 @@ from tests.performance.deployment_readiness_check import check_health
 
 
 BASE_ENV = {
-    "ENVIRONMENT": "production",
     "ENV": "prod",
     "JWT_SECRET_KEY": "x" * 32,
-    "FRONTEND_URL": "https://app.agentx.ai",
+    "ENCRYPTION_KEY": "y" * 32,
     "CORS_ORIGINS": "https://app.agentx.ai",
     "DATABASE_URL": "postgresql://agentx:secret@postgres:5432/agentx",
+    "REDIS_URL": "redis://redis:6379/0",
+    "VECTOR_DB": "milvus",
+    "MILVUS_HOST": "milvus",
+    "MILVUS_PORT": "19530",
+    "MILVUS_COLLECTION": "agentx_vectors",
+    "ALLOW_PLATFORM_MOCK_FALLBACK": "false",
+    "ALLOW_ENTERPRISE_MOCK_INTEGRATIONS": "false",
     "COOKIE_SECURE": "true",
-    "ENABLE_PUBLIC_DOCS": "false",
+    "SMTP_HOST": "smtp.agentx.ai",
+    "SMTP_PORT": "587",
+    "SMTP_USER": "notify@agentx.ai",
+    "SMTP_PASSWORD": "smtp-password-with-length",
+    "SMTP_FROM": "notify@agentx.ai",
 }
 
 
@@ -35,7 +45,7 @@ def test_tokenrhythm_model_requires_tokenrhythm_key():
     )
 
     assert any(
-        issue["severity"] == "P1" and issue["key"] == "TOKENRHYTHM_API_KEY"
+        issue["severity"] == "P0" and issue["key"] == "TOKENRHYTHM_API_KEY"
         for issue in issues
     )
 
@@ -49,7 +59,7 @@ def test_cloud_rejects_mailhog_smtp():
     )
 
     assert any(
-        issue["severity"] == "P1" and issue["key"] == "SMTP_HOST"
+        issue["severity"] == "P0" and issue["key"] == "SMTP_HOST"
         for issue in issues
     )
 
@@ -71,13 +81,16 @@ def test_cloud_rejects_enterprise_mock_integrations():
 def test_readiness_probe_passes_only_on_ready_response():
     issues = check_health(
         {
-            "url": "http://backend/health",
+            "url": "http://backend/ready",
             "status_code": 200,
             "body": {
+                "ready": True,
                 "overall": "healthy",
                 "database": {"status": "healthy"},
-                "redis": {"status": "not_configured"},
-                "environment": {"database_configured": True},
+                "redis": {"status": "healthy"},
+                "milvus": {"status": "healthy"},
+                "chat_agent": {"status": "ready"},
+                "environment": {"vector_db": "milvus", "milvus_configured": True},
             },
         }
     )
@@ -88,17 +101,21 @@ def test_readiness_probe_passes_only_on_ready_response():
 def test_readiness_probe_flags_503_body_details():
     issues = check_health(
         {
-            "url": "http://backend/health",
+            "url": "http://backend/ready",
             "status_code": 503,
             "body": {
-                "overall": "unhealthy",
-                "database": {"status": "unhealthy"},
-                "redis": {"status": "not_configured"},
-                "environment": {"database_configured": True},
+                "ready": False,
+                "overall": "degraded",
+                "database": {"status": "healthy"},
+                "redis": {"status": "healthy"},
+                "milvus": {"status": "not_configured"},
+                "chat_agent": {"status": "not_initialized"},
+                "environment": {"vector_db": "milvus", "milvus_configured": False},
             },
         }
     )
 
     keys = {issue["key"] for issue in issues}
-    assert "/health" in keys
-    assert "database" in keys
+    assert "/ready" in keys
+    assert "milvus" in keys
+    assert "chat_agent" in keys

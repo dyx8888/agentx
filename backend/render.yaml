@@ -1,0 +1,63 @@
+# Render Blueprint —— AgentX 后端部署配置
+# ===========================================================================
+# 使用方式：
+#   1. 将此文件复制到仓库根目录（Render 只识别根目录的 render.yaml）
+#   2. 在 Render Dashboard → Blueprint → New Blueprint，选择你的 GitHub 仓库
+#   3. Render 会自动读取 render.yaml 并创建服务
+#
+# 免费层限制（Free Plan）：
+#   - 750 小时/月（够单个服务 7×24 运行）
+#   - 15 分钟无请求自动休眠，首次唤醒约 30-60 秒
+#   - 512 MB 内存 / 0.1 CPU
+# ===========================================================================
+
+services:
+  - type: web
+    name: agentx-backend
+    runtime: docker
+    plan: free
+    # dockerContext / dockerfilePath 相对于仓库根目录
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+
+    envVars:
+      # ── 必填：运行环境与安全密钥 ──
+      - key: ENV
+        value: prod
+      # DEEPSEEK_API_KEY：在 Render Dashboard 手动填入（sync: false 表示不写入仓库）
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      # JWT_SECRET_KEY：生成命令 → python -c "import secrets; print(secrets.token_hex(32))"
+      - key: JWT_SECRET_KEY
+        sync: false
+      # ENCRYPTION_KEY：生成命令 → python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      - key: ENCRYPTION_KEY
+        sync: false
+      # CORS_ORIGINS：前端域名（逗号分隔，生产环境禁止 *）
+      - key: CORS_ORIGINS
+        sync: false
+
+      # ── 推荐：云端使用 API 嵌入，避免本地模型占用内存 ──
+      - key: EMBEDDING_MODE
+        value: api_siliconflow
+      - key: EMBEDDING_API_KEY
+        sync: false
+
+      # ── 可选：PostgreSQL 数据库 ──
+      # 如使用 Supabase / Neon，在此填入连接串；不填则默认 SQLite
+      - key: DATABASE_URL
+        sync: false
+
+      # ── 可选：Redis（免费层不提供，不填则降级为内存模式） ──
+      - key: REDIS_URL
+        sync: false
+
+      # ── 工具加载模式 ──
+      - key: TOOL_LOAD_MODE
+        value: local
+
+      # ── HuggingFace 镜像（海外服务器可改为官方源） ──
+      - key: HF_ENDPOINT
+        value: https://hf-mirror.com
