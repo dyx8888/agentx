@@ -9,6 +9,7 @@ Handles saving/loading chat messages and updating conversation statistics
 """
 
 import json
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -20,6 +21,32 @@ logger = get_logger(__name__)
 
 # 标题最大长度
 MAX_TITLE_LENGTH = 50
+
+_INTERNAL_EVENT_LINE_RE = re.compile(
+    r"^\s*\[(?:Action|Observation|Plan|Reflection|Delegation|Tool|Debug|Review)\].*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_INTERNAL_TEXT_MARKERS = (
+    "RAG answer from knowledge base",
+    "\u5ba1\u67e5\u901a\u8fc7",
+    "\u5ba1\u67e5\u672a\u901a\u8fc7",
+    "\u5ba1\u6838\u901a\u8fc7",
+    "\u53cd\u601d",
+    "\u9a73\u56de",
+)
+
+
+def sanitize_user_visible_text(content: str | None) -> str:
+    """Remove internal execution traces before storing user-visible chat text."""
+    text = content or ""
+    text = _INTERNAL_EVENT_LINE_RE.sub("", text)
+    cleaned_lines = [
+        line
+        for line in text.splitlines()
+        if not any(marker in line for marker in _INTERNAL_TEXT_MARKERS)
+    ]
+    cleaned = "\n".join(cleaned_lines).strip()
+    return cleaned or "\u4efb\u52a1\u5df2\u5b8c\u6210"
 
 
 def truncate_title(message: str, max_length: int = MAX_TITLE_LENGTH) -> str:
@@ -169,10 +196,11 @@ def save_assistant_message(
     Returns:
         创建的 Message 实例
     """
+    cleaned_content = sanitize_user_visible_text(content)
     msg = Message(
         conversation_id=conversation_id,
         role="assistant",
-        content=content,
+        content=cleaned_content,
         content_type="text",
         metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else None,
         references_json=json.dumps(references, ensure_ascii=False) if references else None,
@@ -209,7 +237,7 @@ def update_conversation_stats(
     )
     if conv:
         conv.message_count += 1
-        conv.last_message = truncate_title(last_message)
+        conv.last_message = truncate_title(sanitize_user_visible_text(last_message))
         conv.updated_at = datetime.now(timezone.utc)
         session.commit()
         logger.info(

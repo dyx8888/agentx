@@ -89,3 +89,16 @@ def test_public_demo_backend_runtime_dependencies_are_present():
 
     for module_name in required_modules:
         assert importlib.import_module(module_name)
+
+
+def test_public_demo_message_persistence_strips_internal_traces():
+    from app.services.message_persistence import sanitize_user_visible_text
+
+    visible = sanitize_user_visible_text(
+        "[Action] RAG answer from knowledge base\n\n"
+        "\u9762\u5411\u7528\u6237\u7684\u7b54\u6848"
+    )
+    internal_only = sanitize_user_visible_text("[Action] RAG answer from knowledge base")
+
+    assert visible == "\u9762\u5411\u7528\u6237\u7684\u7b54\u6848"
+    assert internal_only == "\u4efb\u52a1\u5df2\u5b8c\u6210"
