@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 # 用户认证：获取当前登录的用户信息
 from app.auth import get_current_active_user
+from app.core.logging import get_logger
 # 成本追踪器：专门用来计算和统计 API 调用费用的工具
 from app.tracking.cost_tracker import CostTracker
 
@@ -22,7 +23,8 @@ from app.tracking.cost_tracker import CostTracker
 # prefix="/admin/costs" 表示所有接口都以 /admin/costs 开头
 # 比如 /admin/costs/summary、/admin/costs/today
 # tags=["costs"] 表示在 API 文档中归入 "costs" 分组
-router = APIRouter(prefix="/admin/costs", tags=["costs"])
+router = APIRouter(tags=["costs"])
+logger = get_logger(__name__)
 
 
 # 成本汇总的数据模型
@@ -91,9 +93,9 @@ async def get_cost_summary(
 
     except HTTPException:
         raise  # 如果是已知的 HTTP 错误，直接抛出
-    except Exception as e:
-        # 其他未知异常，返回 500 服务器错误
-        raise HTTPException(status_code=500, detail=f"Error getting cost summary: {str(e)}")
+    except Exception:
+        logger.exception(get_cost_summary_failed)
+        raise HTTPException(status_code=500, detail=内部服务器错误)
 
 
 # API 接口：获取成本趋势（每日数据）
@@ -132,8 +134,9 @@ async def get_cost_history(
 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting cost history: {str(e)}")
+    except Exception:
+        logger.exception("get_cost_history_failed")
+        raise HTTPException(status_code=500, detail="内部服务器错误")
 
 
 # API 接口：按 AI 模型查看成本
@@ -159,8 +162,9 @@ async def get_cost_by_model_endpoint(
 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting cost by model: {str(e)}")
+    except Exception:
+        logger.exception("get_cost_by_model_failed")
+        raise HTTPException(status_code=500, detail="内部服务器错误")
 
 
 # API 接口：按 Agent 查看成本
@@ -187,8 +191,9 @@ async def get_cost_by_agent_endpoint(
 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting cost by agent: {str(e)}")
+    except Exception:
+        logger.exception("get_cost_by_agent_failed")
+        raise HTTPException(status_code=500, detail="内部服务器错误")
 
 
 # API 接口：获取今日成本
@@ -219,5 +224,6 @@ async def get_today_cost(
 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting today's cost: {str(e)}")
+    except Exception:
+        logger.exception("get_today_cost_failed")
+        raise HTTPException(status_code=500, detail="内部服务器错误")

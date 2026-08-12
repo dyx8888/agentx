@@ -77,6 +77,8 @@ def test_public_demo_settings_backend_routes_are_registered():
     assert "/api/rag/embedding/config" in route_paths
     assert "/api/rag/company/profile" in route_paths
     assert "/api/conversations/{conversation_id:int}/files" in route_paths
+    assert "/api/admin/costs/today" in route_paths
+    assert not any("/admin/costs/admin/costs" in path for path in route_paths)
 
 
 def test_public_demo_backend_runtime_dependencies_are_present():
