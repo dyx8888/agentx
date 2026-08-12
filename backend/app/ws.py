@@ -10,7 +10,9 @@ from typing import Any  # 消息 dict 的键值类型灵活，用 Any 避免过�
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect  # WebSocketDisconnect 是 FastAPI 内置异常，精确捕获客户端断开事件
 
+from app.auth import decode_access_token
 from app.core.logging import get_logger  # 结构化日志：支持按 company_id/user_id 过滤，便于排查某个租户的连接问题
+from app.database import db
 
 logger = get_logger(__name__)  # 模块级 logger，线上排查 WebSocket 问题时可按模块 grep
 
@@ -163,12 +165,44 @@ class WebSocketManager:
         return sum(len(conns) for conns in self._connections.values())  # sum 遍历所有租户，用于全局监控大盘
 
 
+def _invalid_ws_message_payload(reason: str = "invalid_json") -> dict[str, str]:
+    return {
+        "type": "error",
+        "code": reason,
+        "message": "Invalid WebSocket message",
+    }
+
+
+def _authenticate_ws(websocket: WebSocket):
+    token = websocket.query_params.get("token") or websocket.cookies.get("access_token")
+    if not token:
+        return None
+    payload = decode_access_token(token)
+    if not payload:
+        return None
+    username = payload.get("sub")
+    if not username:
+        return None
+    try:
+        user = db.get_user_by_username(username)
+    except Exception as exc:
+        logger.warning("ws_auth_lookup_failed", error=str(exc))
+        return None
+    if not user or getattr(user, "disabled", False):
+        return None
+    return user
+
+
 ws_manager = WebSocketManager()  # 模块级单例：所有业务代码统一通过此实例操作，避免连接状态跨实例不一致
 
 
 @router.websocket("/connect/{company_id}")
 async def websocket_endpoint(websocket: WebSocket, company_id: int):
-    user_id = websocket.query_params.get("user_id", None)  # query_params 比路径参数灵活：前端在建立 WebSocket 时可在 URL 后拼接参数
+    user = _authenticate_ws(websocket)
+    if user is None:
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+    user_id = str(user.id)
     await ws_manager.connect(websocket, company_id, user_id)
     try:
         while True:
@@ -183,11 +217,11 @@ async def websocket_endpoint(websocket: WebSocket, company_id: int):
                 elif msg_type == "subscribe":
                     pass  # 预留订阅接口：当前未实现细粒度频道，但不声明会引发 KeyError，pass 保留扩展性
             except json.JSONDecodeError:
-                pass  # 静默忽略非法 JSON：客户端可能误发非 JSON 消息，不应因此关闭连接
+                await websocket.send_json(_invalid_ws_message_payload())
     except WebSocketDisconnect:
         await ws_manager.disconnect(websocket, company_id, user_id)  # 正常断开：用户关闭页面或网络中断时触发
-    except Exception:
-        # 兜底异常处理：任何未预期的异常都应触发断开，防止僵尸连接残留
+    except Exception as exc:
+        logger.warning("ws_company_connection_error", company_id=company_id, error=str(exc))
         await ws_manager.disconnect(websocket, company_id, user_id)
 
 

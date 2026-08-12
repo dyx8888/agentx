@@ -102,3 +102,37 @@ def test_public_demo_message_persistence_strips_internal_traces():
 
     assert visible == "\u9762\u5411\u7528\u6237\u7684\u7b54\u6848"
     assert internal_only == "\u4efb\u52a1\u5df2\u5b8c\u6210"
+
+
+def test_public_demo_websocket_invalid_json_is_explicit_error():
+    import app.ws as ws_api
+
+    assert ws_api._invalid_ws_message_payload() == {
+        "type": "error",
+        "code": "invalid_json",
+        "message": "Invalid WebSocket message",
+    }
+
+
+def test_public_demo_websocket_auth_uses_token_identity(monkeypatch):
+    from types import SimpleNamespace
+
+    import app.ws as ws_api
+
+    monkeypatch.setattr(ws_api, "decode_access_token", lambda token: {"sub": f"user-{token}"})
+    monkeypatch.setattr(
+        ws_api.db,
+        "_instance",
+        SimpleNamespace(
+            get_user_by_username=lambda username: SimpleNamespace(
+                id=42, username=username, disabled=False
+            )
+        ),
+        raising=False,
+    )
+
+    websocket = SimpleNamespace(query_params={"token": "query-token", "user_id": "spoofed"}, cookies={})
+    cookie_websocket = SimpleNamespace(query_params={}, cookies={"access_token": "cookie-token"})
+
+    assert ws_api._authenticate_ws(websocket).username == "user-query-token"
+    assert ws_api._authenticate_ws(cookie_websocket).username == "user-cookie-token"
