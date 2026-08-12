@@ -3,6 +3,7 @@ Logging Middleware for HTTP Request Monitoring
 Provides request logging, performance metrics, and health monitoring
 """
 
+import re
 import time
 import uuid
 from collections.abc import Callable
@@ -14,6 +15,18 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _redact_url(url: str) -> str:
+    """Redact sensitive query parameter values before URLs are written to logs."""
+    if not url:
+        return url
+    return re.sub(
+        r"([?&](?:token|password|secret|key|api_key)=)[^&]+",
+        r"\1***",
+        url,
+        flags=re.IGNORECASE,
+    )
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -50,7 +63,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             logger.info(
                 "http_request_start",
                 method=method,
-                url=url,
+                url=_redact_url(url),
                 user_agent=user_agent,
             )
 
@@ -61,7 +74,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             logger.info(
                 "http_request_complete",
                 method=method,
-                url=url,
+                url=_redact_url(url),
                 status_code=response.status_code,
                 duration=f"{duration:.3f}",
             )
@@ -77,16 +90,13 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             logger.exception(
                 "http_request_error",
                 method=method,
-                url=url,
+                url=_redact_url(url),
                 duration=f"{duration:.3f}",
                 error=str(e),
             )
 
             from fastapi.responses import JSONResponse
-            return JSONResponse(
-                {"error": "Internal server error", "detail": str(e)},
-                status_code=500
-            )
+            return JSONResponse({"error": "Internal server error"}, status_code=500)
         finally:
             structlog.contextvars.clear_contextvars()
 

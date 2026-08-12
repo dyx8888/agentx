@@ -136,3 +136,26 @@ def test_public_demo_websocket_auth_uses_token_identity(monkeypatch):
 
     assert ws_api._authenticate_ws(websocket).username == "user-query-token"
     assert ws_api._authenticate_ws(cookie_websocket).username == "user-cookie-token"
+
+
+def test_public_demo_logging_middleware_redacts_sensitive_urls():
+    from app.middleware.logging import _redact_url
+
+    redacted = _redact_url(
+        "https://example.test/callback?token=abc123&api_key=secret-value&next=/chat"
+    )
+
+    assert "abc123" not in redacted
+    assert "secret-value" not in redacted
+    assert "token=***" in redacted
+    assert "api_key=***" in redacted
+    assert "next=/chat" in redacted
+
+
+def test_public_demo_logging_middleware_hides_exception_detail():
+    source = (ROOT / "backend" / "app" / "middleware" / "logging.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert '{"error": "Internal server error"}' in source
+    assert '"detail": str(e)' not in source
