@@ -1,218 +1,618 @@
 @import "tailwindcss";
 
-/* ============================================================
-   AGENTX DESIGN SYSTEM v3
-   Apple-minimalist | ChatGPT / Claude / DeepSeek inspired
-   Breathable whitespace · Purple-blue gradient accent · Soft shadows
-   ============================================================ */
-@theme {
-  /* ── Background ── */
-  --color-bg-primary: #f9fafb;
-  --color-bg-surface: #ffffff;
-  --color-bg-hover: #f3f4f6;
-  --color-bg-active: #e5e7eb;
+/* ═══════════════════════════════════════════════════════════════
+   AgentX Design System — v0 1:1
+   完全对齐 c:\下载\agent-x\app\globals.css 的 oklch 色彩系统
+   保留 DESIGN.md 硬约束：深紫灰主色、软聚焦光晕、演示账号角标
+   ═══════════════════════════════════════════════════════════════ */
 
-  /* ── Text ── */
-  --color-text-primary: #171717;
-  --color-text-secondary: #404040;
-  --color-text-tertiary: #737373;
-  --color-text-disabled: #a3a3a3;
+@custom-variant dark (&:is(.dark *));
 
-  /* ── Border ── */
-  --color-border: #e5e7eb;
-  --color-border-light: #f3f4f6;
-  --color-border-focus: #8b5cf6;
+/* ───────────────────────────────────────────────────────────────
+   1) Theme bindings — Tailwind v4 inline
+   ─────────────────────────────────────────────────────────────── */
+@theme inline {
+  --font-heading: "Fraunces", ui-serif, serif;
+  --font-serif:   "Fraunces", ui-serif, serif;
+  --font-sans:    "Inter", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, monospace;
 
-  /* ── Accent: purple-blue gradient ── */
-  --color-accent: #7c3aed;
-  --color-accent-hover: #6d28d9;
-  --color-accent-light: #ede9fe;
-  --color-accent-subtle: #f5f3ff;
+  --default-border-width: 1px;
 
-  --gradient-accent: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%);
-  --gradient-accent-subtle: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 50%, #ede9fe 100%);
+  --color-background:                var(--background);
+  --color-foreground:                var(--foreground);
+  --color-card:                      var(--card);
+  --color-card-foreground:           var(--card-foreground);
+  --color-popover:                   var(--popover);
+  --color-popover-foreground:        var(--popover-foreground);
+  --color-primary:                   var(--primary);
+  --color-primary-foreground:       var(--primary-foreground);
+  --color-secondary:                 var(--secondary);
+  --color-secondary-foreground:      var(--secondary-foreground);
+  --color-muted:                     var(--muted);
+  --color-muted-foreground:          var(--muted-foreground);
+  --color-accent:                    var(--accent);
+  --color-accent-foreground:         var(--accent-foreground);
+  --color-destructive:               var(--destructive);
+  --color-border:                    var(--border);
+  --color-input:                     var(--input);
+  --color-ring:                      var(--ring);
 
-  /* ── Semantic badges ── */
-  --color-badge-pending-bg: #f3e8ff;
-  --color-badge-pending-text: #7c3aed;
-  --color-badge-success-bg: #ecfdf5;
-  --color-badge-success-text: #059669;
-  --color-badge-info-bg: #eff6ff;
-  --color-badge-info-text: #2563eb;
-  --color-badge-warning-bg: #fffbeb;
-  --color-badge-warning-text: #d97706;
-  --color-badge-error-bg: #fef2f2;
-  --color-badge-error-text: #dc2626;
+  --color-macaron-mint:              var(--macaron-mint);
+  --color-macaron-pink:              var(--macaron-pink);
+  --color-macaron-yellow:            var(--macaron-yellow);
+  --color-macaron-blue:              var(--macaron-blue);
+  --color-macaron-rose:              var(--macaron-rose);
 
-  /* ── Semantic state ── */
-  --color-success: #059669;
-  --color-success-light: #ecfdf5;
-  --color-error: #dc2626;
-  --color-error-light: #fef2f2;
-  --color-warning: #d97706;
-  --color-warning-light: #fffbeb;
-  --color-info: #2563eb;
-  --color-info-light: #eff6ff;
+  --color-sidebar:                   var(--sidebar);
+  --color-sidebar-foreground:        var(--sidebar-foreground);
+  --color-sidebar-primary:           var(--sidebar-primary);
+  --color-sidebar-primary-foreground:var(--sidebar-primary-foreground);
+  --color-sidebar-accent:            var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border:            var(--sidebar-border);
+  --color-sidebar-ring:              var(--sidebar-ring);
 
-  /* ── Typography ── */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', monospace;
-
-  --font-size-xs: 11px;
-  --font-size-sm: 13px;
-  --font-size-base: 14px;
-  --font-size-lg: 15px;
-  --font-size-xl: 16px;
-  --font-size-2xl: 18px;
-  --font-size-3xl: 20px;
-  --font-size-4xl: 24px;
-
-  --font-weight-normal: 400;
-  --font-weight-medium: 500;
-  --font-weight-semibold: 600;
-  --font-weight-bold: 700;
-
-  --line-height-tight: 1.25;
-  --line-height-normal: 1.5;
-  --line-height-relaxed: 1.625;
-
-  /* ── Border Radius ── */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-  --radius-2xl: 24px;
-  --radius-full: 9999px;
-
-  /* ── Shadows ── */
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
-  --shadow-input: 0 0 0 3px rgba(139, 92, 246, 0.1);
-  --shadow-input-error: 0 0 0 3px rgba(220, 38, 38, 0.1);
+  --radius-sm:   calc(var(--radius) * 0.6);
+  --radius-md:   calc(var(--radius) * 0.8);
+  --radius-lg:   var(--radius);
+  --radius-xl:   calc(var(--radius) * 1.4);
+  --radius-2xl:  calc(var(--radius) * 1.8);
+  --radius-3xl:  calc(var(--radius) * 2.2);
+  --radius-4xl:  calc(var(--radius) * 2.6);
 }
 
-/* ============================================================
-   BASE
-   ============================================================ */
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* ───────────────────────────────────────────────────────────────
+   2) Raw color tokens — v0 oklch 原始值
+   侧栏颜色加深以让左右分栏在视觉上明显（v0 实际 oklch 0.978 太浅）
+   ─────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+
+  --background:        oklch(0.991 0.002 286);
+  --foreground:        oklch(0.205 0.008 286);
+  --card:              oklch(1 0 0);
+  --card-foreground:   oklch(0.205 0.008 286);
+  --popover:           oklch(1 0 0);
+  --popover-foreground:oklch(0.205 0.008 286);
+
+  /* Brand — NCS S5020-R60B (深紫灰 #66627F) */
+  --primary:           oklch(0.49 0.038 292);
+  --primary-foreground:oklch(0.985 0.002 286);
+
+  --secondary:         oklch(0.965 0.004 286);
+  --secondary-foreground:oklch(0.3 0.012 292);
+  --muted:             oklch(0.968 0.003 286);
+  --muted-foreground:  oklch(0.55 0.012 286);
+  --accent:            oklch(0.945 0.012 292);
+  --accent-foreground: oklch(0.42 0.03 292);
+  --destructive:       oklch(0.577 0.221 27.325);
+
+  --border:            oklch(0.918 0.004 286);
+  --input:             oklch(0.918 0.004 286);
+  --ring:              oklch(0.49 0.038 292);
+
+  --macaron-mint:   oklch(0.93 0.05 165);
+  --macaron-pink:   oklch(0.92 0.05 10);
+  --macaron-yellow: oklch(0.94 0.06 95);
+  --macaron-blue:   oklch(0.92 0.045 240);
+  --macaron-rose:   oklch(0.92 0.05 350);
+
+  /* Sidebar 调深一档（v0 实际 0.978 太浅分栏不明显） */
+  --sidebar:                  oklch(0.965 0.005 286);
+  --sidebar-foreground:       oklch(0.25 0.01 286);
+  --sidebar-primary:          oklch(0.49 0.038 292);
+  --sidebar-primary-foreground:oklch(0.985 0.002 286);
+  --sidebar-accent:           oklch(0.94 0.01 292);
+  --sidebar-accent-foreground:oklch(0.38 0.03 292);
+  --sidebar-border:           oklch(0.918 0.004 286);
+  --sidebar-ring:             oklch(0.49 0.038 292);
+
+  --radius: 0.875rem;
+
+  /* Legacy aliases — 保护旧代码用旧名（--color-ink / --color-canvas-soft / --color-hairline） */
+  --color-ink:           var(--foreground);
+  --color-canvas-soft:   var(--background);
+  --color-hairline:      var(--border);
 }
 
-html, body, #root {
-  height: 100%;
-  font-family: var(--font-sans);
-  font-size: var(--font-size-base);
-  font-weight: var(--font-weight-normal);
-  line-height: var(--line-height-normal);
-  color: var(--color-text-primary);
-  background-color: var(--color-bg-primary);
+/* ───────────────────────────────────────────────────────────────
+   3) Base styles — element selectors 留在主样式表（低特异性，不会和 utility 冲突）
+   ─────────────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: 0 solid;
+  }
+  ::selection {
+    background-color: var(--primary);
+    color: var(--primary-foreground);
+  }
+  /* Focus states — DESIGN.md 硬约束：soft purple-gray halo */
+  :where(button, a, [role="button"]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    border-color: transparent;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(102, 98, 127, 0.10);
+  }
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  line-height: 1.5;
+  font-family: var(--font-sans);
 }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
-
-/* ── Selection ── */
-::selection {
-  background-color: var(--color-accent-light);
-  color: var(--color-accent);
+body {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--foreground);
+  background-color: var(--background);
+  min-height: 100vh;
+  overflow-x: hidden;
 }
 
-/* ── Focus visible ── */
-:focus-visible {
-  outline: 2px solid #d1d5db;
-  outline-offset: 2px;
-  border-radius: 4px;
+/* ───────────────────────────────────────────────────────────────
+   4) Custom utilities — 全部包在 @layer utilities 内
+   避免与 Tailwind v4 utilities 发生优先级冲突
+   ─────────────────────────────────────────────────────────────── */
+@layer utilities {
+
+/* Thin scrollbar */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-/* ============================================================
-   KEYFRAMES
-   ============================================================ */
+/* Typing caret — 流式输出时光标动画 */
+.typing-caret::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  transform: translateY(2px);
+  background-color: var(--primary);
+  animation: caret-blink 1s steps(1) infinite;
+}
+@keyframes caret-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+/* Heading font — Fraunces serif */
+.font-heading {
+  font-family: var(--font-heading);
+  font-feature-settings: "ss01", "ss02";
+}
+
+/* Text balance for headings */
+.text-balance {
+  text-wrap: balance;
+}
+.text-pretty {
+  text-wrap: pretty;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   5) Markdown content
+   ─────────────────────────────────────────────────────────────── */
+.prose-chat {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--card-foreground);
+  word-wrap: break-word;
+}
+.prose-chat > *:last-child { margin-bottom: 0; }
+.prose-chat p { margin: 8px 0; }
+.prose-chat ul, .prose-chat ol { margin: 8px 0; padding-left: 22px; }
+.prose-chat li { margin: 2px 0; }
+.prose-chat h1, .prose-chat h2, .prose-chat h3 {
+  font-weight: 600; margin: 12px 0 6px; line-height: 1.3;
+}
+.prose-chat h1 { font-size: 20px; }
+.prose-chat h2 { font-size: 18px; }
+.prose-chat h3 { font-size: 16px; }
+.prose-chat code {
+  font-family: var(--font-mono); font-size: 13px;
+  background-color: var(--muted);
+  padding: 1px 5px; border-radius: 4px;
+}
+.prose-chat pre {
+  background-color: var(--foreground);
+  color: var(--primary-foreground);
+  border-radius: 8px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 10px 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.prose-chat pre code { background: transparent; padding: 0; }
+.prose-chat a { color: var(--primary); text-decoration: underline; }
+.prose-chat blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 14px;
+  margin: 10px 0;
+  color: var(--muted-foreground);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   6) Animations
+   ─────────────────────────────────────────────────────────────── */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 @keyframes fade-in {
   from { opacity: 0; }
-  to { opacity: 1; }
+  to   { opacity: 1; }
 }
-@keyframes slide-up {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes slide-down {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes pulse-soft {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-@keyframes typing-cursor {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-@keyframes dot-bounce {
-  0%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-4px); }
+.animate-fade-in {
+  animation: fade-in 200ms ease-out both;
 }
 
-.animate-fade-in { animation: fade-in 0.2s ease-out; }
-.animate-slide-up { animation: slide-up 0.25s ease-out; }
-.animate-slide-down { animation: slide-down 0.2s ease-out; }
-.animate-typing-cursor { animation: typing-cursor 1s step-end infinite; }
-.animate-dot-bounce { animation: dot-bounce 1.2s ease-in-out infinite; }
-
-/* ============================================================
-   ANT DESIGN GLOBAL OVERRIDES
-   ============================================================ */
-.ant-btn-primary {
-  box-shadow: none !important;
-}
-.ant-modal .ant-modal-content {
-  border-radius: var(--radius-xl) !important;
-  padding: 0 !important;
-}
-.ant-modal .ant-modal-header {
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0 !important;
-  padding: 20px 24px 16px !important;
-  margin-bottom: 0 !important;
-}
-.ant-modal .ant-modal-body {
-  padding: 0 24px 24px !important;
-}
-.ant-modal .ant-modal-footer {
-  border-radius: 0 0 var(--radius-xl) var(--radius-xl) !important;
-  padding: 16px 24px !important;
-  margin-top: 0 !important;
-}
-.ant-message { z-index: 9999; }
-.ant-tooltip-inner {
-  border-radius: 8px !important;
-  font-size: 12px !important;
-  padding: 6px 10px !important;
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
 }
 
-/* ============================================================
-   PROSE OVERRIDES (for markdown rendering)
-   ============================================================ */
-.prose { --tw-prose-body: var(--color-text-primary); }
-.prose :where(h1,h2,h3,h4):first-child { margin-top: 0; }
-.prose :where(code):not(:where(pre code)) {
-  background: var(--color-bg-hover);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.9em;
-  color: var(--color-accent);
+@keyframes mesh-float-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(20px, -20px) scale(1.05); }
 }
-.prose :where(pre) {
-  background: var(--color-bg-hover);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: 13px;
+@keyframes mesh-float-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-20px, 20px) scale(0.95); }
+}
+.animate-mesh-a { animation: mesh-float-a 20s ease-in-out infinite; }
+.animate-mesh-b { animation: mesh-float-b 25s ease-in-out infinite; }
+
+/* ───────────────────────────────────────────────────────────────
+   7) Skeleton loading
+   ─────────────────────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, var(--muted) 25%, var(--accent) 50%, var(--muted) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+}
+
+/* ───────────────────────────────────────────────────────────────
+   10) Component primitives (no shadcn dep — pure CSS, v0-style)
+   全部包在 @layer utilities 内（与第 4 节的 @layer utilities 合并）
+   ─────────────────────────────────────────────────────────────── */
+@layer utilities {
+
+/* Button — primary / outline / ghost */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  height: 32px;
+  padding: 0 10px;
+  transition: all 150ms ease-out;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  border: 1px solid transparent;
+}
+.btn:disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+.btn-primary {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+.btn-primary:hover { background-color: oklch(0.44 0.04 292); }
+.btn-outline {
+  background-color: transparent;
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.btn-outline:hover { background-color: var(--muted); }
+.btn-ghost {
+  background-color: transparent;
+  color: var(--foreground);
+}
+.btn-ghost:hover { background-color: var(--muted); }
+.btn-block { width: 100%; }
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+/* Small button variants — standalone (no .btn base needed), used by tool approve/reject */
+.btn-primary-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.25rem 0.625rem;
+  transition: all 150ms ease-out;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  border: 1px solid transparent;
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+.btn-primary-sm:hover { background-color: oklch(0.44 0.04 292); }
+.btn-primary-sm:disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.btn-secondary-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.25rem 0.625rem;
+  transition: all 150ms ease-out;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  border: 1px solid var(--border);
+  background-color: transparent;
+  color: var(--foreground);
+}
+.btn-secondary-sm:hover { background-color: var(--muted); }
+.btn-secondary-sm:disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Text color utilities — brand link & body text */
+.text-link { color: var(--primary); }
+.text-link-deep { color: oklch(0.42 0.03 292); }
+.text-ink { color: var(--foreground); }
+
+/* Input — with icon padding support */
+.input-base {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--input);
+  background-color: transparent;
+  border-radius: 8px;
+  height: 32px;
+  padding: 0 10px;
+  font-size: 14px;
+  color: var(--foreground);
+  transition: all 150ms;
+  outline: none;
+}
+.input-base::placeholder { color: var(--muted-foreground); }
+.input-base:focus-visible {
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(102, 98, 127, 0.10);
+}
+.input-base:disabled { cursor: not-allowed; opacity: 0.5; }
+.input-pl { padding-left: 36px; }
+.input-pr { padding-right: 36px; }
+
+/* Tabs — v0 segmented control */
+.tabs-list {
+  display: inline-flex;
+  width: 100%;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background-color: var(--muted);
+  padding: 3px;
+  color: var(--muted-foreground);
+  gap: 0;
+}
+.tab-trigger {
+  display: inline-flex;
+  flex: 1;
+  height: calc(100% - 1px);
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  padding: 0 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  background: transparent;
+  cursor: pointer;
+  transition: all 150ms;
+}
+.tab-trigger:hover { color: var(--foreground); }
+.tab-trigger.active {
+  background-color: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* Dropdown menu surface */
+.dropdown-content {
+  z-index: 50;
+  min-width: 8rem;
+  overflow: hidden;
+  border-radius: 8px;
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  padding: 4px;
+}
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  color: var(--popover-foreground);
+}
+.dropdown-item:hover { background-color: var(--accent); color: var(--accent-foreground); }
+.dropdown-item-danger { color: var(--destructive); }
+.dropdown-item-danger:hover { background-color: oklch(0.96 0.04 27); color: var(--destructive); }
+
+/* Tooltip */
+.tooltip-content {
+  z-index: 50;
+  overflow: hidden;
+  border-radius: 6px;
+  background-color: var(--foreground);
+  color: var(--primary-foreground);
+  padding: 4px 8px;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* Avatar */
+.avatar {
+  position: relative;
+  display: flex;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+.avatar-fallback {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Card */
+.card-base {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  background-color: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid oklch(0 0 0 / 0.06);
+  font-size: 14px;
+}
+
+/* Message action buttons */
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity 150ms;
+}
+.group:hover .msg-actions { opacity: 1; }
+.msg-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 150ms;
+}
+.msg-action-btn:hover { background-color: var(--muted); color: var(--foreground); }
+.msg-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.msg-action-btn:disabled:hover {
+  background-color: transparent;
+  color: var(--muted-foreground);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   v0-style glass cards — 替代脆弱的 border-border/60 组合
+   ─────────────────────────────────────────────────────────────── */
+.glass-card {
+  border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+  background-color: color-mix(in oklch, var(--card) 70%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.glass-card-soft {
+  border: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
+  background-color: color-mix(in oklch, var(--card) 50%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* Hairline divider for list items */
+.hairline-b > * + * { border-top: 1px solid var(--border); }
 }
