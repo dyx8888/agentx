@@ -56,3 +56,12 @@ def test_public_demo_production_disables_evolution_routes_by_default():
         f"{visitor.unguarded_lines}"
     )
     assert "ENABLE_EVOLUTION_API=false" in PRODUCTION_ENV.read_text(encoding="utf-8-sig")
+
+
+def test_public_demo_chat_master_router_dependency_is_present():
+    from app.api import chat
+    from app.agents.master_router import MasterAgentRouter
+
+    chat._master_router = None
+
+    assert isinstance(chat._get_master_router(), MasterAgentRouter)
