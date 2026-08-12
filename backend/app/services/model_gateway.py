@@ -539,7 +539,8 @@ class FailoverChatModel:  # 故障转移聊天模型：主模型失败时自动�
         self._agent_key = agent_key
         self.models = []
         self.fallback_models = []
-        self._init_models()
+        # Do not create provider clients during FastAPI startup. Missing customer-owned
+        # model API keys should degrade LLM paths, not prevent /health from serving.
         # Token预算管理器
         cfg = gateway.models_config.get(model_key, {})
         window = cfg.get('context_window', DEFAULT_TOKEN_WINDOW)
@@ -547,6 +548,10 @@ class FailoverChatModel:  # 故障转移聊天模型：主模型失败时自动�
         self._token_budget = TokenBudgetManager(window_size=window, max_output=max_out)
         # 结构化输出校验器
         self._output_validator = StructuredOutputValidator()
+
+    def _ensure_models(self):
+        if not self.models:
+            self._init_models()
 
     def _init_models(self):  # 初始化模型实例列表，主模型+fallback按顺序排列
         self.gateway._load_config()  # 确保配置已加载
@@ -558,6 +563,7 @@ class FailoverChatModel:  # 故障转移聊天模型：主模型失败时自动�
                 self.models.append(self.gateway._create_model_instance(fb, self.company_api_key))
 
     async def ainvoke(self, messages: list[BaseMessage], **kwargs):  # 异步调用，自动故障转移
+        self._ensure_models()
         last_exc = None  # 保存最后一个异常，用于最终异常信息
         for i, model in enumerate(self.models):  # 按顺序尝试模型，先主后fallback
             try:
@@ -587,6 +593,7 @@ class FailoverChatModel:  # 故障转移聊天模型：主模型失败时自动�
             return future.result()
 
     def bind_tools(self, tools: list):  # 绑定工具，仅主模型支持
+        self._ensure_models()
         if not self.models:
             raise RuntimeError("No models to bind tools")
         if hasattr(self.models[0], 'bind_tools'):  # 检查主模型是否支持bind_tools

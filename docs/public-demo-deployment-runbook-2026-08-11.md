@@ -1,4 +1,4 @@
-﻿# Public Demo Deployment Runbook - 2026-08-11
+# Public Demo Deployment Runbook - 2026-08-11
 
 This runbook turns the local public-demo baseline into a hosted demo. It is an
 execution checklist only. Do not paste real secrets into this file or commit
@@ -7,9 +7,9 @@ filled environment files.
 ## Current Local Baseline
 
 - Branch: `codex/public-demo-20260810`
-- Local baseline tag: `public-demo-local-20260811-v14`
+- Local baseline tag: `public-demo-local-20260811-v15`
 - Verify local HEAD before remote push with `git rev-parse --short HEAD`
-- Verify the tag points to the same commit with `git rev-list -n 1 --abbrev-commit public-demo-local-20260811-v14`
+- Verify the tag points to the same commit with `git rev-list -n 1 --abbrev-commit public-demo-local-20260811-v15`
 - Last verified remote branch before this docs refresh: `origin/codex/public-demo-20260810 -> 4d2665b`
 - Previous remote baseline tag: `public-demo-local-20260811-v6 -> 4d2665b`; then-current local baseline was `public-demo-local-20260811-v7`
 - GitHub Actions `Public Demo Quick Gates`: passed on run `31449945919`
@@ -32,8 +32,11 @@ filled environment files.
 - Previous remote baseline tag: `public-demo-local-20260811-v12 -> 30cee95`; then-current local baseline was `public-demo-local-20260811-v13`
 - GitHub Actions `Public Demo Quick Gates`: passed on run `31454883332`
 - Last verified remote branch before this public-smoke trusted-path refresh: `origin/codex/public-demo-20260810 -> 3c69587`
-- Previous remote baseline tag: `public-demo-local-20260811-v13 -> 3c69587`; current local baseline is `public-demo-local-20260811-v14`
+- Previous remote baseline tag: `public-demo-local-20260811-v13 -> 3c69587`; then-current local baseline was `public-demo-local-20260811-v14`
 - GitHub Actions `Public Demo Quick Gates`: passed on run `31455582367`
+- Last verified remote branch before this startup-degradation refresh: `origin/codex/public-demo-20260810 -> 7402aae`
+- Previous remote baseline tag: `public-demo-local-20260811-v14 -> 7402aae`; current local baseline is `public-demo-local-20260811-v15`
+- GitHub Actions `Public Demo Quick Gates`: passed on run `31553983717`
 - Local worktree status: clean
 - Selected deployment path: Vercel frontend, Render backend, Neon Postgres
 - Docker full smoke: not run
@@ -47,18 +50,18 @@ to `https://github.com/dyx8888/agentx.git`.
 ```powershell
 git status -sb
 git rev-parse --short HEAD
-git rev-list -n 1 public-demo-local-20260811-v14
+git rev-list -n 1 public-demo-local-20260811-v15
 python tests/performance/public_demo_security_audit.py
 python tests/performance/public_demo_pre_push_audit.py
 git push -u origin codex/public-demo-20260810
-git push origin public-demo-local-20260811-v14
+git push origin public-demo-local-20260811-v15
 ```
 
 Optional non-mutating precheck:
 
 ```powershell
 $env:GIT_TERMINAL_PROMPT = "0"
-git push --dry-run origin codex/public-demo-20260810 public-demo-local-20260811-v14
+git push --dry-run origin codex/public-demo-20260810 public-demo-local-20260811-v15
 ```
 
 If the dry-run hangs or fails because GitHub credentials are unavailable, stop
@@ -94,7 +97,7 @@ or GitHub Desktop, then use an SSH remote only for this sanitized worktree:
 ```powershell
 git remote set-url origin git@github.com:dyx8888/agentx.git
 git push -u origin codex/public-demo-20260810
-git push origin public-demo-local-20260811-v14
+git push origin public-demo-local-20260811-v15
 ```
 
 Only do this after the SSH key is added to the GitHub account. Do not create or
@@ -117,7 +120,7 @@ clean root history, then rerun the same security and pre-push audits there.
 Expected result:
 
 - The remote branch `origin/codex/public-demo-20260810` exists.
-- The remote tag `public-demo-local-20260811-v14` exists.
+- The remote tag `public-demo-local-20260811-v15` exists.
 - GitHub Actions can run `.github/workflows/public-demo-quick-gates.yml`.
 - No runtime data, reports, screenshots, or `perf_*` artifacts are pushed.
 

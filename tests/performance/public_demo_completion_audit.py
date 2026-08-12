@@ -278,7 +278,7 @@ def check_readme_status(read_text: TextReader) -> list[CompletionCheck]:
             marker in readme
             for marker in (
                 "39 passed, 85 skipped",
-                "51 passed, 5 skipped, 1 warning",
+                "52 passed, 5 skipped, 1 warning",
                 "12 passed files / 71 passed tests",
                 "Filled sensitive config placeholder count: `0`",
             )
@@ -532,7 +532,7 @@ def run_audit(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-branch", default="codex/public-demo-20260810")
-    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v14")
+    parser.add_argument("--baseline-tag", default="public-demo-local-20260811-v15")
     parser.add_argument("--out", default=str(DEFAULT_OUT))
     args = parser.parse_args()
 
