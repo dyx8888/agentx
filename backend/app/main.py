@@ -221,6 +221,9 @@ app.include_router(conversations_router, prefix="/api/conversations", tags=["con
 
 from app.api.kol import router as kol_router  # 达人搜索 API — 多条件筛选、排序、导出
 app.include_router(kol_router, prefix="/api/kol", tags=["kol"])
+from app.api.platforms import router as platforms_router
+
+app.include_router(platforms_router, prefix="/api/platforms", tags=["platforms"])
 app.include_router(feedback_router, prefix="/api/feedback", tags=["feedback"])  # feedback 独立路由，支持用户对对话结果的评价收集
 app.include_router(companies_router, prefix="/api/admin/companies", tags=["admin"])  # admin 子路由统一用 /api/admin 前缀做权限网关隔离
 if EVOLUTION_API_ENABLED:
@@ -229,6 +232,9 @@ if EVOLUTION_API_ENABLED:
 else:
     logger.info("evolution_api_disabled")
 app.include_router(knowledge_router, prefix="/api/knowledge", tags=["knowledge"])  # 知识库独立前缀，便于未来做 CDN 缓存或独立扩展
+from app.api.rag import router as rag_router
+
+app.include_router(rag_router, prefix="/api/rag", tags=["rag"])
 
 # Add cost management API
 from app.api.admin.costs import router as costs_router  # 延迟导入：cost 模块可能依赖已注册的其他路由

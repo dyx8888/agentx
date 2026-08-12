@@ -65,3 +65,13 @@ def test_public_demo_chat_master_router_dependency_is_present():
     chat._master_router = None
 
     assert isinstance(chat._get_master_router(), MasterAgentRouter)
+
+
+def test_public_demo_settings_backend_routes_are_registered():
+    from app.main import app
+
+    route_paths = {getattr(route, "path", "") for route in app.routes}
+
+    assert "/api/platforms" in route_paths
+    assert "/api/rag/embedding/config" in route_paths
+    assert "/api/rag/company/profile" in route_paths
