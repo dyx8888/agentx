@@ -76,6 +76,7 @@ def test_public_demo_settings_backend_routes_are_registered():
     assert "/api/platforms" in route_paths
     assert "/api/rag/embedding/config" in route_paths
     assert "/api/rag/company/profile" in route_paths
+    assert "/api/conversations/{conversation_id:int}/files" in route_paths
 
 
 def test_public_demo_backend_runtime_dependencies_are_present():
@@ -181,3 +182,34 @@ def test_public_demo_core_logging_redacts_user_payload_fields():
     assert redacted["assistant_message"] == "[REDACTED]"
     assert redacted["api_key"] == "[REDACTED]"
     assert redacted["safe_count"] == 3
+
+
+def test_public_demo_conversation_file_extraction_supports_file_panel():
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from app.api.conversations import _extract_conversation_files
+
+    messages = [
+        SimpleNamespace(
+            role="user",
+            created_at=datetime(2026, 8, 10, 9, 30),
+            references_json='[{"filename":"brief.pdf"},{"filename":"brief.pdf"}]',
+            metadata_json='{"attachments":[{"name":"source.csv","size":"12 KB"}]}',
+        ),
+        SimpleNamespace(
+            role="assistant",
+            created_at=datetime(2026, 8, 10, 9, 31),
+            references_json=None,
+            metadata_json='{"files":[{"name":"report.md","source":"agent"}]}',
+        ),
+    ]
+
+    files = _extract_conversation_files(messages)
+
+    assert [(item.name, item.source, item.type) for item in files] == [
+        ("brief.pdf", "uploaded", "pdf"),
+        ("source.csv", "uploaded", "data"),
+        ("report.md", "agent", "report"),
+    ]
+    assert files[0].tag == "知识库引用"
