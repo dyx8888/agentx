@@ -1,6 +1,16 @@
 default_model: deepseek
 
 models:
+  glm52:
+    provider: tokenrhythm
+    base_url: https://tokenrhythm.studio/v1
+    model_name: glm-5.2
+    temperature: 0.7
+    max_tokens: 2048
+    fallback_models:
+      - deepseek
+    cost_per_1k_input_tokens: 0.001
+    cost_per_1k_output_tokens: 0.002
   deepseek:
     provider: deepseek
     base_url: https://api.deepseek.com/v1
