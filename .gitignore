@@ -17,11 +17,24 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.npm-cache/
+frontend/dist/
+frontend/playwright-report/
 
 # Env
 .env
+.env.*
 .env.local
 .env.*.local
+!.env.example
+!.env.*.example
+
+# Secrets and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
 
 # IDE
 .idea/
@@ -41,6 +54,16 @@ reports/
 tests/reports/
 frontend/screenshots/
 perf_*
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# Local Docker/runtime scratch
+.docker-cli/
+.tmp-docker-config/
+.local-run-logs/
 
 # Public demo excluded debug/generated files
 *.bak
