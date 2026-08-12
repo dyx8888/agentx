@@ -1,6 +1,4 @@
 import re  # 正则表达式用于解析引用标注 [来源1]、[来源2]
-from typing import Optional  # 类型注解，Optional 表示可选的 system_instruction
-
 
 RAG_SYSTEM_TEMPLATE = """你是一个基于知识库的问答助手。请基于以下参考资料回答用户的问题。
 
@@ -16,13 +14,13 @@ RAG_EMPTY_TEMPLATE = """你是一个知识库问答助手。
 ## 注意
 当前知识库中没有与用户问题相关的资料。请根据你的通用知识回答，但必须明确告知用户这一情况。"""  # 无参考资料时的降级 Template，要求明确告知用户资料来源不可靠
 
-CITATION_PATTERN = re.compile(r'\[来源(\d+)\]')  # 预编译正则，匹配 [来源数字] 格式，提高解析效率
+CITATION_PATTERN = re.compile(r"\[来源(\d+)\]")  # 预编译正则，匹配 [来源数字] 格式，提高解析效率
 
 
 def build_rag_prompt(  # 构建 RAG Prompt 的核心函数
     query: str,  # 用户问题
     references: list[dict],  # 参考资料列表，每个 dict 包含 content/source_file/source_page
-    system_instruction: Optional[str] = None,  # 可选的自定义 System Prompt，覆盖默认模板
+    system_instruction: str | None = None,  # 可选的自定义 System Prompt，覆盖默认模板
 ) -> str:  # 返回完整的 Prompt 字符串
     if not references:  # 无参考资料时使用空模板
         return (
@@ -56,7 +54,9 @@ def build_rag_prompt(  # 构建 RAG Prompt 的核心函数
 
 
 def build_system_prompt_with_context(context: str) -> str:  # 将上下文直接拼接到 System Prompt 后
-    return RAG_SYSTEM_TEMPLATE + "\n\n## 参考资料\n" + context  # 简化版 Prompt 构建，适合已有完整上下文的场景
+    return (
+        RAG_SYSTEM_TEMPLATE + "\n\n## 参考资料\n" + context
+    )  # 简化版 Prompt 构建，适合已有完整上下文的场景
 
 
 def parse_citations(text: str) -> list[int]:  # 从 LLM 回复中解析引用编号

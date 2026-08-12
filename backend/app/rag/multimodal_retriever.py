@@ -1,4 +1,4 @@
-"""  # MultiModalRetriever 模块，CLIP 多模态检索，支持以图搜图和文本搜图
+"""# MultiModalRetriever 模块，CLIP 多模态检索，支持以图搜图和文本搜图
 多模态 RAG 检索引擎  # 多模态 = 文本 + 图像，CLIP 将两者映射到同一向量空间实现跨模态检索
 CLIP Embedding + Milvus 以图搜图 + 文本-图像跨模态检索  # CLIP 是 OpenAI 的图文联合模型，核心优势是图文嵌入在同一语义空间
 用于视觉设计师 Agent 风格参考检索  # 设计师需要根据风格描述或参考图找到类似的设计素材
@@ -15,8 +15,12 @@ from app.core.logging import get_logger  # 结构化日志
 
 logger = get_logger(__name__)  # 模块级 logger
 
-DEFAULT_CLIP_MODEL = os.getenv("CLIP_MODEL", "openai/clip-vit-base-patch32")  # 默认 CLIP 模型，ViT-B/32 平衡速度和效果
-MILVUS_COLLECTION = os.getenv("MILVUS_IMAGE_COLLECTION", "company_images")  # 图像专用 Collection，与文本向量库分离
+DEFAULT_CLIP_MODEL = os.getenv(
+    "CLIP_MODEL", "openai/clip-vit-base-patch32"
+)  # 默认 CLIP 模型，ViT-B/32 平衡速度和效果
+MILVUS_COLLECTION = os.getenv(
+    "MILVUS_IMAGE_COLLECTION", "company_images"
+)  # 图像专用 Collection，与文本向量库分离
 
 
 @dataclass  # 使用 dataclass 提供类型安全和 IDE 提示
@@ -53,8 +57,8 @@ class CLIPEmbeddingService:  # CLIP 图像-文本联合 Embedding，单例模式
         if self._model is not None:  # 已加载则跳过
             return
         try:  # transformers 可能未安装
-            import torch  # 延迟导入
             from transformers import CLIPModel, CLIPProcessor  # 延迟导入
+
             self._model = CLIPModel.from_pretrained(self._model_name)  # 加载 CLIP 模型
             self._processor = CLIPProcessor.from_pretrained(self._model_name)  # 加载处理器
             logger.info("clip_model_loaded", model=self._model_name)  # 记录成功
@@ -68,9 +72,12 @@ class CLIPEmbeddingService:  # CLIP 图像-文本联合 Embedding，单例模式
     def encode_text(self, texts: list[str]) -> np.ndarray:  # 文本编码为 CLIP 向量
         self._load_model()  # 确保模型加载
         if self._model is None:  # 模型不可用时返回随机向量（降级）
-            return np.random.randn(len(texts), 512).astype(np.float32)  # 512 维随机向量，保持接口一致
+            return np.random.randn(len(texts), 512).astype(
+                np.float32
+            )  # 512 维随机向量，保持接口一致
 
         import torch  # 延迟导入
+
         cached = []  # 缓存命中的向量
         to_encode = []  # 需要编码的文本
         for t in texts:  # 逐条检查缓存
@@ -82,20 +89,30 @@ class CLIPEmbeddingService:  # CLIP 图像-文本联合 Embedding，单例模式
 
         if to_encode:  # 有待编码文本
             inputs = self._processor(  # 使用 CLIP processor 处理文本
-                text=to_encode, return_tensors="pt", padding=True, truncation=True  # 填充和截断确保统一长度
+                text=to_encode,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,  # 填充和截断确保统一长度
             )
             with torch.no_grad():  # 关闭梯度计算，节省显存
-                embeddings = self._model.get_text_features(**inputs).cpu().numpy()  # 获取文本特征并转为 numpy
+                embeddings = (
+                    self._model.get_text_features(**inputs).cpu().numpy()
+                )  # 获取文本特征并转为 numpy
             for t, emb in zip(to_encode, embeddings, strict=False):  # 写入缓存
                 self._cache[f"txt:{t}"[:128]] = emb  # 缓存的 key 与查询时一致
                 cached.append(emb)  # 添加到结果
 
         result = np.array(cached)  # 转为 numpy 数组
-        result = result / np.linalg.norm(result, axis=1, keepdims=True)  # L2 归一化，方便内积计算余弦相似度
+        result = result / np.linalg.norm(
+            result, axis=1, keepdims=True
+        )  # L2 归一化，方便内积计算余弦相似度
         return result  # 返回归一化后的文本向量
 
-    def encode_image(self, image_paths: list[str] | None = None,  # 图像编码：支持路径或字节流
-                     image_bytes: list[bytes] | None = None) -> np.ndarray:  # 两者至少提供一个
+    def encode_image(
+        self,
+        image_paths: list[str] | None = None,  # 图像编码：支持路径或字节流
+        image_bytes: list[bytes] | None = None,
+    ) -> np.ndarray:  # 两者至少提供一个
         self._load_model()  # 确保模型加载
         if self._model is None:  # 模型不可用时返回随机向量
             n = len(image_paths) if image_paths else len(image_bytes)  # 确定数量
@@ -162,12 +179,20 @@ class MultiModalRetriever:  # 多模态检索引擎，支持文本搜图和以�
             connections.connect(host=host, port=port, timeout=3)  # 3 秒超时
 
             fields = [  # 定义 Collection Schema
-                FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),  # 主键 ID
-                FieldSchema(name="company_id", dtype=DataType.VARCHAR, max_length=32),  # 公司 ID 用于过滤
+                FieldSchema(
+                    name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=64
+                ),  # 主键 ID
+                FieldSchema(
+                    name="company_id", dtype=DataType.VARCHAR, max_length=32
+                ),  # 公司 ID 用于过滤
                 FieldSchema(name="image_path", dtype=DataType.VARCHAR, max_length=500),  # 图像路径
                 FieldSchema(name="caption", dtype=DataType.VARCHAR, max_length=500),  # 图像描述
-                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=self._get_clip().dimension),  # CLIP 向量
-                FieldSchema(name="metadata", dtype=DataType.VARCHAR, max_length=2000),  # JSON 元数据
+                FieldSchema(
+                    name="embedding", dtype=DataType.FLOAT_VECTOR, dim=self._get_clip().dimension
+                ),  # CLIP 向量
+                FieldSchema(
+                    name="metadata", dtype=DataType.VARCHAR, max_length=2000
+                ),  # JSON 元数据
             ]
             schema = CollectionSchema(fields, "image_embeddings")  # 创建 Schema
             if utility.has_collection(MILVUS_COLLECTION):  # Collection 已存在
@@ -191,9 +216,14 @@ class MultiModalRetriever:  # 多模态检索引擎，支持文本搜图和以�
         except Exception as e:  # 其他异常
             logger.warning("multimodal_milvus_error", error=str(e))  # 记录错误
 
-    def index_image(self, image_id: str, caption: str,  # 索引单张图像
-                    image_path: str = None, image_bytes: bytes = None,  # 路径或字节流二选一
-                    metadata: dict = None) -> bool:  # 返回是否成功
+    def index_image(
+        self,
+        image_id: str,
+        caption: str,  # 索引单张图像
+        image_path: str = None,
+        image_bytes: bytes = None,  # 路径或字节流二选一
+        metadata: dict = None,
+    ) -> bool:  # 返回是否成功
         self._ensure_milvus()  # 确保 Milvus 可用
         clip = self._get_clip()  # 获取 CLIP
 
@@ -210,14 +240,21 @@ class MultiModalRetriever:  # 多模态检索引擎，支持文本搜图和以�
         if self._collection:  # Milvus 可用
             try:  # 插入可能失败
                 import json  # 延迟导入
-                self._collection.insert([{  # 插入单条数据
-                    "id": image_id,
-                    "company_id": self.company_id,  # 公司隔离
-                    "image_path": image_path or "",  # 空字符串占位
-                    "caption": caption,  # 图像描述
-                    "embedding": embedding[0].tolist(),  # 向量转 list
-                    "metadata": json.dumps(metadata or {}, ensure_ascii=False),  # JSON 序列化，保留中文
-                }])
+
+                self._collection.insert(
+                    [
+                        {  # 插入单条数据
+                            "id": image_id,
+                            "company_id": self.company_id,  # 公司隔离
+                            "image_path": image_path or "",  # 空字符串占位
+                            "caption": caption,  # 图像描述
+                            "embedding": embedding[0].tolist(),  # 向量转 list
+                            "metadata": json.dumps(
+                                metadata or {}, ensure_ascii=False
+                            ),  # JSON 序列化，保留中文
+                        }
+                    ]
+                )
                 self._collection.flush()  # 持久化
                 logger.info("image_indexed", image_id=image_id, company=self.company_id)  # 记录成功
                 return True
@@ -230,19 +267,31 @@ class MultiModalRetriever:  # 多模态检索引擎，支持文本搜图和以�
         """文本搜图"""  # 用文本描述搜索相似图像
         return self._search(query, top_k, mode="text")  # 委托给 _search
 
-    def search_by_image(self, image_path: str = None, image_bytes: bytes = None,  # 以图搜图
-                        image_base64: str = None, top_k: int = 10) -> list[ImageSearchResult]:  # 支持三种输入方式
+    def search_by_image(
+        self,
+        image_path: str = None,
+        image_bytes: bytes = None,  # 以图搜图
+        image_base64: str = None,
+        top_k: int = 10,
+    ) -> list[ImageSearchResult]:  # 支持三种输入方式
         """以图搜图"""  # 用图像搜索相似图像
         if image_base64:  # base64 优先处理
             image_bytes = base64.b64decode(image_base64)  # 解码为字节流
         return self._search(  # 委托给 _search
-            image_path=image_path, image_bytes=image_bytes,
-            top_k=top_k, mode="image",
+            image_path=image_path,
+            image_bytes=image_bytes,
+            top_k=top_k,
+            mode="image",
         )
 
-    def _search(self, query_text: str = None, image_path: str = None,  # 核心检索方法
-                image_bytes: bytes = None, top_k: int = 10,  # 文本和图像参数至少一个非空
-                mode: str = "text") -> list[ImageSearchResult]:  # mode 区分检索模式
+    def _search(
+        self,
+        query_text: str = None,
+        image_path: str = None,  # 核心检索方法
+        image_bytes: bytes = None,
+        top_k: int = 10,  # 文本和图像参数至少一个非空
+        mode: str = "text",
+    ) -> list[ImageSearchResult]:  # mode 区分检索模式
         self._ensure_milvus()  # 确保 Milvus 可用
         clip = self._get_clip()  # 获取 CLIP
 
@@ -274,35 +323,45 @@ class MultiModalRetriever:  # 多模态检索引擎，支持文本搜图和以�
             )
             formatted = []  # 格式化结果
             import json  # 延迟导入
+
             for hits in results:  # 遍历命中
                 for hit in hits:  # 每个命中
-                    formatted.append(ImageSearchResult(  # 构建结果对象
-                        image_id=hit.entity.get("id", ""),
-                        image_path=hit.entity.get("image_path"),
-                        caption=hit.entity.get("caption", ""),
-                        metadata=json.loads(hit.entity.get("metadata", "{}")),  # 解析 JSON 元数据
-                        similarity=hit.score,  # 相似度分数
-                    ))
+                    formatted.append(
+                        ImageSearchResult(  # 构建结果对象
+                            image_id=hit.entity.get("id", ""),
+                            image_path=hit.entity.get("image_path"),
+                            caption=hit.entity.get("caption", ""),
+                            metadata=json.loads(
+                                hit.entity.get("metadata", "{}")
+                            ),  # 解析 JSON 元数据
+                            similarity=hit.score,  # 相似度分数
+                        )
+                    )
             return formatted  # 返回结果
         except Exception as e:  # 检索异常
             logger.error("multimodal_search_error", error=str(e))  # 记录错误
             return []  # 降级返回空
 
-    def search_cross_modal(self, query: str, image_path: str = None,  # 跨模态检索：文本+图像联合
-                           top_k: int = 10) -> list[ImageSearchResult]:
+    def search_cross_modal(
+        self,
+        query: str,
+        image_path: str = None,  # 跨模态检索：文本+图像联合
+        top_k: int = 10,
+    ) -> list[ImageSearchResult]:
         """跨模态检索：文本+图像联合检索"""  # 同时用文本和图像检索，融合结果
         text_results = self.search_by_text(query, top_k=top_k)  # 文本检索
-        if image_path:  # 有图像时也做图像检索
-            img_results = self.search_by_image(image_path=image_path, top_k=top_k)
-        else:  # 无图像时只返回文本结果
-            img_results = []
+        img_results = (
+            self.search_by_image(image_path=image_path, top_k=top_k) if image_path else []
+        )  # 有图像时也做图像检索，否则只返回文本结果
 
         merged = {}  # 合并结果，按 image_id 去重
         for r in text_results:  # 先加入文本结果
             merged[r.image_id] = r
         for r in img_results:  # 再合并图像结果
             if r.image_id in merged:  # 已存在
-                merged[r.image_id].similarity = max(merged[r.image_id].similarity, r.similarity)  # 取最大相似度
+                merged[r.image_id].similarity = max(
+                    merged[r.image_id].similarity, r.similarity
+                )  # 取最大相似度
             else:  # 新结果
                 merged[r.image_id] = r
 

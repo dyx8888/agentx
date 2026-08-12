@@ -1,6 +1,11 @@
-"""  # GraphRAG 模块，知识图谱增强检索，用实体关系推理补全纯向量检索的不足
+"""# GraphRAG 模块，知识图谱增强检索，用实体关系推理补全纯向量检索的不足
 GraphRAG - 知识图谱增强检索  # GraphRAG = Graph + RAG，在向量检索基础上增加结构化关系推理
 使用轻量级 NetworkX 知识图谱实现实体关系推理  # 选择 NetworkX 而非 Neo4j 等图数据库，降低部署复杂度，适合中小规模场景
+
+v2 改进：  # 借鉴 RAG-Anything 的实体关系抽取思路
+- retrieve() 从纯关键词匹配升级为 LLM 驱动的实体抽取 + 语义匹配
+- 新增 _extract_query_entities() 方法，使用 LLM 从查询中提取实体
+- 保留关键词匹配作为快速路径，LLM 抽取作为语义兜底
 """
 
 import json  # 用于序列化实体属性、解析 LLM 返回的 JSON
@@ -11,21 +16,34 @@ logger = get_logger(__name__)  # 模块级 logger
 
 try:  # NetworkX 是可选依赖，未安装时系统仍可运行但图谱功能降级
     import networkx as nx  # 轻量级图计算库，内存中构建和查询知识图谱
+
     NETWORKX_AVAILABLE = True  # 标记可用，后续代码通过此变量判断是否走降级路径
 except ImportError:  # NetworkX 未安装时的降级策略
     NETWORKX_AVAILABLE = False  # 标记不可用
-    logger.warning("networkx_not_installed_graphrag_disabled")  # 一次性告警，启动时就知道图谱功能不可用
+    logger.warning(
+        "networkx_not_installed_graphrag_disabled"
+    )  # 一次性告警，启动时就知道图谱功能不可用
+
+# 语义匹配阈值：实体名称与查询词的相似度低于此值时忽略
+SEMANTIC_MATCH_THRESHOLD = 0.5
 
 
 class KnowledgeGraph:  # 电商领域知识图谱，使用 NetworkX 有向多重图存储实体和关系
     """电商领域知识图谱"""  # 轻量级实现，适合中小规模电商场景
 
     def __init__(self):  # 初始化图谱
-        self.graph = nx.MultiDiGraph() if NETWORKX_AVAILABLE else None  # MultiDiGraph 支持多重边，同一对实体可有多种关系
+        self.graph = (
+            nx.MultiDiGraph() if NETWORKX_AVAILABLE else None
+        )  # MultiDiGraph 支持多重边，同一对实体可有多种关系
         self._entity_index: dict[str, str] = {}  # 名称 → 实体 ID 的倒排索引，O(1) 查找实体
 
-    def add_entity(self, entity_id: str, entity_type: str,  # 添加实体节点
-                   name: str, properties: dict = None):  # properties 可选，存储额外属性
+    def add_entity(
+        self,
+        entity_id: str,
+        entity_type: str,  # 添加实体节点
+        name: str,
+        properties: dict = None,
+    ):  # properties 可选，存储额外属性
         """添加实体节点"""  # 实体是图谱的基本单元
         if not self.graph:  # NetworkX 不可用时静默跳过
             return
@@ -33,17 +51,25 @@ class KnowledgeGraph:  # 电商领域知识图谱，使用 NetworkX 有向多重
             entity_id,  # 唯一标识符
             type=entity_type,  # 实体类型：platform/content_type/metric/agent_role
             name=name,  # 实体名称，用于展示
-            properties=json.dumps(properties or {}),  # JSON 序列化存储，NetworkX 节点属性需要可序列化
+            properties=json.dumps(
+                properties or {}
+            ),  # JSON 序列化存储，NetworkX 节点属性需要可序列化
         )
         self._entity_index[name.lower()] = entity_id  # 小写化索引，实现大小写不敏感的实体查找
 
-    def add_relation(self, source_id: str, target_id: str,  # 添加关系边
-                     relation_type: str, weight: float = 1.0):  # weight 用于排序，默认 1.0
+    def add_relation(
+        self,
+        source_id: str,
+        target_id: str,  # 添加关系边
+        relation_type: str,
+        weight: float = 1.0,
+    ):  # weight 用于排序，默认 1.0
         """添加关系边"""  # 关系连接两个实体
         if not self.graph:  # 降级跳过
             return
         self.graph.add_edge(  # 添加有向边
-            source_id, target_id,  # 从源实体到目标实体
+            source_id,
+            target_id,  # 从源实体到目标实体
             type=relation_type,  # 关系类型：supports/creates/analyzes/optimizes 等
             weight=weight,  # 权重，用于排序时优先展示重要关系
         )
@@ -51,8 +77,12 @@ class KnowledgeGraph:  # 电商领域知识图谱，使用 NetworkX 有向多重
     def find_entity(self, name: str) -> str | None:  # 按名称查找实体 ID
         return self._entity_index.get(name.lower())  # 小写化匹配，返回 None 表示未找到
 
-    def get_neighbors(self, entity_id: str, depth: int = 1,  # BFS 获取邻居，depth 控制探索深度
-                      relation_types: list[str] = None) -> list[dict]:  # relation_types 可选过滤关系类型
+    def get_neighbors(
+        self,
+        entity_id: str,
+        depth: int = 1,  # BFS 获取邻居，depth 控制探索深度
+        relation_types: list[str] = None,
+    ) -> list[dict]:  # relation_types 可选过滤关系类型
         """获取实体邻居（关系推理）"""  # BFS 遍历，逐层探索
         if not self.graph:  # 降级检查
             return []
@@ -73,24 +103,36 @@ class KnowledgeGraph:  # 电商领域知识图谱，使用 NetworkX 有向多重
                     visited.add(neighbor)  # 标记已访问
                     next_frontier.add(neighbor)  # 加入下一层
 
-                    edges = self.graph.get_edge_data(node, neighbor)  # 获取所有边数据（MultiDiGraph 可能有多条边）
+                    edges = self.graph.get_edge_data(
+                        node, neighbor
+                    )  # 获取所有边数据（MultiDiGraph 可能有多条边）
                     for _key, edge_data in edges.items():  # 遍历每条边
-                        if relation_types and edge_data.get("type") not in relation_types:  # 按类型过滤
+                        if (
+                            relation_types and edge_data.get("type") not in relation_types
+                        ):  # 按类型过滤
                             continue
-                        results.append({  # 记录邻居信息
-                            "entity_id": neighbor,  # 邻居实体 ID
-                            "entity_name": self.graph.nodes[neighbor].get("name", ""),  # 邻居名称
-                            "entity_type": self.graph.nodes[neighbor].get("type", ""),  # 邻居类型
-                            "relation": edge_data.get("type", ""),  # 关系类型
-                            "weight": edge_data.get("weight", 1.0),  # 关系权重
-                            "depth": depth,  # 当前深度（注意：这里用的是外层 depth，实际应为当前层数）
-                        })
+                        results.append(
+                            {  # 记录邻居信息
+                                "entity_id": neighbor,  # 邻居实体 ID
+                                "entity_name": self.graph.nodes[neighbor].get(
+                                    "name", ""
+                                ),  # 邻居名称
+                                "entity_type": self.graph.nodes[neighbor].get(
+                                    "type", ""
+                                ),  # 邻居类型
+                                "relation": edge_data.get("type", ""),  # 关系类型
+                                "weight": edge_data.get("weight", 1.0),  # 关系权重
+                                "depth": depth,  # 当前深度（注意：这里用的是外层 depth，实际应为当前层数）
+                            }
+                        )
 
             frontier = next_frontier  # 进入下一层
 
         return results  # 返回所有邻居关系
 
-    def get_related_context(self, entity_name: str, depth: int = 2) -> str:  # 获取实体相关的文本上下文
+    def get_related_context(
+        self, entity_name: str, depth: int = 2
+    ) -> str:  # 获取实体相关的文本上下文
         """获取实体相关的上下文"""  # 转为 LLM 可读的文本格式
         entity_id = self.find_entity(entity_name)  # 先查找实体
         if not entity_id:  # 实体不存在
@@ -108,8 +150,7 @@ class KnowledgeGraph:  # 电商领域知识图谱，使用 NetworkX 有向多重
                 continue
             added.add(key)  # 标记为已添加
             parts.append(  # 格式：关系类型 → 实体名 (类型, 深度)
-                f"  {n['relation']} → {n['entity_name']} "
-                f"({n['entity_type']}, 深度={n['depth']})"
+                f"  {n['relation']} → {n['entity_name']} ({n['entity_type']}, 深度={n['depth']})"
             )
 
         return "\n".join(parts)  # 拼接为文本
@@ -172,34 +213,152 @@ class GraphRAGRetriever:  # GraphRAG 检索引擎，对外的统一入口
         for src, tgt, rel in relations:  # 批量添加关系
             self.kg.add_relation(src, tgt, rel)
 
-    def retrieve(self, query: str, depth: int = 2) -> str:  # 核心检索方法：匹配实体并查询关系
-        """根据查询提取知识图谱关系"""  # 基于关键词匹配，而非语义匹配
-        query_lower = query.lower()  # 小写化，实现大小写不敏感匹配
+    def retrieve(self, query: str, depth: int = 2, use_llm: bool = True) -> str:  # 核心检索方法
+        """根据查询提取知识图谱关系。
+
+        v2 改进：支持 LLM 驱动的实体抽取 + 语义匹配，也保留关键词匹配作为快速路径。
+
+        Args:
+            query: 用户查询
+            depth: BFS 探索深度
+            use_llm: 是否使用 LLM 进行实体抽取（默认 True），False 时回退到关键词匹配
+
+        Returns:
+            知识图谱关系上下文字符串
+        """
         results = []  # 收集匹配结果
 
-        entity_names = [  # 预定义的实体名称列表，用于关键词匹配
-            "抖音", "小红书", "淘宝", "拼多多",
-            "短视频", "直播", "文章",
-            "GMV", "ROI", "点击率", "转化率", "CPA",
-            "品牌商务", "内容运营", "数据分析", "客服专员",
-            "仓储物流", "视觉设计", "供应链", "投流",
-        ]
+        # 策略 1: 关键词快速匹配（始终执行，作为兜底）
+        query_lower = query.lower()
+        entity_names = self._get_all_entity_names()
 
-        for name in entity_names:  # 遍历预定义实体名称
-            if name.lower() in query_lower:  # 查询中包含该实体名
-                ctx = self.kg.get_related_context(name, depth=depth)  # 获取实体关系上下文
-                if ctx:  # 有结果才添加
+        for name in entity_names:
+            if name.lower() in query_lower:
+                ctx = self.kg.get_related_context(name, depth=depth)
+                if ctx:
                     results.append(ctx)
+
+        # 策略 2: LLM 驱动的实体抽取 + 语义匹配（v2 新增）
+        if use_llm and not results:  # 关键词匹配无结果时才使用 LLM，避免冗余调用
+            extracted_entities = self._extract_query_entities(query)
+            if extracted_entities:
+                for entity_name in extracted_entities:
+                    # 使用语义匹配找到最相似的知识图谱实体
+                    matched = self._find_best_match_entity(entity_name)
+                    if matched:
+                        ctx = self.kg.get_related_context(matched, depth=depth)
+                        if ctx and ctx not in results:
+                            results.append(ctx)
 
         if len(results) > 3:  # 限制最多 3 个实体结果，避免 Prompt 过长
             results = results[:3]
 
         return "\n".join(results)  # 拼接所有结果
 
+    def _get_all_entity_names(self) -> list[str]:  # 获取图谱中所有实体名称
+        """获取知识图谱中所有实体的名称列表"""
+        if not self.kg.graph:
+            return []
+        names = []
+        for _node_id, data in self.kg.graph.nodes(data=True):
+            name = data.get("name", "")
+            if name:
+                names.append(name)
+        return names
+
+    def _find_best_match_entity(self, query_entity: str) -> str | None:  # 语义匹配最佳实体
+        """使用嵌入相似度找到与查询实体最匹配的知识图谱实体。
+
+        Args:
+            query_entity: LLM 从查询中提取的实体名
+
+        Returns:
+            匹配到的实体名称，无匹配时返回 None
+        """
+        entity_names = self._get_all_entity_names()
+        if not entity_names:
+            return None
+
+        # 优先精确匹配
+        query_lower = query_entity.lower()
+        for name in entity_names:
+            if name.lower() == query_lower:
+                return name
+
+        # 子串匹配
+        for name in entity_names:
+            if name.lower() in query_lower or query_lower in name.lower():
+                return name
+
+        # 嵌入相似度匹配（兜底）
+        try:
+            from app.rag.embedding_service import get_embedding_service
+
+            emb_service = get_embedding_service()
+            query_vec = emb_service.encode_single(query_entity)
+            entity_vecs = emb_service.encode(entity_names)
+
+            # 计算余弦相似度（向量已归一化，内积即为余弦相似度）
+            similarities = query_vec @ entity_vecs.T
+            best_idx = int(similarities.argmax())
+            best_score = float(similarities[best_idx])
+
+            if best_score >= SEMANTIC_MATCH_THRESHOLD:
+                logger.info(
+                    "graphrag_semantic_match",
+                    query_entity=query_entity,
+                    matched=entity_names[best_idx],
+                    score=round(best_score, 3),
+                )
+                return entity_names[best_idx]
+        except Exception as e:
+            logger.warning("graphrag_semantic_match_failed", error=str(e))
+
+        return None
+
+    def _extract_query_entities(self, query: str) -> list[str]:  # 使用 LLM 从查询中提取实体名
+        """使用 LLM 从查询中提取电商领域实体名称。
+        借鉴 RAG-Anything 的实体关系抽取思路，但轻量化：只抽取实体名，不抽取关系。
+
+        Args:
+            query: 用户查询
+
+        Returns:
+            提取到的实体名称列表
+        """
+        try:
+            from app.services.model_gateway import get_global_model_gateway
+
+            model_gateway = get_global_model_gateway()
+            llm = model_gateway.get_llm()
+
+            prompt = (
+                "从以下用户查询中提取电商领域相关的实体名称。\n"
+                "只返回实体名称，用逗号分隔。不要返回其他内容。\n\n"
+                "## 实体类型（仅供参考）\n"
+                "平台、内容类型、指标、角色、产品、品牌\n\n"
+                "## 查询\n"
+                f"{query}\n\n"
+                "## 实体名称（逗号分隔）\n"
+            )
+            response = llm.invoke(prompt)
+            content = response.content if hasattr(response, "content") else str(response)
+            content = content.strip().strip('"').strip("'")
+
+            # 按逗号分割并清理
+            entities = [e.strip() for e in content.split(",") if e.strip()]
+            if entities:
+                logger.info("graphrag_llm_entities_extracted", query=query[:50], entities=entities)
+            return entities
+        except Exception as e:
+            logger.warning("graphrag_entity_extraction_failed", error=str(e))
+            return []
+
     def extract_entities_from_text(self, text: str) -> dict:  # 使用 LLM 从文本中提取实体和关系
         """使用 LLM 从文本中提取实体和关系"""  # 动态扩展知识图谱的关键方法
         try:  # LLM 调用可能失败，需要降级
             from app.services.model_gateway import get_global_model_gateway  # 延迟导入
+
             model_gateway = get_global_model_gateway()  # 获取模型网关
             llm = model_gateway.get_llm()  # 获取 LLM 实例
 
@@ -218,10 +377,15 @@ class GraphRAGRetriever:  # GraphRAG 检索引擎，对外的统一入口
                 '"relations": [{{"source": "源实体名", "target": "目标实体名", "type": "关系类型"}}]}}'
             )
             response = llm.invoke(prompt)  # 调用 LLM
-            content = response.content if hasattr(response, "content") else str(response)  # 兼容不同 LLM 接口
+            content = (
+                response.content if hasattr(response, "content") else str(response)
+            )  # 兼容不同 LLM 接口
 
             import re  # 延迟导入
-            json_match = re.search(r"\{[\s\S]*\}", content)  # 正则提取 JSON 块，兼容 LLM 可能在 JSON 外输出额外文本
+
+            json_match = re.search(
+                r"\{[\s\S]*\}", content
+            )  # 正则提取 JSON 块，兼容 LLM 可能在 JSON 外输出额外文本
             if json_match:  # 提取到 JSON
                 data = json.loads(json_match.group())  # 解析 JSON
                 return data  # 返回提取结果

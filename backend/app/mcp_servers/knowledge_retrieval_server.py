@@ -4,12 +4,10 @@ Provides RAG-based knowledge retrieval for brand script templates.
 Now delegates to CompanyContextBus + HybridRetriever (Milvus) as the unified backend.
 """
 
-import uuid
-
 from fastmcp import FastMCP
 
 from app.core.logging import get_logger
-from app.tools.result import ToolResult, ErrorCode, ERROR_SUGGESTIONS
+from app.tools.result import ERROR_SUGGESTIONS, ErrorCode, ToolResult
 
 logger = get_logger(__name__)
 
@@ -20,8 +18,9 @@ def _resolve_company_id(fallback: str = "default") -> str:
     """从 MCP 请求上下文中读取 company_id（优先），fallback 到参数值"""
     try:
         from fastmcp.server.context import get_request_context
+
         ctx = get_request_context()
-        if ctx and hasattr(ctx, 'meta') and ctx.meta:
+        if ctx and hasattr(ctx, "meta") and ctx.meta:
             return ctx.meta.get("company_id", fallback)
     except Exception:
         pass
@@ -30,6 +29,7 @@ def _resolve_company_id(fallback: str = "default") -> str:
 
 def _get_bus_for_company(company_id: str = "default"):
     from app.rag.company_context_bus import get_company_context_bus
+
     return get_company_context_bus(company_id)
 
 
@@ -55,15 +55,24 @@ def search_knowledge(query: str, n_results: int = 3, company_id: str = "default"
 
         formatted = []
         for r in results:
-            formatted.append({
-                "content": r.get("content", ""),
-                "metadata": r.get("metadata", {}),
-                "distance": 1.0 - r.get("score", 0),
-                "source_file": r.get("source_file", ""),
-            })
+            formatted.append(
+                {
+                    "content": r.get("content", ""),
+                    "metadata": r.get("metadata", {}),
+                    "distance": 1.0 - r.get("score", 0),
+                    "score": r.get("score"),
+                    "source": r.get("source"),
+                    "bm25_score": r.get("bm25_score"),
+                    "vector_score": r.get("vector_score"),
+                    "rrf_score": r.get("rrf_score"),
+                    "rerank_score": r.get("rerank_score"),
+                    "source_file": r.get("source_file", ""),
+                    "chunk_index": r.get("chunk_index", 0),
+                    "source_page": r.get("source_page", 0),
+                }
+            )
         return ToolResult.ok(
-            data=formatted,
-            message=f"Found {len(formatted)} knowledge results for query."
+            data=formatted, message=f"Found {len(formatted)} knowledge results for query."
         ).to_json()
     except Exception as e:
         logger.error("knowledge_query_error", error=str(e))
@@ -97,8 +106,7 @@ def add_knowledge(text: str, metadata: dict, company_id: str = "default") -> str
             metadata=metadata,
         )
         return ToolResult.ok(
-            data={"doc_id": doc_id},
-            message=f"Successfully added knowledge with ID: {doc_id}"
+            data={"doc_id": doc_id}, message=f"Successfully added knowledge with ID: {doc_id}"
         ).to_json()
     except Exception as e:
         return ToolResult.error(
@@ -109,4 +117,6 @@ def add_knowledge(text: str, metadata: dict, company_id: str = "default") -> str
 
 
 if __name__ == "__main__":
-    mcp.run()
+    from app.mcp_servers.runtime import run_mcp_stdio
+
+    run_mcp_stdio(mcp)

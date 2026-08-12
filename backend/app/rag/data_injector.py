@@ -1,4 +1,4 @@
-"""  # DataInjector 模块，Agent 上下文自动注入器，封装三层数据注入逻辑
+"""# DataInjector 模块，Agent 上下文自动注入器，封装三层数据注入逻辑
 DataInjector - Agent 上下文自动注入器  # "注入器"模式：在 Agent 执行前后自动插入/提取数据，业务层无感知
 
 负责在 Agent 执行任务前后自动注入公司三层数据:  # 设计目标：Agent 开发者只需关注业务逻辑，上下文由注入器自动管理
@@ -16,6 +16,7 @@ logger = get_logger(__name__)  # 模块级 logger
 @dataclass  # 使用 dataclass 而非普通类，因为 InjectionConfig 是纯配置数据容器
 class InjectionConfig:
     """注入配置"""  # 通过配置对象控制各层注入行为，比散落的布尔参数更清晰
+
     layer1_enabled: bool = True  # 默认开启 Layer1，公司基础资料是 Agent 回答的基础上下文
     layer2_enabled: bool = True  # 默认开启 Layer2，知识库检索是 RAG 的核心价值
     layer2_top_k: int = 3  # Layer2 默认返回 3 条，平衡信息量和 token 消耗
@@ -27,16 +28,23 @@ class InjectionConfig:
 class DataInjector:  # Agent 上下文注入器，封装注入和记录逻辑
     """Agent 上下文注入器"""  # 对外暴露简洁接口，隐藏三层架构的复杂性
 
-    def __init__(self, company_id: str = "default", config: InjectionConfig = None):  # 支持自定义配置和公司隔离
+    def __init__(
+        self, company_id: str = "default", config: InjectionConfig = None
+    ):  # 支持自定义配置和公司隔离
         self.company_id = company_id  # 公司 ID，用于数据隔离
         self.config = config or InjectionConfig()  # 未传入配置时使用默认配置
 
     def _get_bus(self):  # 懒加载 CompanyContextBus，避免不必要的初始化
         from .company_context_bus import get_company_context_bus  # 延迟导入避免循环依赖
+
         return get_company_context_bus(self.company_id)  # 按公司 ID 获取独立实例
 
-    def inject_context(self, system_prompt: str, task_query: str = "",  # 核心方法：在 System Prompt 后追加公司上下文
-                       agent_name: str = None) -> str:
+    def inject_context(
+        self,
+        system_prompt: str,
+        task_query: str = "",  # 核心方法：在 System Prompt 后追加公司上下文
+        agent_name: str = None,
+    ) -> str:
         """在 Agent 执行前注入公司上下文"""  # 执行前注入，让 Agent 在生成回答时拥有完整上下文
         bus = self._get_bus()  # 获取上下文总线
         context_parts = []  # 收集各层上下文片段
@@ -47,7 +55,9 @@ class DataInjector:  # Agent 上下文注入器，封装注入和记录逻辑
                 context_parts.append(l1)
 
         if self.config.layer2_enabled and task_query:  # Layer2 需要 task_query 才能检索
-            l2 = bus.get_layer2_context(task_query, top_k=self.config.layer2_top_k)  # 按配置的 top_k 检索
+            l2 = bus.get_layer2_context(
+                task_query, top_k=self.config.layer2_top_k
+            )  # 按配置的 top_k 检索
             if l2:  # 检索到知识才添加
                 context_parts.append(l2)
 
@@ -61,14 +71,25 @@ class DataInjector:  # Agent 上下文注入器，封装注入和记录逻辑
         if not context_parts:  # 所有层都为空时，不做任何注入，直接返回原始 prompt
             return system_prompt
 
-        injected = system_prompt + "\n\n" + "\n\n".join(context_parts)  # 双换行分隔原始 prompt 和注入上下文
-        logger.info("context_injected", company_id=self.company_id,  # 记录注入操作
-                     agent=agent_name, layers=len(context_parts))
+        injected = (
+            system_prompt + "\n\n" + "\n\n".join(context_parts)
+        )  # 双换行分隔原始 prompt 和注入上下文
+        logger.info(
+            "context_injected",
+            company_id=self.company_id,  # 记录注入操作
+            agent=agent_name,
+            layers=len(context_parts),
+        )
         return injected  # 返回注入后的完整 prompt
 
-    def record_completion(self, agent_name: str, task_type: str,  # Agent 任务完成后记录经验
-                          task_query: str, result: str,  # result 是 Agent 的完整输出
-                          outcome: str = ""):  # outcome 可选，用于标记任务结果
+    def record_completion(
+        self,
+        agent_name: str,
+        task_type: str,  # Agent 任务完成后记录经验
+        task_query: str,
+        result: str,  # result 是 Agent 的完整输出
+        outcome: str = "",
+    ):  # outcome 可选，用于标记任务结果
         """Agent 任务完成后自动记录经验"""  # 自动记录，无需业务层手动调用
         if not self.config.layer3_auto_record:  # 配置关闭自动记录时直接返回
             return
@@ -90,11 +111,14 @@ class DataInjector:  # Agent 上下文注入器，封装注入和记录逻辑
     def set_profile(self, **kwargs):  # 便捷方法：直接传参设置公司资料
         """设置公司基础资料"""  # 封装 Profile 构建，外部只需传关键字段
         from .company_context_bus import CompanyProfile  # 延迟导入
+
         bus = self._get_bus()  # 获取总线
         profile = CompanyProfile(**kwargs)  # 用 kwargs 构建 Profile 对象
         bus.set_profile(profile)  # 设置到总线
 
-    def add_knowledge(self, content: str, metadata: dict = None, doc_id: str = None):  # 快捷添加知识
+    def add_knowledge(
+        self, content: str, metadata: dict = None, doc_id: str = None
+    ):  # 快捷添加知识
         """添加知识到知识库"""  # 直接代理到 bus.add_knowledge
         bus = self._get_bus()  # 获取总线
         return bus.add_knowledge(content, metadata, doc_id)  # 透传调用

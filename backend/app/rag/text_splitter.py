@@ -1,68 +1,173 @@
-import hashlib  # MD5 哈希生成唯一 chunk_id，用于检索时的去重和溯源
-from dataclasses import dataclass, field  # dataclass 用于 TextChunk 数据类，field 用于可变默认值
+"""Text chunking utilities for RAG ingestion.
 
-from app.core.logging import get_logger  # 结构化日志
+LangChain's RecursiveCharacterTextSplitter is used when available. Production
+Docker images should still work without that optional dependency, so this module
+includes a small recursive fallback splitter with the same basic behavior.
+"""
 
-logger = get_logger(__name__)  # 模块级 logger
+from __future__ import annotations
 
+import hashlib
+from dataclasses import dataclass, field
 
-@dataclass  # 使用 dataclass 而非 dict，提供类型安全
-class TextChunk:  # 文本切片数据结构
-    content: str  # 切片文本内容
-    chunk_index: int  # 切片序号，从 0 开始
-    total_chunks: int  # 总切片数
-    source_file: str = ""  # 源文件名
-    source_page: int = 0  # 源页码
-    metadata: dict = field(default_factory=dict)  # 额外元数据，使用 field 避免共享引用
-    chunk_id: str = ""  # 切片唯一 ID，由 __post_init__ 自动生成
+from app.core.logging import get_logger
 
-    def __post_init__(self):  # dataclass 初始化后自动调用，生成唯一 chunk_id
-        if not self.chunk_id:  # 外部未指定 ID 时自动生成
-            self.chunk_id = hashlib.md5(  # MD5 哈希确保 ID 唯一且可重现
-                f"{self.source_file}:{self.chunk_index}:{self.content[:50]}".encode()  # 组合源文件+序号+内容前50字符，确保唯一性
-            ).hexdigest()  # 32 位十六进制字符串
+logger = get_logger(__name__)
 
 
-class TextChunker:  # 文本切片器，基于 LangChain 的 RecursiveCharacterTextSplitter
-    """文本切片器，基于 LangChain RecursiveCharacterTextSplitter"""  # 递归语义切片优于固定长度切片
+@dataclass
+class TextChunk:
+    content: str
+    chunk_index: int
+    total_chunks: int
+    source_file: str = ""
+    source_page: int = 0
+    metadata: dict = field(default_factory=dict)
+    chunk_id: str = ""
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 64):  # 512 是中英文 Embedding 模型的推荐窗口大小
-        self.chunk_size = chunk_size  # 切片最大长度
-        self.chunk_overlap = chunk_overlap  # 相邻切片重叠字符数，保证语义连续性
+    def __post_init__(self) -> None:
+        if not self.chunk_id:
+            seed = f"{self.source_file}:{self.chunk_index}:{self.content[:80]}"
+            self.chunk_id = hashlib.md5(
+                seed.encode("utf-8"),
+                usedforsecurity=False,
+            ).hexdigest()
 
-    def _get_splitter(self):  # 获取 LangChain 切片器实例
-        try:  # LangChain 版本兼容：先用新路径尝试
-            from langchain_text_splitters import RecursiveCharacterTextSplitter  # langchain >= 0.1.0 的新路径
-        except ImportError:  # 新路径不可用
-            try:  # 回退到旧路径
-                from langchain.text_splitter import RecursiveCharacterTextSplitter  # langchain < 0.1.0 的旧路径
-            except ImportError:  # 都不可用
-                raise ImportError(  # 抛出明确错误，告知用户如何安装
-                    "langchain is required for text chunking. Install with: pip install langchain"
-                )
-        return RecursiveCharacterTextSplitter(  # 创建递归字符切片器
-            chunk_size=self.chunk_size,  # 切片大小
-            chunk_overlap=self.chunk_overlap,  # 重叠大小
-            separators=["\n\n", "\n", "。", "！", "？", "；", " ", ""],  # 分隔符优先级：段落 → 换行 → 句号 → 叹号 → 问号 → 分号 → 空格 → 字符
-        )  # 递归尝试：优先在自然断句处切分，实在不行才按字符切分，保证语义完整性
 
-    def chunk(  # 执行切片
-        self, text: str, source_file: str = "", metadata: dict = None  # source_file 和 metadata 会传递给每个切片
-    ) -> list[TextChunk]:  # 返回 TextChunk 列表
-        splitter = self._get_splitter()  # 获取切片器
-        raw_chunks = splitter.split_text(text)  # 执行切片，返回字符串列表
-        total = len(raw_chunks)  # 总切片数
+class _FallbackRecursiveSplitter:
+    def __init__(self, chunk_size: int, chunk_overlap: int, separators: list[str]):
+        self.chunk_size = max(int(chunk_size), 1)
+        self.chunk_overlap = max(min(int(chunk_overlap), self.chunk_size - 1), 0)
+        self.separators = separators
 
-        chunks = []  # 构建 TextChunk 列表
-        for i, chunk_text in enumerate(raw_chunks):  # 遍历每个切片
-            chunks.append(  # 创建 TextChunk 对象
-                TextChunk(
-                    content=chunk_text,  # 切片文本
-                    chunk_index=i,  # 切片序号
-                    total_chunks=total,  # 总切片数
-                    source_file=source_file,  # 源文件
-                    metadata=metadata or {},  # 元数据
-                )
+    def split_text(self, text: str) -> list[str]:
+        normalized = (text or "").strip()
+        if not normalized:
+            return []
+        pieces = self._split_recursive(normalized, self.separators)
+        chunks: list[str] = []
+        current = ""
+
+        for piece in pieces:
+            piece = piece.strip()
+            if not piece:
+                continue
+            candidate = piece if not current else f"{current}\n{piece}"
+            if len(candidate) <= self.chunk_size:
+                current = candidate
+                continue
+            if current:
+                chunks.append(current)
+            current = piece
+
+        if current:
+            chunks.append(current)
+
+        return self._apply_overlap(chunks)
+
+    def _split_recursive(self, text: str, separators: list[str]) -> list[str]:
+        if len(text) <= self.chunk_size:
+            return [text]
+        if not separators:
+            return [
+                text[i : i + self.chunk_size]
+                for i in range(0, len(text), self.chunk_size)
+            ]
+
+        separator = separators[0]
+        if separator and separator in text:
+            parts = text.split(separator)
+            result: list[str] = []
+            for part in parts:
+                part = part.strip()
+                if not part:
+                    continue
+                if len(part) <= self.chunk_size:
+                    result.append(part)
+                else:
+                    result.extend(self._split_recursive(part, separators[1:]))
+            return result
+
+        return self._split_recursive(text, separators[1:])
+
+    def _apply_overlap(self, chunks: list[str]) -> list[str]:
+        if self.chunk_overlap <= 0 or len(chunks) <= 1:
+            return chunks
+        overlapped = [chunks[0]]
+        for chunk in chunks[1:]:
+            prefix = overlapped[-1][-self.chunk_overlap :]
+            combined = f"{prefix}{chunk}"
+            if len(combined) > self.chunk_size:
+                combined = combined[-self.chunk_size :]
+            overlapped.append(combined)
+        return overlapped
+
+
+class TextChunker:
+    """Chunk text for vector indexing."""
+
+    DEFAULT_SEPARATORS = [
+        "\n\n",
+        "\n",
+        "\u3002",
+        "\uff01",
+        "\uff1f",
+        "\uff1b",
+        ". ",
+        "! ",
+        "? ",
+        "; ",
+        " ",
+        "",
+    ]
+
+    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 64):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+
+    def _get_splitter(self):
+        try:
+            from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+            return RecursiveCharacterTextSplitter(
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+                separators=self.DEFAULT_SEPARATORS,
             )
+        except ImportError:
+            try:
+                from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-        return chunks  # 返回切片列表
+                return RecursiveCharacterTextSplitter(
+                    chunk_size=self.chunk_size,
+                    chunk_overlap=self.chunk_overlap,
+                    separators=self.DEFAULT_SEPARATORS,
+                )
+            except ImportError:
+                logger.info("text_splitter_using_builtin_fallback")
+                return _FallbackRecursiveSplitter(
+                    chunk_size=self.chunk_size,
+                    chunk_overlap=self.chunk_overlap,
+                    separators=self.DEFAULT_SEPARATORS,
+                )
+
+    def chunk(
+        self,
+        text: str,
+        source_file: str = "",
+        metadata: dict | None = None,
+    ) -> list[TextChunk]:
+        splitter = self._get_splitter()
+        raw_chunks = [chunk.strip() for chunk in splitter.split_text(text or "") if chunk.strip()]
+        total = len(raw_chunks)
+
+        return [
+            TextChunk(
+                content=chunk_text,
+                chunk_index=i,
+                total_chunks=total,
+                source_file=source_file,
+                metadata=metadata or {},
+            )
+            for i, chunk_text in enumerate(raw_chunks)
+        ]
