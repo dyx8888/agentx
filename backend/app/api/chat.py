@@ -482,6 +482,59 @@ def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _chat_error_payload_from_exception(exc: Exception) -> dict[str, Any]:
+    if getattr(exc, "code", "") == "model_api_key_missing":
+        if hasattr(exc, "to_public_payload"):
+            payload = exc.to_public_payload()
+        else:
+            payload = {
+                "code": "model_api_key_missing",
+                "message": str(exc),
+                "requires_config": True,
+                "config_target": "llm_api_key",
+            }
+        message = str(payload.get("message") or "模型 API Key 未配置。")
+        return {
+            "type": "error",
+            "code": "model_api_key_missing",
+            "message": message,
+            "content": message,
+            "requires_config": bool(payload.get("requires_config", True)),
+            "config_target": payload.get("config_target", "llm_api_key"),
+            "provider": payload.get("provider", ""),
+            "model": payload.get("model", ""),
+            "env_keys": payload.get("env_keys", []),
+        }
+
+    message = f"Stream error: {str(exc)}"
+    return {
+        "type": "error",
+        "code": "chat_stream_error",
+        "message": message,
+        "content": message,
+    }
+
+
+def _chat_error_payload_from_event(event: dict[str, Any]) -> dict[str, Any]:
+    message = str(
+        event.get("message")
+        or event.get("content")
+        or event.get("data")
+        or "聊天处理失败"
+    )
+    return {
+        "type": "error",
+        "code": event.get("code", "chat_stream_error"),
+        "message": message,
+        "content": message,
+        "requires_config": bool(event.get("requires_config", False)),
+        "config_target": event.get("config_target", ""),
+        "provider": event.get("provider", ""),
+        "model": event.get("model", ""),
+        "env_keys": event.get("env_keys", []),
+    }
+
+
 @router.post("/")
 async def chat_stream(
     request: ChatRequest,
@@ -495,6 +548,7 @@ async def chat_stream(
         assistant_response_parts: list[str] = []
         context_package = None
         rag_refs: list[dict] = []
+        stream_error_payload: dict[str, Any] | None = None
 
         try:
             request.company_id = str(current_user.company_id) if current_user.company_id else ""
@@ -622,7 +676,13 @@ async def chat_stream(
 
                 master_router = _get_master_router()
                 if master_router is None:
-                    yield _sse({"type": "error", "content": "MasterAgentRouter 未初始化"})
+                    stream_error_payload = {
+                        "type": "error",
+                        "code": "agent_runtime_unavailable",
+                        "message": "MasterAgentRouter 未初始化",
+                        "content": "MasterAgentRouter 未初始化",
+                    }
+                    yield _sse(stream_error_payload)
                     done_payload = {"type": "done"}
                     if conversation_id:
                         done_payload["conversation_id"] = conversation_id
@@ -659,8 +719,8 @@ async def chat_stream(
                             }
                         )
                     elif event_type == "error":
-                        err_data = event.get("data", event.get("content", ""))
-                        yield _sse({"type": "error", "content": err_data})
+                        stream_error_payload = _chat_error_payload_from_event(event)
+                        yield _sse(stream_error_payload)
                     elif event_type == "done":
                         done_payload = {"type": "done"}
                         if conversation_id:
@@ -669,12 +729,23 @@ async def chat_stream(
 
             if conversation_id:
                 try:
-                    assistant_content = (
-                        "\n".join(assistant_response_parts)
-                        if assistant_response_parts
-                        else "任务已完成"
-                    )
+                    if stream_error_payload and not assistant_response_parts:
+                        assistant_content = stream_error_payload["message"]
+                    else:
+                        assistant_content = (
+                            "\n".join(assistant_response_parts)
+                            if assistant_response_parts
+                            else "任务已完成"
+                        )
                     metadata = {"agent_name": "master"}
+                    if stream_error_payload:
+                        metadata.update(
+                            {
+                                "status": "error",
+                                "error_code": stream_error_payload.get("code", "chat_stream_error"),
+                                "requires_config": stream_error_payload.get("requires_config", False),
+                            }
+                        )
                     if context_package is not None:
                         metadata.update(
                             {
@@ -695,7 +766,7 @@ async def chat_stream(
 
         except Exception as e:
             logger.error("chat_stream_error", error=str(e))
-            yield _sse({"type": "error", "content": f"Stream error: {str(e)}"})
+            yield _sse(_chat_error_payload_from_exception(e))
 
     return StreamingResponse(
         generate_events(),

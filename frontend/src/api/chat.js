@@ -136,10 +136,27 @@ function _dispatchEvent(event, callbacks) {
       callbacks.onDone?.(event);
       break;
     case 'error':
-      callbacks.onError?.(event);
+      callbacks.onError?.(_normalizeErrorEvent(event));
       break;
     default:
       // 未知事件类型，忽略
       break;
   }
+}
+
+function _normalizeErrorEvent(event) {
+  const message =
+    event.message ||
+    event.content ||
+    event.data?.message ||
+    event.data?.content ||
+    '聊天处理失败';
+  return {
+    ...event,
+    message,
+    content: message,
+    code: event.code || event.data?.code || 'chat_stream_error',
+    requires_config: Boolean(event.requires_config || event.data?.requires_config),
+    config_target: event.config_target || event.data?.config_target || '',
+  };
 }

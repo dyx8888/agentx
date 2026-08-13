@@ -241,8 +241,9 @@ class TestHealthCheck:
         mock_req.app = mock_app
 
         result = await health_check(mock_req)
-        assert result["status"] == "healthy"
+        assert result["status"] == "degraded"
         assert result["agent_initialized"] is False
+        assert result["source"] == "agent_app"
 
 
 # ============================================================
@@ -264,3 +265,25 @@ class TestChatRequestEdgeCases:
         long_msg = "帮我分析" * 100
         req = ChatRequest(message=long_msg)
         assert len(req.message) > 0
+
+
+class TestChatErrorPayloads:
+    """Test user-visible chat error payloads."""
+
+    def test_missing_model_key_payload_is_actionable(self):
+        from app.api.chat import _chat_error_payload_from_exception
+        from app.services.model_gateway import ModelApiKeyMissingError
+
+        payload = _chat_error_payload_from_exception(
+            ModelApiKeyMissingError(
+                model_key="deepseek",
+                provider="deepseek",
+                env_keys=("DEEPSEEK_API_KEY",),
+            )
+        )
+
+        assert payload["type"] == "error"
+        assert payload["code"] == "model_api_key_missing"
+        assert payload["requires_config"] is True
+        assert payload["config_target"] == "llm_api_key"
+        assert "DEEPSEEK_API_KEY" in payload["message"]

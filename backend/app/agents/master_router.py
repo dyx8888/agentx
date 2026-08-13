@@ -253,16 +253,28 @@ class MasterAgentRouter:
         # Step 2: 按路径执行
         # 跟踪路径是否产出 result 事件及其内容，供 Step 3 审查使用
         result_produced = False
+        error_produced = False
         final_result_text = ""
         try:
             async for event in self._run_path_events(path, context):
                 if event.get("type") == "result":
                     result_produced = True
                     final_result_text = str(event.get("data", ""))
+                elif event.get("type") == "error":
+                    error_produced = True
                 yield event
         except Exception as e:
             logger.error("master_execute_path_failed", path=path.value, error=str(e))
-            yield {"type": "error", "data": f"执行路径 {path.value} 失败: {str(e)}"}
+            error_event = self._model_config_error_event(e)
+            yield error_event or {
+                "type": "error",
+                "data": f"执行路径 {path.value} 失败: {str(e)}",
+            }
+            error_produced = True
+
+        if error_produced and not result_produced:
+            yield {"type": "done"}
+            return
 
         # Step 3: 审查结果（含 LLM 验收层 + 重试循环）
         async for event in self._review_and_finalize(
@@ -582,6 +594,10 @@ class MasterAgentRouter:
             yield {"type": "result", "data": result.get("answer", query)}
         except Exception as e:
             logger.warning("react_execute_failed", error=str(e))
+            error_event = self._model_config_error_event(e)
+            if error_event:
+                yield error_event
+                return
             # 降级：直接返回查询作为结果
             yield {"type": "result", "data": f"ReAct 执行遇到问题，原始查询: {query}"}
 
@@ -625,6 +641,33 @@ class MasterAgentRouter:
             "from_model": from_model,
             "to_model": to_model,
             "error": str(fallback.get("error") or "")[:200],
+        }
+
+    @staticmethod
+    def _model_config_error_event(exc: Exception) -> dict | None:
+        if getattr(exc, "code", "") != "model_api_key_missing":
+            return None
+
+        if hasattr(exc, "to_public_payload"):
+            payload = exc.to_public_payload()
+        else:
+            payload = {
+                "code": "model_api_key_missing",
+                "message": str(exc),
+                "requires_config": True,
+                "config_target": "llm_api_key",
+            }
+        message = str(payload.get("message") or "模型 API Key 未配置。")
+        return {
+            "type": "error",
+            "code": "model_api_key_missing",
+            "message": message,
+            "content": message,
+            "requires_config": bool(payload.get("requires_config", True)),
+            "config_target": payload.get("config_target", "llm_api_key"),
+            "provider": payload.get("provider", ""),
+            "model": payload.get("model", ""),
+            "env_keys": payload.get("env_keys", []),
         }
 
     async def _answer_from_rag(self, query: str, context: ContextPackage) -> dict:
@@ -783,6 +826,8 @@ class MasterAgentRouter:
                 "model_fallback": model_fallbacks[0] if model_fallbacks else None,
             }
         except Exception as e:
+            if self._model_config_error_event(e):
+                raise
             logger.warning("react_execute_failed", error=str(e))
             return {"answer": query, "intermediate": f"ReAct 降级模式: {str(e)}"}
 
@@ -836,6 +881,10 @@ class MasterAgentRouter:
                     yield {"type": "error", "data": "AgentRuntime 不可用"}
                     yield {"type": "result", "data": query}
         except Exception as e:
+            error_event = self._model_config_error_event(e)
+            if error_event:
+                yield error_event
+                return
             logger.warning("plan_execute_reflect_failed", error=str(e))
             yield {"type": "error", "data": f"Plan-Execute-Reflect 失败: {str(e)}"}
             yield {"type": "result", "data": context.raw_input}

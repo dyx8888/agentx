@@ -113,6 +113,14 @@ EVAL_PROXY_BASE_URL_ENV_KEYS = ("AGENT_EVAL_BASE_URL", "EVAL_PROXY_BASE_URL")
 EVAL_PROXY_API_KEY_ENV_KEYS = ("AGENT_EVAL_API_KEY", "EVAL_PROXY_API_KEY")
 EVAL_PROXY_MODEL_NAME_ENV_KEYS = ("AGENT_EVAL_MODEL_NAME", "EVAL_PROXY_MODEL_NAME")
 
+API_KEY_ENV_MAP: dict[str, tuple[str, ...]] = {
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
+    "volcano": ("VOLCANO_API_KEY", "DEEPSEEK_VOLC_API_KEY"),
+    "tokenrhythm": ("TOKENRHYTHM_API_KEY",),
+    EVAL_PROXY_MODEL_KEY: EVAL_PROXY_API_KEY_ENV_KEYS,
+}
+
 # 模型健康度阈值：连续失败次数 >= 此值时暂时跳过该模型
 MODEL_HEALTH_FAIL_THRESHOLD = 3
 # 模型健康度冷却时间（秒）：失败后多长时间内视为不健康
@@ -146,6 +154,33 @@ class TaskComplexity(StrEnum):  # 任务复杂度枚举，用于智能路由选�
     SIMPLE = "simple"  # 简单任务：如查询、回复，用低成本模型
     STANDARD = "standard"  # 标准任务：默认复杂度
     COMPLEX = "complex"  # 复杂任务：如分析、推理，用高能力模型
+
+
+class ModelApiKeyMissingError(ValueError):
+    """Raised when a model call cannot start because no usable API key exists."""
+
+    code = "model_api_key_missing"
+
+    def __init__(self, *, model_key: str, provider: str, env_keys: tuple[str, ...]):
+        self.model_key = model_key
+        self.provider = provider
+        self.env_keys = env_keys
+        env_hint = " / ".join(env_keys) if env_keys else f"{provider.upper()}_API_KEY"
+        super().__init__(
+            f"模型 {model_key} 缺少 API Key。请配置 {env_hint} 环境变量，"
+            f"或在企业大模型配置中填写 {provider} API Key。"
+        )
+
+    def to_public_payload(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": str(self),
+            "model": self.model_key,
+            "provider": self.provider,
+            "env_keys": list(self.env_keys),
+            "requires_config": True,
+            "config_target": "llm_api_key",
+        }
 
 
 @dataclass  # 使用dataclass，因为ModelCapability是纯数据描述
@@ -2341,14 +2376,7 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
     def _get_env_api_key(
         self, provider: str
     ) -> str | None:  # 从环境变量获取API Key，映射规则可配置
-        env_map = {  # provider -> accepted environment variable names
-            "deepseek": ("DEEPSEEK_API_KEY",),
-            "openai": ("OPENAI_API_KEY",),
-            "volcano": ("VOLCANO_API_KEY", "DEEPSEEK_VOLC_API_KEY"),
-            "tokenrhythm": ("TOKENRHYTHM_API_KEY",),
-            EVAL_PROXY_MODEL_KEY: ("AGENT_EVAL_API_KEY",),
-        }
-        env_keys = env_map.get(provider, (f"{provider.upper()}_API_KEY",))
+        env_keys = API_KEY_ENV_MAP.get(provider, (f"{provider.upper()}_API_KEY",))
         for env_key in env_keys:
             value = os.getenv(env_key)
             if value:
@@ -2368,10 +2396,11 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
         if not api_key:  # 企业Key为空时使用环境变量
             api_key = self._get_env_api_key(provider)
 
-        if not api_key:  # 仍然没有Key则抛出异常
-            raise ValueError(
-                f"No API key available for {model_key}. "
-                f"Set {provider.upper()}_API_KEY environment variable or provide company API key."
+        if not api_key:  # 仍然没有Key则抛出明确、可面向用户的配置错误
+            raise ModelApiKeyMissingError(
+                model_key=model_key,
+                provider=provider,
+                env_keys=API_KEY_ENV_MAP.get(provider, (f"{provider.upper()}_API_KEY",)),
             )
 
         params = {  # 构建ChatOpenAI参数

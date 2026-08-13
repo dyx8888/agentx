@@ -289,6 +289,34 @@ describe('ChatPage', () => {
     );
   });
 
+  it('shows actionable model API key configuration errors', async () => {
+    mockStreamChat.mockImplementation((_params, callbacks) => {
+      callbacks.onError?.({
+        type: 'error',
+        code: 'model_api_key_missing',
+        message: '模型 deepseek 缺少 API Key。请配置 DEEPSEEK_API_KEY 环境变量。',
+        requires_config: true,
+        config_target: 'llm_api_key',
+      });
+      return vi.fn();
+    });
+
+    renderChatPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-input')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('send-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('streaming')).toHaveTextContent('idle');
+    });
+    expect(screen.getByTestId('last-content')).toHaveTextContent(
+      '抱歉，处理时出错了：模型 deepseek 缺少 API Key。请配置 DEEPSEEK_API_KEY 环境变量。'
+    );
+  });
+
   it('creates conversation when sending first message', async () => {
     renderChatPage();
 

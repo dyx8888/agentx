@@ -1,11 +1,13 @@
 """Test DeepSeek API multi-channel failover functionality."""
 
+import asyncio
 import os
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
-from app.services.model_gateway import ModelGateway
+from app.services.model_gateway import ModelApiKeyMissingError, ModelGateway
 
 
 class TestDeepSeekFailover:
@@ -78,12 +80,14 @@ class TestDeepSeekFailover:
             with patch.object(gateway, "_get_env_api_key", return_value=None):
                 # This should raise ValueError for missing API key
                 # get_llm -> FailoverChatModel.__init__ -> _init_models -> _create_model_instance
-                with pytest.raises(ValueError) as exc_info:
+                with pytest.raises(ModelApiKeyMissingError) as exc_info:
                     gateway.get_llm("deepseek_volc")
 
                 # Verify error message contains expected content
                 error_message = str(exc_info.value)
-                assert "VOLCANO_API_KEY" in error_message or "No API key" in error_message
+                assert exc_info.value.code == "model_api_key_missing"
+                assert "VOLCANO_API_KEY" in error_message
+                assert exc_info.value.to_public_payload()["requires_config"] is True
 
             print("✓ Correct error raised for missing API key")
 
@@ -132,6 +136,38 @@ class TestDeepSeekFailover:
             # Restore original config
             with open(config_path, "w", encoding="utf-8") as f:
                 f.write(original_config)
+
+    def test_master_react_missing_key_returns_error_not_fake_success(self):
+        """缺模型 Key 时 master 不能把原始用户问题伪装成正常回答。"""
+        from app.agents.master_router import MasterAgentRouter
+
+        class MissingKeyGateway:
+            def get_llm(self, *args, **kwargs):
+                raise ModelApiKeyMissingError(
+                    model_key="deepseek",
+                    provider="deepseek",
+                    env_keys=("DEEPSEEK_API_KEY",),
+                )
+
+        router = MasterAgentRouter(model_gateway=MissingKeyGateway())
+        context = SimpleNamespace(
+            raw_input="帮我生成达人邀约方案",
+            rewritten_query="",
+            rag_chunks=[],
+            company_id="239",
+            intent_entities={},
+        )
+
+        async def collect_events():
+            return [event async for event in router._run_react(context)]
+
+        events = asyncio.run(collect_events())
+        assert any(
+            event.get("type") == "error"
+            and event.get("code") == "model_api_key_missing"
+            for event in events
+        )
+        assert not any(event.get("type") == "result" for event in events)
 
     def teardown_method(self):
         """Clean up after tests"""

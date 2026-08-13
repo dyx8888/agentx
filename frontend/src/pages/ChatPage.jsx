@@ -26,6 +26,17 @@ import FilePanel from '@/components/FilePanel';
 import FilePreviewModal from '@/components/FilePreviewModal';
 
 function resolveChatErrorMessage(err) {
+  const code = err?.code || err?.data?.code;
+  const requiresConfig = Boolean(err?.requires_config || err?.data?.requires_config);
+  const configTarget = err?.config_target || err?.data?.config_target;
+  if (code === 'model_api_key_missing' || (requiresConfig && configTarget === 'llm_api_key')) {
+    return (
+      err?.message ||
+      err?.content ||
+      '未配置模型 API Key。请到「设置 > 大模型配置」填写企业模型 Key，或联系管理员配置 DEEPSEEK_API_KEY。'
+    );
+  }
+
   const candidates = [
     err?.message,
     err?.content,
