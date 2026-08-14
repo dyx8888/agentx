@@ -132,3 +132,12 @@ def test_openapi_schema_includes_a2a_agents_route():
 
     assert "/api/a2a/agents" in paths
     assert "get" in paths["/api/a2a/agents"]
+
+
+def test_openapi_schema_includes_feedback_stats_route():
+    from app.main import app
+
+    paths = app.openapi()["paths"]
+
+    assert "/api/feedback/stats" in paths
+    assert "get" in paths["/api/feedback/stats"]

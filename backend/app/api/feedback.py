@@ -428,13 +428,19 @@ async def get_feedback_stats(
                     }
                 )
 
-            return {"stats": result}
+            return {
+                "stats": result,
+                "status": "ok",
+                "total": sum(item["total_feedback"] for item in result),
+            }
 
     except Exception as exc:
         logger.warning("get_feedback_stats_unavailable", error=str(exc))
         return {
             "stats": [],
             "status": "unavailable",
+            "total": 0,
+            "reason": "feedback_storage_unavailable",
             "message": "feedback storage unavailable",
         }
 
