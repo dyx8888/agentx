@@ -160,3 +160,12 @@ def test_openapi_schema_includes_admin_companies_routes():
         "post"
         in paths["/api/admin/companies/{company_id}/credentials/{platform}/verify"]
     )
+
+
+def test_openapi_schema_includes_admin_evolution_report_route():
+    from app.main import app
+
+    paths = app.openapi()["paths"]
+
+    assert "/api/admin/evolution/report" in paths
+    assert "get" in paths["/api/admin/evolution/report"]

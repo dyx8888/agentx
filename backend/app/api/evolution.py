@@ -57,6 +57,8 @@ class EvolutionReportResponse(BaseModel):
     reports: list[EvolutionReport]
     high_modification_agents: list[EvolutionReport]  # 高修改率 Agent，需要重点关注
     analysis_period_days: int
+    status: str = "ok"
+    reason: str | None = None
 
 
 @router.get("/report", response_model=EvolutionReportResponse)
@@ -70,15 +72,19 @@ async def get_evolution_report(
     Shows modification rates and high-modification agents
     """
     try:
-        analyzer = EvolutionAnalyzer()
+        report_status = "ok"
+        unavailable_reason = None
 
         # Get company evolution report. Empty or partially migrated feedback stores
         # should render an empty state instead of breaking the admin page.
         try:
+            analyzer = EvolutionAnalyzer()
             company_reports = analyzer.get_company_evolution_report(current_user.company_id, days)
         except Exception as e:
             logger.warning("evolution_report_unavailable", error=str(e))
             company_reports = []
+            report_status = "unavailable"
+            unavailable_reason = "evolution_report_unavailable"
 
         # Filter agents with minimum feedback and identify high modification agents
         filtered_reports = []
@@ -116,6 +122,8 @@ async def get_evolution_report(
             reports=filtered_reports,
             high_modification_agents=high_modification_agents,
             analysis_period_days=days,
+            status=report_status,
+            reason=unavailable_reason,
         )
 
     except HTTPException:
