@@ -9,6 +9,10 @@ from app.mcp_servers.mock_policy import mock_fallback_blocked_result, mock_fallb
 from app.platforms.base import PlatformAdapterUnavailable
 
 
+def _platform_class(module_name: str, class_name: str):
+    return getattr(__import__(module_name, fromlist=[class_name]), class_name)
+
+
 def test_platform_mock_fallback_allowed_in_dev(monkeypatch):
     monkeypatch.setenv("ENV", "dev")
     monkeypatch.delenv("ALLOW_PLATFORM_MOCK_FALLBACK", raising=False)
@@ -90,6 +94,38 @@ def test_kol_search_server_blocks_mock_fallback_in_prod(monkeypatch):
             ).XiaohongshuAdapter(),
             lambda adapter: adapter.post_note("title", "content"),
         ),
+        (
+            lambda: _platform_class(
+                "app.platforms.douyin_luopan", "DouyinLuopanAdapter"
+            )(),
+            lambda adapter: adapter.get_shop_overview(),
+        ),
+        (
+            lambda: _platform_class(
+                "app.platforms.shengyi_canshu", "ShengyiCanshuAdapter"
+            )(),
+            lambda adapter: adapter.get_trade_metrics("2026-08-14"),
+        ),
+        (
+            lambda: _platform_class("app.platforms.ad_platforms", "QanchuanAdapter")(),
+            lambda adapter: adapter.create_campaign(
+                "launch", 1000.0, "sales", ["creative-1"]
+            ),
+        ),
+        (
+            lambda: _platform_class(
+                "app.platforms.ad_platforms", "OceanEngineAdapter"
+            )(),
+            lambda adapter: adapter.create_ad_group("ad-group", "campaign-1", 1.5),
+        ),
+        (
+            lambda: _platform_class(
+                "app.platforms.ad_platforms", "WanxiangtaiAdapter"
+            )(),
+            lambda adapter: adapter.create_plan(
+                "smart-plan", 1000.0, "sales", ["item-1"]
+            ),
+        ),
     ],
 )
 def test_platform_adapters_require_credentials_before_mock_data(
@@ -127,6 +163,156 @@ def test_douyin_star_api_failure_blocks_mock_creator_results_in_prod(monkeypatch
     adapter = DouyinStarAdapter(api_key="key", api_secret="secret")
     with pytest.raises(PlatformAdapterUnavailable) as exc_info:
         adapter.search_creators("beauty", 2)
+
+    payload = exc_info.value.to_payload()
+    assert payload["status"] == "unavailable"
+    assert payload["code"] == "mock_fallback_blocked"
+    assert payload["requires_config"] is False
+
+
+ANALYTICS_CONFIGURED_FALLBACK_CASES = [
+    (
+        lambda: _platform_class(
+            "app.platforms.douyin_luopan", "DouyinLuopanAdapter"
+        )(app_id="app", app_secret="secret", shop_id="shop-1"),
+        lambda adapter: adapter.get_shop_overview(),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.douyin_luopan", "DouyinLuopanAdapter"
+        )(app_id="app", app_secret="secret", shop_id="shop-1"),
+        lambda adapter: adapter.get_shop_data("shop-1"),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.douyin_luopan", "DouyinLuopanAdapter"
+        )(app_id="app", app_secret="secret", shop_id="shop-1"),
+        lambda adapter: adapter.search_creators("beauty", 1),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.shengyi_canshu", "ShengyiCanshuAdapter"
+        )(app_key="key", app_secret="secret", session_key="session"),
+        lambda adapter: adapter.get_trade_metrics("2026-08-14"),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.shengyi_canshu", "ShengyiCanshuAdapter"
+        )(app_key="key", app_secret="secret", session_key="session"),
+        lambda adapter: adapter.get_shop_data("shop-1"),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.shengyi_canshu", "ShengyiCanshuAdapter"
+        )(app_key="key", app_secret="secret", session_key="session"),
+        lambda adapter: adapter.search_creators("beauty", 1),
+    ),
+    (
+        lambda: _platform_class("app.platforms.ad_platforms", "QanchuanAdapter")(
+            advertiser_id="adv-1", access_token="token"
+        ),
+        lambda adapter: adapter.create_campaign(
+            "launch", 1000.0, "sales", ["creative-1"]
+        ),
+    ),
+    (
+        lambda: _platform_class("app.platforms.ad_platforms", "QanchuanAdapter")(
+            advertiser_id="adv-1", access_token="token"
+        ),
+        lambda adapter: adapter.get_campaign_status("campaign-1"),
+    ),
+    (
+        lambda: _platform_class("app.platforms.ad_platforms", "QanchuanAdapter")(
+            advertiser_id="adv-1", access_token="token"
+        ),
+        lambda adapter: adapter.get_shop_data("shop-1"),
+    ),
+    (
+        lambda: _platform_class("app.platforms.ad_platforms", "QanchuanAdapter")(
+            advertiser_id="adv-1", access_token="token"
+        ),
+        lambda adapter: adapter.search_creators("beauty", 1),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.ad_platforms", "OceanEngineAdapter"
+        )(advertiser_id="adv-1", access_token="token"),
+        lambda adapter: adapter.create_ad_group("ad-group", "campaign-1", 1.5),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.ad_platforms", "OceanEngineAdapter"
+        )(advertiser_id="adv-1", access_token="token"),
+        lambda adapter: adapter.get_ad_performance("ad-group", "2026-08-14"),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.ad_platforms", "OceanEngineAdapter"
+        )(advertiser_id="adv-1", access_token="token"),
+        lambda adapter: adapter.get_shop_data("shop-1"),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.ad_platforms", "OceanEngineAdapter"
+        )(advertiser_id="adv-1", access_token="token"),
+        lambda adapter: adapter.search_creators("beauty", 1),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.ad_platforms", "WanxiangtaiAdapter"
+        )(app_key="key", app_secret="secret", session_key="session"),
+        lambda adapter: adapter.create_plan("smart-plan", 1000.0, "sales", ["item-1"]),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.ad_platforms", "WanxiangtaiAdapter"
+        )(app_key="key", app_secret="secret", session_key="session"),
+        lambda adapter: adapter.get_plan_performance("plan-1", "2026-08-14"),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.ad_platforms", "WanxiangtaiAdapter"
+        )(app_key="key", app_secret="secret", session_key="session"),
+        lambda adapter: adapter.get_shop_data("shop-1"),
+    ),
+    (
+        lambda: _platform_class(
+            "app.platforms.ad_platforms", "WanxiangtaiAdapter"
+        )(app_key="key", app_secret="secret", session_key="session"),
+        lambda adapter: adapter.search_creators("beauty", 1),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("adapter_factory", "operation"), ANALYTICS_CONFIGURED_FALLBACK_CASES
+)
+def test_configured_analytics_adapters_raise_external_api_unavailable_in_dev(
+    monkeypatch, adapter_factory, operation
+):
+    monkeypatch.setenv("ENV", "dev")
+    monkeypatch.delenv("ALLOW_PLATFORM_MOCK_FALLBACK", raising=False)
+
+    with pytest.raises(PlatformAdapterUnavailable) as exc_info:
+        operation(adapter_factory())
+
+    payload = exc_info.value.to_payload()
+    assert payload["status"] == "unavailable"
+    assert payload["code"] == "external_api_unavailable"
+    assert payload["requires_config"] is False
+
+
+@pytest.mark.parametrize(
+    ("adapter_factory", "operation"), ANALYTICS_CONFIGURED_FALLBACK_CASES
+)
+def test_configured_analytics_adapters_block_demo_fallbacks_in_prod(
+    monkeypatch, adapter_factory, operation
+):
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.delenv("ALLOW_PLATFORM_MOCK_FALLBACK", raising=False)
+
+    with pytest.raises(PlatformAdapterUnavailable) as exc_info:
+        operation(adapter_factory())
 
     payload = exc_info.value.to_payload()
     assert payload["status"] == "unavailable"

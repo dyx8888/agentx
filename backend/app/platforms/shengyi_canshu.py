@@ -26,7 +26,16 @@ class ShengyiCanshuAdapter(PlatformAdapter):
     def get_platform_info(self) -> dict[str, Any]:
         return {"name": "生意参谋", "code": "shengyi_canshu", "type": "merchant_data"}
 
+    def _fail_closed(self, operation: str) -> None:
+        self._require_available(operation)
+        self._raise_external_api_unavailable(
+            operation,
+            RuntimeError("live shengyi canshu API is not implemented"),
+            fallback_attempted=True,
+        )
+
     def get_shop_overview(self, date: str) -> dict:
+        self._fail_closed("get_shop_overview")
         return {
             "date": date,
             "uv": 52800,
@@ -39,6 +48,7 @@ class ShengyiCanshuAdapter(PlatformAdapter):
         }
 
     def get_trade_metrics(self, date: str) -> dict:
+        self._fail_closed("get_trade_metrics")
         return {
             "date": date,
             "gmv": 324500.00,
@@ -51,6 +61,7 @@ class ShengyiCanshuAdapter(PlatformAdapter):
         }
 
     def get_traffic_source(self, date: str) -> list[dict]:
+        self._fail_closed("get_traffic_source")
         return [
             {"source": "手淘搜索", "uv": 15800, "ratio": 29.9, "trend": "up"},
             {"source": "手淘推荐", "uv": 12500, "ratio": 23.7, "trend": "stable"},
@@ -61,6 +72,7 @@ class ShengyiCanshuAdapter(PlatformAdapter):
         ]
 
     def get_product_ranking(self, date: str, top_n: int = 20) -> list[dict]:
+        self._fail_closed("get_product_ranking")
         return [
             {
                 "rank": i + 1,
@@ -75,6 +87,7 @@ class ShengyiCanshuAdapter(PlatformAdapter):
         ]
 
     def get_category_market(self, category_id: str, date: str) -> dict:
+        self._fail_closed("get_category_market")
         return {
             "category_id": category_id,
             "date": date,
@@ -87,6 +100,7 @@ class ShengyiCanshuAdapter(PlatformAdapter):
         }
 
     def get_keyword_trends(self, keywords: list[str], date_range: str = "7d") -> list[dict]:
+        self._fail_closed("get_keyword_trends")
         return [
             {
                 "keyword": kw,
@@ -101,6 +115,7 @@ class ShengyiCanshuAdapter(PlatformAdapter):
 
     def get_competitor_benchmark(self, competitor_ids: list[str],
                                    date_range: str = "30d") -> list[dict]:
+        self._fail_closed("get_competitor_benchmark")
         return [
             {
                 "shop_id": cid,
@@ -114,12 +129,15 @@ class ShengyiCanshuAdapter(PlatformAdapter):
         ]
 
     def search_creators(self, category: str, count: int = 10) -> list[dict]:
+        self._fail_closed("search_creators")
         return []
 
     def get_campaign_report(self, kol_id: str, campaign_id: str) -> dict | None:
+        self._fail_closed("get_campaign_report")
         return None
 
     def get_shop_data(self, shop_id: str, metrics: list[str] | None = None) -> dict[str, Any]:
+        self._fail_closed("get_shop_data")
         return {
             "shop_id": shop_id,
             "platform": "shengyi_canshu",

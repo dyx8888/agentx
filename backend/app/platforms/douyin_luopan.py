@@ -43,7 +43,16 @@ class DouyinLuopanAdapter(PlatformAdapter):
             ],
         }
 
+    def _fail_closed(self, operation: str) -> None:
+        self._require_available(operation)
+        self._raise_external_api_unavailable(
+            operation,
+            RuntimeError("live douyin luopan API is not implemented"),
+            fallback_attempted=True,
+        )
+
     def get_shop_overview(self, date_range: str = "7d") -> dict[str, Any]:
+        self._fail_closed("get_shop_overview")
         return {
             "shop_id": self._shop_id,
             "period": date_range,
@@ -74,6 +83,7 @@ class DouyinLuopanAdapter(PlatformAdapter):
     def get_product_analytics(self, product_id: str = None,
                                 sort_by: str = "gmv",
                                 limit: int = 10) -> list[dict]:
+        self._fail_closed("get_product_analytics")
         return [
             {
                 "product_id": f"P{25052800 + i}",
@@ -93,6 +103,7 @@ class DouyinLuopanAdapter(PlatformAdapter):
 
     def get_live_analytics(self, room_id: str = None,
                              date_range: str = "7d") -> dict[str, Any]:
+        self._fail_closed("get_live_analytics")
         return {
             "shop_id": self._shop_id,
             "period": date_range,
@@ -117,6 +128,7 @@ class DouyinLuopanAdapter(PlatformAdapter):
 
     def get_video_analytics(self, video_id: str = None,
                               date_range: str = "7d") -> dict[str, Any]:
+        self._fail_closed("get_video_analytics")
         return {
             "shop_id": self._shop_id,
             "period": date_range,
@@ -153,6 +165,7 @@ class DouyinLuopanAdapter(PlatformAdapter):
         }
 
     def get_audience_insights(self) -> dict[str, Any]:
+        self._fail_closed("get_audience_insights")
         return {
             "shop_id": self._shop_id,
             "total_fans": 285000,
@@ -178,6 +191,7 @@ class DouyinLuopanAdapter(PlatformAdapter):
         }
 
     def get_competitive_analysis(self, category: str = None) -> dict[str, Any]:
+        self._fail_closed("get_competitive_analysis")
         return {
             "shop_id": self._shop_id,
             "category": category or "美妆护肤",
@@ -216,6 +230,7 @@ class DouyinLuopanAdapter(PlatformAdapter):
         }
 
     def get_real_time_dashboard(self) -> dict[str, Any]:
+        self._fail_closed("get_real_time_dashboard")
         return {
             "timestamp": "2026-05-29T14:30:00",
             "today": {
@@ -236,9 +251,11 @@ class DouyinLuopanAdapter(PlatformAdapter):
         }
 
     def search_creators(self, category: str, count: int = 10) -> list[dict[str, Any]]:
+        self._fail_closed("search_creators")
         return []
 
     def get_campaign_report(self, kol_id: str, campaign_id: str) -> dict[str, Any] | None:
+        self._fail_closed("get_campaign_report")
         return {
             "kol_id": kol_id,
             "campaign_id": campaign_id,
@@ -253,6 +270,7 @@ class DouyinLuopanAdapter(PlatformAdapter):
         }
 
     def get_shop_data(self, shop_id: str, metrics: list[str] | None = None) -> dict[str, Any]:
+        self._fail_closed("get_shop_data")
         overview = self.get_shop_overview()
         overview["shop_id"] = shop_id
         overview["platform"] = "douyin_luopan"

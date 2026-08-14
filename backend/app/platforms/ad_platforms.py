@@ -28,8 +28,17 @@ class QanchuanAdapter(PlatformAdapter):
     def get_platform_info(self) -> dict[str, Any]:
         return {"name": "千川投放", "code": "qianchuan", "type": "advertising"}
 
+    def _fail_closed(self, operation: str) -> None:
+        self._require_available(operation)
+        self._raise_external_api_unavailable(
+            operation,
+            RuntimeError("live qianchuan API is not implemented"),
+            fallback_attempted=True,
+        )
+
     def create_campaign(self, name: str, budget: float, target: str,
                         creative_ids: list[str], targeting: dict = None) -> dict:
+        self._fail_closed("create_campaign")
         return {
             "campaign_id": f"QC{2505280001}",
             "name": name,
@@ -41,6 +50,7 @@ class QanchuanAdapter(PlatformAdapter):
         }
 
     def get_campaign_status(self, campaign_id: str) -> dict:
+        self._fail_closed("get_campaign_status")
         return {
             "campaign_id": campaign_id,
             "status": "running",
@@ -57,15 +67,19 @@ class QanchuanAdapter(PlatformAdapter):
         }
 
     def update_budget(self, campaign_id: str, new_budget: float) -> dict:
+        self._fail_closed("update_budget")
         return {"campaign_id": campaign_id, "new_budget": new_budget, "status": "updated"}
 
     def pause_campaign(self, campaign_id: str) -> dict:
+        self._fail_closed("pause_campaign")
         return {"campaign_id": campaign_id, "status": "paused"}
 
     def resume_campaign(self, campaign_id: str) -> dict:
+        self._fail_closed("resume_campaign")
         return {"campaign_id": campaign_id, "status": "running"}
 
     def get_campaign_list(self, status: str = None) -> list[dict]:
+        self._fail_closed("get_campaign_list")
         return [
             {"campaign_id": f"QC{2505280001+i}", "name": f"计划_{i+1}",
              "status": "running" if i < 2 else "paused",
@@ -74,12 +88,15 @@ class QanchuanAdapter(PlatformAdapter):
         ]
 
     def search_creators(self, category: str, count: int = 10) -> list[dict]:
+        self._fail_closed("search_creators")
         return []
 
     def get_campaign_report(self, kol_id: str, campaign_id: str) -> dict | None:
+        self._fail_closed("get_campaign_report")
         return None
 
     def get_shop_data(self, shop_id: str, metrics: list[str] | None = None) -> dict[str, Any]:
+        self._fail_closed("get_shop_data")
         return {
             "shop_id": shop_id,
             "platform": "qianchuan",
@@ -109,8 +126,17 @@ class OceanEngineAdapter(PlatformAdapter):
     def get_platform_info(self) -> dict[str, Any]:
         return {"name": "巨量引擎", "code": "ocean_engine", "type": "advertising"}
 
+    def _fail_closed(self, operation: str) -> None:
+        self._require_available(operation)
+        self._raise_external_api_unavailable(
+            operation,
+            RuntimeError("live ocean engine API is not implemented"),
+            fallback_attempted=True,
+        )
+
     def create_ad_group(self, name: str, campaign_id: str,
                         bid_amount: float, targeting: dict = None) -> dict:
+        self._fail_closed("create_ad_group")
         return {
             "ad_group_id": f"OE{2505280001}",
             "name": name,
@@ -121,6 +147,7 @@ class OceanEngineAdapter(PlatformAdapter):
         }
 
     def get_ad_performance(self, ad_group_id: str, date: str) -> dict:
+        self._fail_closed("get_ad_performance")
         return {
             "ad_group_id": ad_group_id,
             "date": date,
@@ -135,6 +162,7 @@ class OceanEngineAdapter(PlatformAdapter):
         }
 
     def get_audience_insights(self, ad_group_id: str) -> dict:
+        self._fail_closed("get_audience_insights")
         return {
             "ad_group_id": ad_group_id,
             "age_distribution": {"18-24": 25, "25-34": 42, "35-44": 22, "45+": 11},
@@ -144,12 +172,15 @@ class OceanEngineAdapter(PlatformAdapter):
         }
 
     def search_creators(self, category: str, count: int = 10) -> list[dict]:
+        self._fail_closed("search_creators")
         return []
 
     def get_campaign_report(self, kol_id: str, campaign_id: str) -> dict | None:
+        self._fail_closed("get_campaign_report")
         return None
 
     def get_shop_data(self, shop_id: str, metrics: list[str] | None = None) -> dict[str, Any]:
+        self._fail_closed("get_shop_data")
         return {
             "shop_id": shop_id,
             "platform": "ocean_engine",
@@ -181,8 +212,17 @@ class WanxiangtaiAdapter(PlatformAdapter):
     def get_platform_info(self) -> dict[str, Any]:
         return {"name": "万相台", "code": "wanxiangtai", "type": "advertising"}
 
+    def _fail_closed(self, operation: str) -> None:
+        self._require_available(operation)
+        self._raise_external_api_unavailable(
+            operation,
+            RuntimeError("live wanxiangtai API is not implemented"),
+            fallback_attempted=True,
+        )
+
     def create_plan(self, name: str, daily_budget: float,
                     objective: str, product_ids: list[str]) -> dict:
+        self._fail_closed("create_plan")
         return {
             "plan_id": f"WXT{2505280001}",
             "name": name,
@@ -193,6 +233,7 @@ class WanxiangtaiAdapter(PlatformAdapter):
         }
 
     def get_plan_performance(self, plan_id: str, date: str) -> dict:
+        self._fail_closed("get_plan_performance")
         return {
             "plan_id": plan_id,
             "date": date,
@@ -207,12 +248,15 @@ class WanxiangtaiAdapter(PlatformAdapter):
         }
 
     def search_creators(self, category: str, count: int = 10) -> list[dict]:
+        self._fail_closed("search_creators")
         return []
 
     def get_campaign_report(self, kol_id: str, campaign_id: str) -> dict | None:
+        self._fail_closed("get_campaign_report")
         return None
 
     def get_shop_data(self, shop_id: str, metrics: list[str] | None = None) -> dict[str, Any]:
+        self._fail_closed("get_shop_data")
         return {
             "shop_id": shop_id,
             "platform": "wanxiangtai",
