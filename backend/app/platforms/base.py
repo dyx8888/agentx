@@ -48,6 +48,44 @@ class PlatformAdapter(ABC):
     Defines the interface that all platform adapters must implement
     """
 
+    implementation_status: str = "stub"
+
+    @property
+    def platform_name(self) -> str:
+        """Stable platform identifier used in logs and unavailable errors."""
+        return self._platform_code()
+
+    async def get_authorize_url(self, redirect_uri: str, state: str) -> str:
+        """Return an OAuth authorization URL when a concrete adapter supports OAuth."""
+        self._raise_unavailable(
+            "get_authorize_url",
+            "oauth_not_supported",
+            f"{self._platform_code()} does not support OAuth authorization.",
+            requires_config=False,
+        )
+
+    async def exchange_authorization_code(self, code: str, redirect_uri: str) -> dict:
+        """Exchange an OAuth authorization code when implemented by a concrete adapter."""
+        self._raise_unavailable(
+            "exchange_authorization_code",
+            "oauth_not_supported",
+            f"{self._platform_code()} does not support OAuth token exchange.",
+            requires_config=False,
+        )
+
+    async def refresh_access_token(self) -> dict:
+        """Refresh an OAuth access token when implemented by a concrete adapter."""
+        self._raise_unavailable(
+            "refresh_access_token",
+            "oauth_not_supported",
+            f"{self._platform_code()} does not support OAuth token refresh.",
+            requires_config=False,
+        )
+
+    def get_capabilities(self) -> list[str]:
+        """Return declared adapter capabilities without contacting external platforms."""
+        return ["search_creators", "get_campaign_report", "get_shop_data"]
+
     @abstractmethod
     def search_creators(self, category: str, count: int = 10) -> list[dict[str, Any]]:
         """
@@ -208,4 +246,19 @@ class PlatformAdapter(ABC):
             operation,
             error,
             fallback_attempted=fallback_data is not None,
+        )
+
+    def _handle_write_action_error(self, action: str, error: Exception) -> Any:
+        """Fail closed for platform write actions that must never fake success."""
+        logger.error(
+            "platform_write_action_failed_no_mock",
+            platform=self._platform_code(),
+            action=action,
+            error=str(error),
+        )
+        self._raise_unavailable(
+            action,
+            "write_action_failed",
+            f"{self._platform_code()} write action '{action}' failed; mock success is disabled.",
+            requires_config=False,
         )

@@ -3,6 +3,8 @@ Platform Adapters v2
 统一平台适配器注册中心，支持所有电商平台对接
 """
 
+import inspect
+
 from app.platforms.ad_platforms import OceanEngineAdapter, QanchuanAdapter, WanxiangtaiAdapter
 from app.platforms.base import PlatformAdapter
 from app.platforms.chanmama import ChanMamaAdapter
@@ -44,7 +46,11 @@ def get_platform_adapter(platform_name: str, company_id: int = None,
     if api_credentials:
         adapter = adapter_class(**api_credentials)
     else:
-        adapter = adapter_class()
+        params = inspect.signature(adapter_class).parameters
+        if company_id is not None and "company_id" in params:
+            adapter = adapter_class(company_id=company_id)
+        else:
+            adapter = adapter_class()
 
     if adapter.is_available():
         _ACTIVE_ADAPTERS[cache_key] = adapter
