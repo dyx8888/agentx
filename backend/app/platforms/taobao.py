@@ -31,6 +31,13 @@ class TaobaoAdapter(PlatformAdapter):
         }
 
     def get_shop_metrics(self, date: str) -> dict:
+        if not self._available:
+            self._require_available("get_shop_metrics")
+        self._raise_external_api_unavailable(
+            "get_shop_metrics",
+            RuntimeError("live shop metrics API is not implemented"),
+            fallback_attempted=True,
+        )
         try:
             return self._mock_shop_metrics(date)
         except Exception as e:
@@ -38,6 +45,13 @@ class TaobaoAdapter(PlatformAdapter):
 
     def get_item_list(self, page: int = 1, size: int = 20,
                         status: str = "onsale") -> list[dict]:
+        if not self._available:
+            self._require_available("get_item_list")
+        self._raise_external_api_unavailable(
+            "get_item_list",
+            RuntimeError("live item API is not implemented"),
+            fallback_attempted=True,
+        )
         try:
             return self._mock_item_list(page, size, status)
         except Exception as e:
@@ -45,18 +59,46 @@ class TaobaoAdapter(PlatformAdapter):
 
     def get_order_list(self, start: str, end: str,
                          page: int = 1, size: int = 20) -> list[dict]:
+        if not self._available:
+            self._require_available("get_order_list")
+        self._raise_external_api_unavailable(
+            "get_order_list",
+            RuntimeError("live order API is not implemented"),
+            fallback_attempted=True,
+        )
         try:
             return self._mock_order_list(start, end, page, size)
         except Exception as e:
             return self._handle_api_error(e, [])
 
     def search_creators(self, category: str, count: int = 10) -> list[dict]:
+        if not self._available:
+            self._require_available("search_creators")
+        self._raise_external_api_unavailable(
+            "search_creators",
+            RuntimeError("creator search is not supported by taobao adapter"),
+            fallback_attempted=True,
+        )
         return [{"platform": "taobao", "note": "淘宝达人搜索可通过淘宝联盟API"}]
 
     def get_campaign_report(self, kol_id: str, campaign_id: str) -> dict | None:
+        if not self._available:
+            self._require_available("get_campaign_report")
+        self._raise_external_api_unavailable(
+            "get_campaign_report",
+            RuntimeError("campaign report is not supported by taobao adapter"),
+            fallback_attempted=True,
+        )
         return None
 
     def get_shop_data(self, shop_id: str, metrics: list[str] | None = None) -> dict[str, Any]:
+        if not self._available:
+            self._require_available("get_shop_data")
+        self._raise_external_api_unavailable(
+            "get_shop_data",
+            RuntimeError("live shop data API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "shop_id": shop_id,
             "platform": "taobao",

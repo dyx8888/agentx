@@ -33,6 +33,13 @@ class DouyinShopAdapter(PlatformAdapter):
 
     def get_product_list(self, page: int = 1, size: int = 20,
                            status: str = "on_sale") -> list[dict[str, Any]]:
+        if not self._available:
+            self._require_available("get_product_list")
+        self._raise_external_api_unavailable(
+            "get_product_list",
+            RuntimeError("live product API is not implemented"),
+            fallback_attempted=True,
+        )
         try:
             logger.info("douyin_shop_fetching_products", page=page)
             if not self._available:
@@ -44,6 +51,13 @@ class DouyinShopAdapter(PlatformAdapter):
     def get_order_list(self, start_time: str, end_time: str,
                          page: int = 1, size: int = 20,
                          order_status: str = None) -> list[dict[str, Any]]:
+        if not self._available:
+            self._require_available("get_order_list")
+        self._raise_external_api_unavailable(
+            "get_order_list",
+            RuntimeError("live order API is not implemented"),
+            fallback_attempted=True,
+        )
         try:
             logger.info("douyin_shop_fetching_orders", start=start_time, end=end_time)
             if not self._available:
@@ -53,6 +67,13 @@ class DouyinShopAdapter(PlatformAdapter):
             return self._handle_api_error(e, [])
 
     def get_logistics_info(self, order_id: str) -> dict[str, Any]:
+        if not self._available:
+            self._require_available("get_logistics_info")
+        self._raise_external_api_unavailable(
+            "get_logistics_info",
+            RuntimeError("live logistics API is not implemented"),
+            fallback_attempted=True,
+        )
         try:
             if not self._available:
                 return self._mock_logistics(order_id)
@@ -62,6 +83,13 @@ class DouyinShopAdapter(PlatformAdapter):
 
     def get_after_sale_list(self, start_time: str, end_time: str,
                               page: int = 1, size: int = 20) -> list[dict[str, Any]]:
+        if not self._available:
+            self._require_available("get_after_sale_list")
+        self._raise_external_api_unavailable(
+            "get_after_sale_list",
+            RuntimeError("live after-sale API is not implemented"),
+            fallback_attempted=True,
+        )
         try:
             if not self._available:
                 return self._mock_after_sales(start_time, end_time, page, size)
@@ -70,13 +98,33 @@ class DouyinShopAdapter(PlatformAdapter):
             return self._handle_api_error(e, [])
 
     def search_creators(self, category: str, count: int = 10) -> list[dict[str, Any]]:
+        if not self._available:
+            self._require_available("search_creators")
+        self._raise_external_api_unavailable(
+            "search_creators",
+            RuntimeError("creator search is not supported by douyin_shop adapter"),
+            fallback_attempted=True,
+        )
         return [{"platform": "douyin_shop", "category": category,
                  "message": "请使用 DouyinStarAdapter 进行达人搜索"}]
 
     def get_campaign_report(self, kol_id: str, campaign_id: str) -> dict[str, Any] | None:
-        return None
+        if not self._available:
+            self._require_available("get_campaign_report")
+        self._raise_external_api_unavailable(
+            "get_campaign_report",
+            RuntimeError("campaign report is not supported by douyin_shop adapter"),
+            fallback_attempted=True,
+        )
 
     def get_shop_data(self, shop_id: str, metrics: list[str] | None = None) -> dict[str, Any]:
+        if not self._available:
+            self._require_available("get_shop_data")
+        self._raise_external_api_unavailable(
+            "get_shop_data",
+            RuntimeError("live shop data API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "shop_id": shop_id,
             "platform": "douyin_shop",

@@ -25,9 +25,23 @@ class ChanMamaAdapter(PlatformAdapter):
     def search_kols(self, category: str, platform: str = "douyin",
                       min_followers: int = 10000, max_followers: int = 10000000,
                       limit: int = 10) -> list[dict]:
+        if not self._available:
+            self._require_available("search_kols")
+        self._raise_external_api_unavailable(
+            "search_kols",
+            RuntimeError("live KOL search API is not implemented"),
+            fallback_attempted=True,
+        )
         return self._mock_kol_search(category, min_followers, max_followers, limit)
 
     def get_kol_detail(self, kol_id: str) -> dict:
+        if not self._available:
+            self._require_available("get_kol_detail")
+        self._raise_external_api_unavailable(
+            "get_kol_detail",
+            RuntimeError("live KOL detail API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "kol_id": kol_id,
             "name": f"达人_{kol_id[:6]}",
@@ -48,10 +62,24 @@ class ChanMamaAdapter(PlatformAdapter):
         }
 
     def get_hot_products(self, category: str = None, limit: int = 10) -> list[dict]:
+        if not self._available:
+            self._require_available("get_hot_products")
+        self._raise_external_api_unavailable(
+            "get_hot_products",
+            RuntimeError("live hot products API is not implemented"),
+            fallback_attempted=True,
+        )
         return self._mock_hot_products(category, limit)
 
     def get_live_room_ranking(self, category: str = None,
                                 sort_by: str = "gmv", limit: int = 10) -> list[dict]:
+        if not self._available:
+            self._require_available("get_live_room_ranking")
+        self._raise_external_api_unavailable(
+            "get_live_room_ranking",
+            RuntimeError("live room ranking API is not implemented"),
+            fallback_attempted=True,
+        )
         return [
             {
                 "rank": i + 1,
@@ -68,6 +96,13 @@ class ChanMamaAdapter(PlatformAdapter):
         return self.search_kols(category, limit=count)
 
     def get_campaign_report(self, kol_id: str, campaign_id: str) -> dict | None:
+        if not self._available:
+            self._require_available("get_campaign_report")
+        self._raise_external_api_unavailable(
+            "get_campaign_report",
+            RuntimeError("live campaign report API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "kol_id": kol_id,
             "campaign_id": campaign_id,
@@ -81,6 +116,13 @@ class ChanMamaAdapter(PlatformAdapter):
         }
 
     def get_shop_data(self, shop_id: str, metrics: list[str] | None = None) -> dict[str, Any]:
+        if not self._available:
+            self._require_available("get_shop_data")
+        self._raise_external_api_unavailable(
+            "get_shop_data",
+            RuntimeError("live shop data API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "shop_id": shop_id,
             "platform": "chanmama",

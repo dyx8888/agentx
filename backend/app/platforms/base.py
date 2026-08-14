@@ -10,6 +10,38 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+
+class PlatformAdapterUnavailable(RuntimeError):
+    """Raised when a platform adapter cannot return verified external data."""
+
+    def __init__(
+        self,
+        *,
+        platform: str,
+        operation: str,
+        code: str,
+        message: str,
+        requires_config: bool = False,
+    ):
+        super().__init__(message)
+        self.status = "unavailable"
+        self.platform = platform
+        self.operation = operation
+        self.code = code
+        self.requires_config = requires_config
+        self.message = message
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "platform": self.platform,
+            "operation": self.operation,
+            "code": self.code,
+            "message": self.message,
+            "requires_config": self.requires_config,
+        }
+
+
 class PlatformAdapter(ABC):
     """
     Abstract base class for platform adapters
@@ -99,17 +131,81 @@ class PlatformAdapter(ABC):
         if error:
             logger.error("platform_api_error", error=error)
 
-    def _handle_api_error(self, error: Exception, fallback_data: Any = None) -> Any:
+    def _platform_code(self) -> str:
+        try:
+            info = self.get_platform_info()
+            return str(info.get("code") or info.get("name") or self.__class__.__name__)
+        except Exception:
+            return self.__class__.__name__
+
+    def _raise_unavailable(
+        self,
+        operation: str,
+        code: str,
+        message: str,
+        *,
+        requires_config: bool = False,
+    ) -> None:
+        raise PlatformAdapterUnavailable(
+            platform=self._platform_code(),
+            operation=operation,
+            code=code,
+            message=message,
+            requires_config=requires_config,
+        )
+
+    def _require_available(self, operation: str) -> None:
+        if self.is_available():
+            return
+        self._raise_unavailable(
+            operation,
+            "requires_config",
+            f"{self._platform_code()}.{operation} requires verified platform credentials.",
+            requires_config=True,
+        )
+
+    def _raise_external_api_unavailable(
+        self,
+        operation: str,
+        error: Exception | None = None,
+        *,
+        fallback_attempted: bool = False,
+    ) -> None:
+        code = "external_api_unavailable"
+        if fallback_attempted:
+            try:
+                from app.mcp_servers.mock_policy import mock_fallback_enabled
+
+                if not mock_fallback_enabled():
+                    code = "mock_fallback_blocked"
+            except Exception:
+                pass
+        detail = f": {error}" if error else ""
+        self._raise_unavailable(
+            operation,
+            code,
+            f"{self._platform_code()}.{operation} cannot return verified external data{detail}.",
+            requires_config=False,
+        )
+
+    def _handle_api_error(
+        self, error: Exception, fallback_data: Any = None, operation: str = "api_call"
+    ) -> Any:
         """
-        Handle API errors with fallback to mock data
+        Handle API errors without returning mock fallback data.
         
         Args:
             error: The exception that occurred
-            fallback_data: Data to return when API fails
+            fallback_data: Legacy fallback data. It is never returned.
             
         Returns:
-            Fallback data or error message
+            Never returns; raises a structured unavailable error.
         """
         logger.error("platform_api_error_handled", error=str(error))
-        logger.info("platform_api_fallback_to_mock")
-        return fallback_data
+        if fallback_data is not None:
+            logger.warning("platform_api_mock_fallback_blocked", operation=operation)
+        self._raise_external_api_unavailable(
+            operation,
+            error,
+            fallback_attempted=fallback_data is not None,
+        )

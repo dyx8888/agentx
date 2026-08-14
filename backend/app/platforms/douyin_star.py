@@ -23,10 +23,21 @@ class DouyinStarAdapter(PlatformAdapter):
     Integrates with Douyin Star API for real KOL search and campaign data
     """
 
-    def __init__(self, company_id: int = None):
+    def __init__(
+        self,
+        company_id: int = None,
+        app_id: str = None,
+        app_secret: str = None,
+        access_token: str = None,
+        advertiser_id: str = None,
+        api_key: str = None,
+        api_secret: str = None,
+    ):
         """Initialize Douyin Star adapter"""
-        self.api_key = None
-        self.api_secret = None
+        self.api_key = api_key or app_id or access_token
+        self.api_secret = api_secret or app_secret
+        self.access_token = access_token
+        self.advertiser_id = advertiser_id
 
         if company_id:
             # 从数据库获取公司专属凭证
@@ -37,8 +48,23 @@ class DouyinStarAdapter(PlatformAdapter):
                     import json
                     credentials = json.loads(company.platform_credentials)
                     douyin_creds = credentials.get('douyin_star', {})
-                    self.api_key = douyin_creds.get('api_key')
-                    self.api_secret = douyin_creds.get('api_secret')
+                    if isinstance(douyin_creds, dict) and isinstance(
+                        douyin_creds.get("credentials"), dict
+                    ):
+                        douyin_creds = douyin_creds["credentials"]
+                    self.api_key = (
+                        douyin_creds.get('api_key')
+                        or douyin_creds.get('app_id')
+                        or douyin_creds.get('access_token')
+                        or self.api_key
+                    )
+                    self.api_secret = (
+                        douyin_creds.get('api_secret')
+                        or douyin_creds.get('app_secret')
+                        or self.api_secret
+                    )
+                    self.access_token = douyin_creds.get("access_token") or self.access_token
+                    self.advertiser_id = douyin_creds.get("advertiser_id") or self.advertiser_id
                     logger.info(f"Loaded company-specific credentials for company {company_id}")
             except Exception as e:
                 logger.warning(f"Failed to load company credentials for {company_id}: {e}")
@@ -72,8 +98,7 @@ class DouyinStarAdapter(PlatformAdapter):
             List of creator dictionaries with Douyin Star data
         """
         if not self.is_available():
-            logger.warning("platform_mock_fallback", category=category)
-            return self._get_mock_creators(category, count)
+            self._require_available("search_creators")
 
         try:
             # 构建请求参数
@@ -113,13 +138,19 @@ class DouyinStarAdapter(PlatformAdapter):
                 return creators
             else:
                 logger.error("platform_api_error", status_code=response.status_code, response=response.text)
-                logger.warning("platform_mock_fallback", category=category)
-                return self._get_mock_creators(category, count)
+                return self._handle_api_error(
+                    RuntimeError(f"Douyin Star API returned {response.status_code}"),
+                    self._get_mock_creators(category, count),
+                    operation="search_creators",
+                )
 
         except Exception as e:
             logger.error("platform_exception", error=str(e))
-            logger.warning("platform_mock_fallback", category=category)
-            return self._get_mock_creators(category, count)
+            return self._handle_api_error(
+                e,
+                self._get_mock_creators(category, count),
+                operation="search_creators",
+            )
 
     def get_campaign_report(self, kol_id: str, campaign_id: str) -> dict[str, Any] | None:
         """
@@ -133,22 +164,12 @@ class DouyinStarAdapter(PlatformAdapter):
             Campaign performance data or None if not found
         """
         if not self.is_available():
-            return self._fallback_campaign_report(kol_id, campaign_id)
-
-        try:
-            # Mock implementation - replace with actual API call
-            mock_report = self._get_mock_campaign_report(kol_id, campaign_id)
-            self._log_api_call(
-                method="GET",
-                url=f"{self.base_url}/campaign/report",
-                params={"kol_id": kol_id, "campaign_id": campaign_id},
-                success=True,
-                response=mock_report
-            )
-            return mock_report
-
-        except Exception as e:
-            return self._handle_api_error(e, self._get_mock_campaign_report(kol_id, campaign_id))
+            self._require_available("get_campaign_report")
+        self._raise_external_api_unavailable(
+            "get_campaign_report",
+            RuntimeError("live campaign report API is not implemented"),
+            fallback_attempted=True,
+        )
 
     def get_platform_info(self) -> dict[str, Any]:
         """
@@ -178,6 +199,13 @@ class DouyinStarAdapter(PlatformAdapter):
         return bool(self.api_key and self.api_secret)
 
     def get_shop_data(self, shop_id: str, metrics: list[str] | None = None) -> dict[str, Any]:
+        if not self.is_available():
+            self._require_available("get_shop_data")
+        self._raise_external_api_unavailable(
+            "get_shop_data",
+            RuntimeError("live shop data API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "shop_id": shop_id,
             "platform": "douyin_star",
