@@ -154,4 +154,78 @@ describe('MessageBubble', () => {
     expect(screen.getByText(/品牌私域资料/)).toBeInTheDocument();
     expect(screen.queryByText(/搜索到 3 个网页/)).not.toBeInTheDocument();
   });
+  it('renders grounded KOL results as readable enterprise talent cards', () => {
+    render(
+      <MessageBubble
+        message={{
+          id: 'assistant-kol-results',
+          role: 'assistant',
+          content: [
+            '已基于当前企业达人库找到 1 位匹配“护肤、小红书”的达人：',
+            '',
+            '| # | 达人名称 | 平台 | 粉丝数 | 互动率 | 分类 | 数据来源 |',
+            '|---|---|---|---:|---:|---|---|',
+            '| 1 | 企业护肤达人A | 小红书 | 12.0万 | 4.2% | 护肤 | 人工导入 |',
+            '',
+            '以上结果均来自当前企业达人库，未使用 mock/demo/fallback 数据。',
+          ].join('\n'),
+          isStreaming: false,
+          sources: [],
+          toolResults: [],
+          delegations: [],
+        }}
+      />
+    );
+
+    expect(screen.getByText('企业达人库结果')).toBeInTheDocument();
+    expect(screen.getByText('企业护肤达人A')).toBeInTheDocument();
+    expect(screen.getByText('小红书')).toBeInTheDocument();
+    expect(screen.getByText('12.0万')).toBeInTheDocument();
+    expect(screen.getByText('4.2%')).toBeInTheDocument();
+    expect(screen.getByText('护肤')).toBeInTheDocument();
+    expect(screen.getByText('企业达人库')).toBeInTheDocument();
+    expect(screen.getByText('人工导入')).toBeInTheDocument();
+  });
+
+  it('renders requires_kol_data as an actionable data setup prompt', () => {
+    render(
+      <MessageBubble
+        message={{
+          id: 'assistant-kol-required',
+          role: 'assistant',
+          code: 'requires_kol_data',
+          content: '当前企业达人库无匹配数据（requires_kol_data）。',
+          isStreaming: false,
+          sources: [],
+          toolResults: [],
+          delegations: [],
+        }}
+      />
+    );
+
+    expect(screen.getByText('需要企业达人数据')).toBeInTheDocument();
+    expect(screen.getByText(/导入达人数据/)).toBeInTheDocument();
+    expect(screen.getByText(/完成平台授权/)).toBeInTheDocument();
+    expect(screen.getByText(/不会用 mock\/demo 达人补齐结果/)).toBeInTheDocument();
+  });
+
+  it('does not show KOL cards for ordinary assistant messages', () => {
+    render(
+      <MessageBubble
+        message={{
+          id: 'assistant-normal',
+          role: 'assistant',
+          content: '这是一条普通聊天回答，保留原有 markdown 渲染。',
+          isStreaming: false,
+          sources: [],
+          toolResults: [],
+          delegations: [],
+        }}
+      />
+    );
+
+    expect(screen.getByText('这是一条普通聊天回答，保留原有 markdown 渲染。')).toBeInTheDocument();
+    expect(screen.queryByText('企业达人库结果')).not.toBeInTheDocument();
+    expect(screen.queryByText('需要企业达人数据')).not.toBeInTheDocument();
+  });
 });

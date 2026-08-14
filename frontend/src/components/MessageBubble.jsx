@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+﻿import { memo, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -110,6 +110,18 @@ const SOURCE_TYPE_LABELS = {
   sample: 'sample 数据',
 };
 
+const KOL_SOURCE_LABELS = {
+  manual: '人工导入',
+  manual_upload: '人工导入',
+  public_web: '公开网页整理',
+  web: '公开网页整理',
+  cached_snapshot: '缓存快照',
+  official_api: '平台授权数据',
+  partner_api: '平台授权数据',
+  enterprise: '企业达人库',
+  enterprise_data: '企业达人库',
+};
+
 function getSourceType(src) {
   if (typeof src === 'string') return src.startsWith('http') ? 'web' : 'knowledge_base';
   return (
@@ -126,6 +138,115 @@ function getSourceType(src) {
 function getSourceTypeLabel(src) {
   const type = String(getSourceType(src) || '').trim().toLowerCase();
   return SOURCE_TYPE_LABELS[type] || '未标注来源';
+}
+
+function splitMarkdownRow(line) {
+  return String(line || '')
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+function isMarkdownSeparator(line) {
+  const cells = splitMarkdownRow(line);
+  return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function findKolTableBlock(lines) {
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    const header = lines[i] || '';
+    if (
+      header.includes('达人名称') &&
+      header.includes('平台') &&
+      header.includes('数据来源') &&
+      isMarkdownSeparator(lines[i + 1])
+    ) {
+      let end = i + 2;
+      while (end < lines.length && /^\s*\|/.test(lines[end] || '')) {
+        end += 1;
+      }
+      return { start: i, end };
+    }
+  }
+  return null;
+}
+
+function normalizeKolResult(item) {
+  if (!item) return null;
+  return {
+    rank: item.rank || item.index || item.no || item['#'] || '',
+    name: item.name || item.kol_name || item.creator_name || item['达人名称'] || '',
+    platform: item.platform || item['平台'] || '-',
+    followers: item.followers || item.follower_count || item['粉丝数'] || '-',
+    engagement: item.engagement_rate || item.engagement || item['互动率'] || '-',
+    category: item.category || item.category_label || item['分类'] || '-',
+    dataSource: item.data_source || item.source || item['数据来源'] || 'enterprise',
+  };
+}
+
+function extractKolResultsFromMarkdown(content) {
+  const lines = String(content || '').split(/\r?\n/);
+  const block = findKolTableBlock(lines);
+  if (!block) return [];
+
+  return lines
+    .slice(block.start + 2, block.end)
+    .map(splitMarkdownRow)
+    .filter((cells) => cells.length >= 7 && cells.some(Boolean))
+    .map((cells) => normalizeKolResult({
+      rank: cells[0],
+      name: cells[1],
+      platform: cells[2],
+      followers: cells[3],
+      engagement_rate: cells[4],
+      category: cells[5],
+      data_source: cells[6],
+    }))
+    .filter((item) => item?.name);
+}
+
+function stripKolMarkdownTable(content) {
+  const text = String(content || '');
+  const lines = text.split(/\r?\n/);
+  const block = findKolTableBlock(lines);
+  if (!block) return text;
+  return [...lines.slice(0, block.start), ...lines.slice(block.end)]
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function getStructuredKolResults(message) {
+  const candidates = [
+    message?.kolResults,
+    message?.kol_results,
+    message?.results,
+    message?.metadata?.kolResults,
+    message?.metadata?.kol_results,
+    message?.metadata?.results,
+    message?.data?.kolResults,
+    message?.data?.kol_results,
+    message?.data?.results,
+  ];
+  const results = candidates.find((value) => Array.isArray(value) && value.length > 0);
+  return (results || []).map(normalizeKolResult).filter((item) => item?.name);
+}
+
+function getKolSourceLabel(source) {
+  const normalized = String(source || '').trim().toLowerCase();
+  return KOL_SOURCE_LABELS[normalized] || SOURCE_TYPE_LABELS[normalized] || source || '企业达人库';
+}
+
+function hasKolDataRequirement(message, content) {
+  const code = message?.code || message?.metadata?.code || message?.data?.code;
+  const text = String(content || message?.content || '');
+  return (
+    code === 'requires_kol_data' ||
+    text.includes('requires_kol_data') ||
+    text.includes('当前企业达人库无匹配数据')
+  );
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -223,6 +344,79 @@ function SourcesSection({ sources }) {
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+function KolDataRequiredNotice() {
+  return (
+    <div
+      className="mb-3 rounded-lg border border-macaron-yellow/40 bg-macaron-yellow/10 px-3 py-2.5"
+      role="status"
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-macaron-yellow" />
+        <div>
+          <p className="text-sm font-medium text-foreground">需要企业达人数据</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            当前企业达人库无匹配数据。请先到设置页导入达人数据，或完成平台授权后再搜索；不会用
+            mock/demo 达人补齐结果。
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KolResultsSection({ results }) {
+  if (!Array.isArray(results) || results.length === 0) return null;
+
+  return (
+    <div className="mb-3 rounded-lg border border-macaron-mint/35 bg-macaron-mint/10 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Users className="size-4 text-macaron-mint" />
+          <span className="text-sm font-medium text-foreground">企业达人库结果</span>
+        </div>
+        <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground">
+          {results.length} 位达人
+        </span>
+      </div>
+      <div className="space-y-2">
+        {results.map((kol, index) => (
+          <div
+            key={`${kol.name}-${kol.platform}-${index}`}
+            className="rounded-lg border border-border bg-card px-3 py-2"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-foreground">{kol.name}</span>
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
+                {kol.platform}
+              </span>
+              <span className="rounded-full bg-macaron-mint/20 px-2 py-0.5 text-[11px] text-foreground/80">
+                企业达人库
+              </span>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                {getKolSourceLabel(kol.dataSource)}
+              </span>
+            </div>
+            <dl className="mt-2 grid grid-cols-3 gap-2 text-xs">
+              <div>
+                <dt className="text-muted-foreground">粉丝数</dt>
+                <dd className="mt-0.5 font-medium text-foreground">{kol.followers}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">互动率</dt>
+                <dd className="mt-0.5 font-medium text-foreground">{kol.engagement}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">分类</dt>
+                <dd className="mt-0.5 font-medium text-foreground">{kol.category}</dd>
+              </div>
+            </dl>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -439,10 +633,21 @@ function MessageBubble({
     [toolResults]
   );
 
+  const kolResults = useMemo(() => {
+    if (isUser) return [];
+    const structured = getStructuredKolResults(message);
+    return structured.length > 0 ? structured : extractKolResultsFromMarkdown(content);
+  }, [isUser, message, content]);
+  const kolDataRequired = !isUser && hasKolDataRequirement(message, content);
+  const displayContent = useMemo(() => {
+    if (kolResults.length === 0) return content;
+    return stripKolMarkdownTable(content);
+  }, [content, kolResults.length]);
+
   const markdown = useMemo(() => {
-    if (isUser || !content) return null;
-    return <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>;
-  }, [isUser, content]);
+    if (isUser || !displayContent) return null;
+    return <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>;
+  }, [isUser, displayContent]);
 
   const waitingForFirstContent = !isUser && isStreaming && !content;
   const [showSlowNotice, setShowSlowNotice] = useState(false);
@@ -519,8 +724,11 @@ function MessageBubble({
             <WarningSection warnings={warnings} />
             <DelegationSection delegations={delegations} />
 
+            {kolDataRequired ? <KolDataRequiredNotice /> : null}
+            <KolResultsSection results={kolResults} />
+
             {/* 正文 */}
-            {content ? (
+            {displayContent ? (
               <div className={cn('prose-chat', isStreaming && 'typing-caret')}>
                 {markdown}
               </div>
