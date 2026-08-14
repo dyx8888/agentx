@@ -141,3 +141,22 @@ def test_openapi_schema_includes_feedback_stats_route():
 
     assert "/api/feedback/stats" in paths
     assert "get" in paths["/api/feedback/stats"]
+
+
+def test_openapi_schema_includes_admin_companies_routes():
+    from app.main import app
+
+    paths = app.openapi()["paths"]
+
+    assert "/api/admin/companies/" in paths
+    assert "get" in paths["/api/admin/companies/"]
+    assert "/api/admin/companies/{company_id}" in paths
+    assert "get" in paths["/api/admin/companies/{company_id}"]
+    assert "/api/admin/companies/{company_id}/credentials" in paths
+    assert "get" in paths["/api/admin/companies/{company_id}/credentials"]
+    assert "post" in paths["/api/admin/companies/{company_id}/credentials"]
+    assert "/api/admin/companies/{company_id}/credentials/{platform}/verify" in paths
+    assert (
+        "post"
+        in paths["/api/admin/companies/{company_id}/credentials/{platform}/verify"]
+    )
