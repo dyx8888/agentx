@@ -27,6 +27,13 @@ class PinduoduoOpenAdapter(PlatformAdapter):
         return {"name": "拼多多开放平台", "code": "pinduoduo_open", "type": "comprehensive"}
 
     def get_shop_overview(self, date: str) -> dict:
+        if not self._available:
+            self._require_available("get_shop_overview")
+        self._raise_external_api_unavailable(
+            "get_shop_overview",
+            RuntimeError("live shop overview API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "date": date,
             "gmv": 215000.00,
@@ -38,6 +45,13 @@ class PinduoduoOpenAdapter(PlatformAdapter):
         }
 
     def get_product_list(self, page: int = 1, page_size: int = 20) -> list[dict]:
+        if not self._available:
+            self._require_available("get_product_list")
+        self._raise_external_api_unavailable(
+            "get_product_list",
+            RuntimeError("live product API is not implemented"),
+            fallback_attempted=True,
+        )
         return [
             {
                 "goods_id": f"pdd_{i}",
@@ -55,6 +69,13 @@ class PinduoduoOpenAdapter(PlatformAdapter):
     def get_order_list(self, order_status: str = "paid",
                        start_time: str = None, end_time: str = None,
                        page: int = 1, page_size: int = 20) -> list[dict]:
+        if not self._available:
+            self._require_available("get_order_list")
+        self._raise_external_api_unavailable(
+            "get_order_list",
+            RuntimeError("live order API is not implemented"),
+            fallback_attempted=True,
+        )
         return [
             {
                 "order_sn": f"PDD{2501010000 + i}",
@@ -69,6 +90,13 @@ class PinduoduoOpenAdapter(PlatformAdapter):
         ]
 
     def get_logistics_info(self, order_sn: str) -> dict:
+        if not self._available:
+            self._require_available("get_logistics_info")
+        self._raise_external_api_unavailable(
+            "get_logistics_info",
+            RuntimeError("live logistics API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "order_sn": order_sn,
             "carrier": "中通快递",
@@ -82,6 +110,13 @@ class PinduoduoOpenAdapter(PlatformAdapter):
         }
 
     def get_promotion_metrics(self, date: str) -> dict:
+        if not self._available:
+            self._require_available("get_promotion_metrics")
+        self._raise_external_api_unavailable(
+            "get_promotion_metrics",
+            RuntimeError("live promotion metrics API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "date": date,
             "ad_spend": 12500.00,
@@ -96,6 +131,13 @@ class PinduoduoOpenAdapter(PlatformAdapter):
         }
 
     def get_category_data(self, category_id: str) -> dict:
+        if not self._available:
+            self._require_available("get_category_data")
+        self._raise_external_api_unavailable(
+            "get_category_data",
+            RuntimeError("live category API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "category_id": category_id,
             "name": "日用百货",
@@ -106,12 +148,32 @@ class PinduoduoOpenAdapter(PlatformAdapter):
         }
 
     def search_creators(self, category: str, count: int = 10) -> list[dict]:
+        if not self._available:
+            self._require_available("search_creators")
+        self._raise_external_api_unavailable(
+            "search_creators",
+            RuntimeError("creator search is not supported by pinduoduo adapter"),
+            fallback_attempted=True,
+        )
         return []
 
     def get_campaign_report(self, kol_id: str, campaign_id: str) -> dict | None:
-        return None
+        if not self._available:
+            self._require_available("get_campaign_report")
+        self._raise_external_api_unavailable(
+            "get_campaign_report",
+            RuntimeError("campaign report is not supported by pinduoduo adapter"),
+            fallback_attempted=True,
+        )
 
     def get_shop_data(self, shop_id: str, metrics: list[str] | None = None) -> dict[str, Any]:
+        if not self._available:
+            self._require_available("get_shop_data")
+        self._raise_external_api_unavailable(
+            "get_shop_data",
+            RuntimeError("live shop data API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "shop_id": shop_id,
             "platform": "pinduoduo",

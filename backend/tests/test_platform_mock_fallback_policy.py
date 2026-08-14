@@ -72,6 +72,24 @@ def test_kol_search_server_blocks_mock_fallback_in_prod(monkeypatch):
             ).TaobaoAdapter(),
             lambda adapter: adapter.get_shop_metrics("2026-08-14"),
         ),
+        (
+            lambda: __import__(
+                "app.platforms.pinduoduo", fromlist=["PinduoduoOpenAdapter"]
+            ).PinduoduoOpenAdapter(),
+            lambda adapter: adapter.get_product_list(page=1, page_size=1),
+        ),
+        (
+            lambda: __import__(
+                "app.platforms.xiaohongshu", fromlist=["XiaohongshuAdapter"]
+            ).XiaohongshuAdapter(),
+            lambda adapter: adapter.get_note_list(page=1, size=1),
+        ),
+        (
+            lambda: __import__(
+                "app.platforms.xiaohongshu", fromlist=["XiaohongshuAdapter"]
+            ).XiaohongshuAdapter(),
+            lambda adapter: adapter.post_note("title", "content"),
+        ),
     ],
 )
 def test_platform_adapters_require_credentials_before_mock_data(
@@ -136,6 +154,29 @@ def test_douyin_star_api_failure_blocks_mock_creator_results_in_prod(monkeypatch
                 app_key="key", app_secret="secret", session_key="session"
             ),
             lambda adapter: adapter.get_shop_data("shop-1"),
+        ),
+        (
+            __import__(
+                "app.platforms.pinduoduo", fromlist=["PinduoduoOpenAdapter"]
+            ).PinduoduoOpenAdapter(
+                pdd_client_id="client",
+                pdd_client_secret="secret",
+                pdd_access_token="token",
+                mall_id="mall-1",
+            ),
+            lambda adapter: adapter.get_shop_data("shop-1"),
+        ),
+        (
+            __import__(
+                "app.platforms.xiaohongshu", fromlist=["XiaohongshuAdapter"]
+            ).XiaohongshuAdapter(app_id="app", app_secret="secret"),
+            lambda adapter: adapter.get_shop_data("shop-1"),
+        ),
+        (
+            __import__(
+                "app.platforms.xiaohongshu", fromlist=["XiaohongshuAdapter"]
+            ).XiaohongshuAdapter(app_id="app", app_secret="secret"),
+            lambda adapter: adapter.post_note("title", "content"),
         ),
     ],
 )

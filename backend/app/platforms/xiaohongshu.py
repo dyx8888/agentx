@@ -24,6 +24,13 @@ class XiaohongshuAdapter(PlatformAdapter):
         return {"name": "小红书", "code": "xiaohongshu", "icon": "📕"}
 
     def get_note_list(self, page: int = 1, size: int = 20) -> list[dict]:
+        if not self._available:
+            self._require_available("get_note_list")
+        self._raise_external_api_unavailable(
+            "get_note_list",
+            RuntimeError("live note list API is not implemented"),
+            fallback_attempted=True,
+        )
         return [
             {
                 "note_id": f"xhs_note_{page}_{i}",
@@ -39,6 +46,13 @@ class XiaohongshuAdapter(PlatformAdapter):
         ]
 
     def get_note_detail(self, note_id: str) -> dict:
+        if not self._available:
+            self._require_available("get_note_detail")
+        self._raise_external_api_unavailable(
+            "get_note_detail",
+            RuntimeError("live note detail API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "note_id": note_id,
             "title": "种草笔记详情",
@@ -53,6 +67,13 @@ class XiaohongshuAdapter(PlatformAdapter):
 
     def get_private_messages(self, page: int = 1, limit: int = 20,
                                unread_only: bool = True) -> list[dict]:
+        if not self._available:
+            self._require_available("get_private_messages")
+        self._raise_external_api_unavailable(
+            "get_private_messages",
+            RuntimeError("live private message API is not implemented"),
+            fallback_attempted=True,
+        )
         return [
             {
                 "msg_id": f"msg_{page}_{i}",
@@ -67,6 +88,13 @@ class XiaohongshuAdapter(PlatformAdapter):
 
     def post_note(self, title: str, content: str, images: list[str] = None,
                     tags: list[str] = None, is_draft: bool = False) -> dict:
+        if not self._available:
+            self._require_available("post_note")
+        self._raise_external_api_unavailable(
+            "post_note",
+            RuntimeError("live note publishing API is not implemented"),
+            fallback_attempted=True,
+        )
         logger.info("xiaohongshu_note_queued", title=title[:50])
         return {
             "status": "draft" if is_draft else "published",
@@ -76,13 +104,33 @@ class XiaohongshuAdapter(PlatformAdapter):
         }
 
     def search_creators(self, category: str, count: int = 10) -> list[dict]:
+        if not self._available:
+            self._require_available("search_creators")
+        self._raise_external_api_unavailable(
+            "search_creators",
+            RuntimeError("creator search is not supported by xiaohongshu adapter"),
+            fallback_attempted=True,
+        )
         return [{"platform": "xiaohongshu", "category": category,
                  "note": "小红书达人搜索通过蒲公英平台"}]
 
     def get_campaign_report(self, kol_id: str, campaign_id: str) -> dict | None:
-        return None
+        if not self._available:
+            self._require_available("get_campaign_report")
+        self._raise_external_api_unavailable(
+            "get_campaign_report",
+            RuntimeError("campaign report is not supported by xiaohongshu adapter"),
+            fallback_attempted=True,
+        )
 
     def get_shop_data(self, shop_id: str, metrics: list[str] | None = None) -> dict[str, Any]:
+        if not self._available:
+            self._require_available("get_shop_data")
+        self._raise_external_api_unavailable(
+            "get_shop_data",
+            RuntimeError("live shop data API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "shop_id": shop_id,
             "platform": "xiaohongshu",
@@ -101,6 +149,13 @@ class XiaohongshuAdapter(PlatformAdapter):
         }
 
     def get_portfolio_stats(self, date_range: str = "7d") -> dict:
+        if not self._available:
+            self._require_available("get_portfolio_stats")
+        self._raise_external_api_unavailable(
+            "get_portfolio_stats",
+            RuntimeError("live portfolio stats API is not implemented"),
+            fallback_attempted=True,
+        )
         return {
             "period": date_range,
             "total_notes": 45,
