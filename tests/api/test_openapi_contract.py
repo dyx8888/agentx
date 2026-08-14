@@ -169,3 +169,12 @@ def test_openapi_schema_includes_admin_evolution_report_route():
 
     assert "/api/admin/evolution/report" in paths
     assert "get" in paths["/api/admin/evolution/report"]
+
+
+def test_openapi_schema_includes_pending_tasks_route():
+    from app.main import app
+
+    paths = app.openapi()["paths"]
+
+    assert "/api/tasks/pending" in paths
+    assert "get" in paths["/api/tasks/pending"]

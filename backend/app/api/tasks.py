@@ -81,6 +81,8 @@ class TaskResponse(BaseModel):
 class TaskListResponse(BaseModel):
     tasks: list[TaskResponse]  # 任务列表
     total: int  # 总数（用于前端分页）
+    status: str = "ok"
+    reason: str | None = None
 
 
 # 任务执行步骤的格式
@@ -288,7 +290,12 @@ async def get_pending_tasks(current_user: User = Depends(get_current_active_user
 
     except Exception:
         logger.exception("get_pending_tasks_failed")
-        raise HTTPException(status_code=500, detail="内部服务器错误")
+        return TaskListResponse(
+            tasks=[],
+            total=0,
+            status="unavailable",
+            reason="pending_tasks_unavailable",
+        )
 
 
 # ==========================================
