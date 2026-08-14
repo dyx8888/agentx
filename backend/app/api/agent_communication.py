@@ -38,6 +38,7 @@ from app.agent import build_reaction_graph, build_system_message, State
 
 # 导入认证功能，确保只有登录用户才能调用这些接口
 from app.auth import get_current_active_user
+from app.core.logging import get_logger
 
 # 导入用户模型和数据库操作对象
 from app.database import User, db
@@ -50,6 +51,7 @@ from app.tools.registry import registry
 
 # 创建路由对象，tags=["agent_communication"] 用于 API 文档分组
 router = APIRouter(tags=["agent_communication"])
+logger = get_logger(__name__)
 
 # ==========================================
 # 请求和响应的数据格式定义
@@ -70,7 +72,7 @@ class DelegateResponse(BaseModel):
     result: str | None = None  # 成功时的执行结果
     error: str | None = None  # 失败时的错误信息
 
-@router.post("/{agent_id}/delegate", response_model=DelegateResponse)
+@router.post("/{agent_id:int}/delegate", response_model=DelegateResponse)
 async def delegate_task_to_agent(
     agent_id: int,  # 源 Agent ID（发起委派的 Agent）
     request: DelegateRequest,
@@ -132,15 +134,14 @@ async def delegate_task_to_agent(
         # 第五步：定义目标 Agent 的思考逻辑
         # --------------------------
         # 这是一个内部函数，定义了 Agent 如何处理任务
-        def agent(state: State):
+        async def agent(state: State):
             messages = state["messages"]  # 获取消息历史（对话记录）
             company_context = state.get("company_context", {})  # 获取公司背景信息
             # 构建系统提示词，告诉 AI "你是谁、你要做什么"
             system_message = build_system_message(company_context)
             # 把系统提示词放在最前面，确保 AI 记住自己的角色
             messages_with_system = [SystemMessage(content=system_message)] + messages
-            # 调用 AI 模型生成响应
-            response = llm_with_tools.invoke(messages_with_system)
+            response = await llm_with_tools.ainvoke(messages_with_system)
             return {"messages": [response]}
 
         # 构建 ReAct 图
@@ -188,11 +189,11 @@ async def delegate_task_to_agent(
             result=result_text
         )
 
-    except Exception as e:
-        # 如果执行过程中出错，返回失败信息
+    except Exception:
+        logger.exception("delegate_task_failed")
         return DelegateResponse(
             success=False,
-            error=f"Delegation failed: {str(e)}"
+            error="Delegation failed"
         )
 
 # ==========================================
@@ -201,7 +202,7 @@ async def delegate_task_to_agent(
 # GET /{agent_id}/colleagues
 # 功能：让一个 Agent 查看同公司还有哪些其他 Agent
 # 示例：品牌商务 Agent 想知道公司还有哪些 Agent 可以帮忙
-@router.get("/{agent_id}/colleagues")
+@router.get("/{agent_id:int}/colleagues")
 async def get_agent_colleagues(
     agent_id: int,  # 当前 Agent 的 ID
     current_user: User = Depends(get_current_active_user)  # 验证用户登录
