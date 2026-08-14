@@ -38,6 +38,25 @@ VALID_IMPORT_DATA_SOURCES = {
     "partner_api",
 }
 
+SOURCE_LABELS = {
+    "manual": "人工导入",
+    "manual_upload": "人工导入",
+    "public_web": "公开网页整理",
+    "cached_snapshot": "历史缓存快照",
+    "official_api": "平台授权数据",
+    "partner_api": "平台授权数据",
+}
+
+NON_PRODUCTION_DATA_SOURCES = {"mock", "demo", "seed", "sample"}
+NON_PRODUCTION_SOURCE_LABEL_TOKENS = {
+    "mock",
+    "demo",
+    "seed",
+    "sample",
+    "演示",
+    "示例",
+}
+
 
 # ============================================================
 # Pydantic Schemas
@@ -83,6 +102,7 @@ class KolSearchResponse(BaseModel):
     data_source_warning: str | None = Field(
         default=None, description="数据来源风险提示；为空表示未发现明显来源风险"
     )
+    source_labels: dict[str, str] = Field(default_factory=dict, description="数据来源可读标签")
 
 
 class KolExportRequest(BaseModel):
@@ -146,6 +166,7 @@ class KolImportItem(BaseModel):
         "manual_upload",
         description="数据来源：manual_upload/public_web/cached_snapshot/official_api/partner_api",
     )
+    source_label: str | None = Field(None, max_length=100, description="数据来源可读标签")
     source_url: str | None = Field(None, max_length=1000, description="公开网页或外部来源 URL")
     source_note: str | None = Field(None, max_length=1000, description="来源备注")
     is_active: bool = True
@@ -168,6 +189,18 @@ class KolImportItem(BaseModel):
             )
         return normalized
 
+    @field_validator("source_label")
+    @classmethod
+    def validate_source_label(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        label = v.strip()
+        if not label:
+            return None
+        if _is_non_production_source_label(label):
+            raise ValueError("source_label 不允许标记为 mock/demo/seed/sample")
+        return label
+
 
 class KolImportRequest(BaseModel):
     """达人批量导入请求。"""
@@ -185,6 +218,7 @@ class KolImportResponse(BaseModel):
     dry_run: bool
     data_source_summary: dict[str, int]
     data_source_warning: str | None = None
+    source_labels: dict[str, str] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
 
 
@@ -193,11 +227,36 @@ class KolImportResponse(BaseModel):
 # ============================================================
 
 
+def _source_to_label(source: str | None, explicit_label: str | None = None) -> str:
+    if explicit_label and explicit_label.strip():
+        return explicit_label.strip()
+    normalized = (source or "").strip().lower()
+    return SOURCE_LABELS.get(normalized, normalized or "未知来源")
+
+
+def _is_non_production_source(source: str | None) -> bool:
+    normalized = (source or "").strip().lower()
+    return normalized in NON_PRODUCTION_DATA_SOURCES
+
+
+def _is_non_production_source_label(label: str | None) -> bool:
+    normalized = (label or "").strip().lower()
+    return any(token in normalized for token in NON_PRODUCTION_SOURCE_LABEL_TOKENS)
+
+
+def _source_labels_for_summary(summary: dict[str, int]) -> dict[str, str]:
+    return {source: _source_to_label(source) for source in summary}
+
+
 def _kol_to_dict(kol: KolProfile) -> dict:
     """将 KolProfile ORM 模型转为字典"""
     data_source = getattr(kol, "data_source", "manual")
     if not isinstance(data_source, str) or not data_source:
         data_source = "manual"
+    data_source = data_source.strip().lower()
+    source_label = _source_to_label(data_source)
+    followers = getattr(kol, "followers", 0) or 0
+    source_available_for_search = not _is_non_production_source(data_source)
     last_synced_at = getattr(kol, "last_synced_at", None)
     if hasattr(last_synced_at, "isoformat"):
         last_synced_at = last_synced_at.isoformat()
@@ -208,7 +267,9 @@ def _kol_to_dict(kol: KolProfile) -> dict:
         "id": kol.id,
         "name": kol.name,
         "platform": kol.platform,
-        "followers": kol.followers,
+        "followers": followers,
+        "follower_count": followers,
+        "followers_count": followers,
         "engagement_rate": kol.engagement_rate,
         "category": kol.category,
         "sub_category": kol.sub_category,
@@ -222,7 +283,10 @@ def _kol_to_dict(kol: KolProfile) -> dict:
         "verified": kol.verified,
         "bio": kol.bio,
         "avatar_url": kol.avatar_url,
+        "source": data_source,
         "data_source": data_source,
+        "source_label": source_label,
+        "source_available_for_search": source_available_for_search,
         "source_url": getattr(kol, "source_url", None),
         "source_note": getattr(kol, "source_note", None),
         "last_synced_at": last_synced_at,
@@ -467,6 +531,7 @@ async def import_kols_endpoint(
             dry_run=request.dry_run,
             data_source_summary=data_source_summary,
             data_source_warning=data_source_warning,
+            source_labels=_source_labels_for_summary(data_source_summary),
             errors=errors,
         )
     except HTTPException:
@@ -518,6 +583,12 @@ async def search_kols_endpoint(
                 limit=request.limit,
             )
 
+            kol_dicts = [
+                item
+                for item in (_kol_to_dict(r) for r in results)
+                if item.get("source_available_for_search") is not False
+            ]
+
             # 保存搜索历史
             if user_id > 0:
                 try:
@@ -528,30 +599,30 @@ async def search_kols_endpoint(
                         query=request.query,
                         platform_filter=request.platform if request.platform != "all" else None,
                         category_filter=request.category,
-                        result_count=len(results),
+                        result_count=len(kol_dicts),
                     )
                 except Exception as hist_err:
                     logger.warning("kol_search_history_save_failed", error=str(hist_err))
 
-            kol_dicts = [_kol_to_dict(r) for r in results]
             data_source_summary, data_source_warning = _summarize_kol_data_sources(kol_dicts)
             search_id = str(uuid.uuid4())[:8]
 
             logger.info(
                 "kol_search_api",
                 query=request.query,
-                total=len(results),
+                total=len(kol_dicts),
                 search_id=search_id,
                 data_source_summary=data_source_summary,
                 data_source_warning=data_source_warning,
             )
 
             return KolSearchResponse(
-                total=len(results),
+                total=len(kol_dicts),
                 results=kol_dicts,
                 search_id=search_id,
                 data_source_summary=data_source_summary,
                 data_source_warning=data_source_warning,
+                source_labels=_source_labels_for_summary(data_source_summary),
             )
 
     except Exception:

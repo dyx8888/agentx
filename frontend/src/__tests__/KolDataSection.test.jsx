@@ -27,9 +27,23 @@ describe('KolDataSection', () => {
       skipped: 0,
       dry_run: false,
       data_source_summary: { public_web: 1, manual_upload: 1 },
+      source_labels: { public_web: '公开网页整理', manual_upload: '人工导入' },
       data_source_warning: 'imported_non_official_sources',
     });
-    mockSearchKols.mockResolvedValue({ total: 0, results: [], data_source_summary: {} });
+    mockSearchKols.mockResolvedValue({
+      total: 0,
+      results: [],
+      data_source_summary: {},
+      source_labels: {},
+    });
+  });
+
+  it('shows an actionable empty data prompt', () => {
+    render(<KolDataSection />);
+
+    expect(screen.getByText('暂无企业达人数据')).toBeInTheDocument();
+    expect(screen.getByText(/上传 CSV/)).toBeInTheDocument();
+    expect(screen.getByText(/平台授权/)).toBeInTheDocument();
   });
 
   it('shows readable data source labels after uploading KOL CSV', async () => {
@@ -43,8 +57,81 @@ describe('KolDataSection', () => {
       ].join('\n')
     );
 
-    expect(await screen.findByText('公开网页 1')).toBeInTheDocument();
+    expect(await screen.findByText('公开网页整理 1')).toBeInTheDocument();
     expect(screen.getByText('人工导入 1')).toBeInTheDocument();
+  });
+
+  it('shows imported source labels after successful CSV import', async () => {
+    const { container } = render(<KolDataSection />);
+    uploadCsv(
+      container,
+      [
+        'name,platform,category,data_source,followers,engagement_rate',
+        '公开网页达人,douyin,护肤,public_web,100000,3.2',
+      ].join('\n')
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /导入/ }));
+
+    expect(await screen.findByText('导入完成')).toBeInTheDocument();
+    expect(screen.getAllByText('公开网页整理 1').length).toBeGreaterThan(0);
+    expect(screen.getByText(/聊天回答会使用同一套来源标签/)).toBeInTheDocument();
+  });
+
+  it('shows search verification fields aligned with chat KOL cards', async () => {
+    mockSearchKols.mockResolvedValueOnce({
+      total: 1,
+      data_source_summary: { manual_upload: 1 },
+      source_labels: { manual_upload: '人工导入' },
+      results: [
+        {
+          id: 1,
+          name: '企业护肤达人',
+          platform: 'xiaohongshu',
+          followers: 120000,
+          engagement_rate: 4.2,
+          category: '护肤',
+          data_source: 'manual_upload',
+          source_label: '人工导入',
+          source_available_for_search: true,
+        },
+      ],
+    });
+
+    render(<KolDataSection />);
+    fireEvent.click(screen.getByRole('button', { name: /搜索验证/ }));
+
+    expect(await screen.findByText('企业护肤达人')).toBeInTheDocument();
+    expect(screen.getByText('搜索结果已按企业达人库字段验证：1 条')).toBeInTheDocument();
+    expect(screen.getByText(/xiaohongshu · 120,000 粉丝 · 互动率 4.2% · 护肤/)).toBeInTheDocument();
+    expect(screen.getAllByText('人工导入').length).toBeGreaterThan(0);
+  });
+
+  it('marks mock/demo search results as unavailable for real business search', async () => {
+    mockSearchKols.mockResolvedValueOnce({
+      total: 1,
+      data_source_summary: { demo: 1 },
+      source_labels: { demo: '演示数据' },
+      results: [
+        {
+          id: 99,
+          name: '演示达人',
+          platform: 'douyin',
+          followers: 999999,
+          engagement_rate: 9.9,
+          category: '护肤',
+          data_source: 'demo',
+          source_label: '演示数据',
+          source_available_for_search: false,
+        },
+      ],
+    });
+
+    render(<KolDataSection />);
+    fireEvent.click(screen.getByRole('button', { name: /搜索验证/ }));
+
+    expect(await screen.findByText('演示达人')).toBeInTheDocument();
+    expect(screen.getByText(/不能用于真实业务搜索/)).toBeInTheDocument();
   });
 
   it('rejects mock/demo/seed data sources before import', async () => {
@@ -59,6 +146,22 @@ describe('KolDataSection', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/data_source 不支持：mock/)).toBeInTheDocument();
+    });
+    expect(mockImportKols).not.toHaveBeenCalled();
+  });
+
+  it('rejects mock/demo source labels before import', async () => {
+    const { container } = render(<KolDataSection />);
+    uploadCsv(
+      container,
+      [
+        'name,platform,category,data_source,source_label',
+        '演示达人,douyin,护肤,manual_upload,demo',
+      ].join('\n')
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/来源不能标记为 mock\/demo\/seed\/sample/)).toBeInTheDocument();
     });
     expect(mockImportKols).not.toHaveBeenCalled();
   });

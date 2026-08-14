@@ -42,6 +42,18 @@ def test_kol_import_rejects_seed_source():
         )
 
 
+def test_kol_import_rejects_demo_source_label():
+    from app.api.kol import KolImportItem
+
+    with pytest.raises(ValidationError):
+        KolImportItem(
+            name="演示达人",
+            platform="douyin",
+            data_source="manual_upload",
+            source_label="demo seed",
+        )
+
+
 def test_kol_import_rejects_all_platform():
     from app.api.kol import KolImportItem
 
@@ -82,6 +94,7 @@ async def test_kol_import_dry_run_does_not_write(setup_db_proxy, mock_db_adapter
     assert result.updated == 0
     assert result.dry_run is True
     assert result.data_source_summary == {"public_web": 1}
+    assert result.source_labels == {"public_web": "公开网页整理"}
     assert result.data_source_warning is not None
     session.add.assert_not_called()
     session.commit.assert_not_called()
@@ -129,6 +142,10 @@ async def test_kol_import_creates_and_updates(setup_db_proxy, mock_db_adapter):
     assert result.updated == 1
     assert result.skipped == 0
     assert result.data_source_summary == {"manual_upload": 1, "cached_snapshot": 1}
+    assert result.source_labels == {
+        "manual_upload": "人工导入",
+        "cached_snapshot": "历史缓存快照",
+    }
     assert session.add.call_count == 1
     session.commit.assert_called_once()
     added = session.add.call_args.args[0]

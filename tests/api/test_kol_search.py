@@ -201,10 +201,62 @@ class TestSearchKolsEndpoint:
             assert len(result.results) == 1
             assert result.results[0]["name"] == "李佳琦"
             assert result.results[0]["data_source"] == "manual"
+            assert result.results[0]["source"] == "manual"
+            assert result.results[0]["source_label"] == "人工导入"
+            assert result.results[0]["source_available_for_search"] is True
+            assert result.results[0]["follower_count"] == 48500000
+            assert result.results[0]["followers_count"] == 48500000
             assert result.results[0]["source_url"] == "https://example.com/source"
             assert result.results[0]["source_note"] == "人工导入"
             assert result.data_source_summary == {"manual": 1}
+            assert result.source_labels == {"manual": "人工导入"}
             assert result.data_source_warning is None
+
+    @pytest.mark.asyncio
+    async def test_search_excludes_demo_source_records(self, setup_db_proxy, mock_db_adapter):
+        """API response must not treat demo/mock records as usable enterprise KOL data."""
+        with patch("app.agents.kol_search.search_kols") as mock_search:
+            real_kol = MagicMock()
+            real_kol.id = 1
+            real_kol.name = "企业护肤达人"
+            real_kol.platform = "xiaohongshu"
+            real_kol.followers = 120000
+            real_kol.engagement_rate = 4.2
+            real_kol.category = "护肤"
+            real_kol.price_range_low = None
+            real_kol.price_range_high = None
+            real_kol.data_source = "manual_upload"
+            real_kol.source_url = None
+            real_kol.source_note = None
+            real_kol.last_synced_at = None
+
+            demo_kol = MagicMock()
+            demo_kol.id = 2
+            demo_kol.name = "演示护肤达人"
+            demo_kol.platform = "xiaohongshu"
+            demo_kol.followers = 999999
+            demo_kol.engagement_rate = 9.9
+            demo_kol.category = "护肤"
+            demo_kol.price_range_low = None
+            demo_kol.price_range_high = None
+            demo_kol.data_source = "demo"
+            demo_kol.source_url = None
+            demo_kol.source_note = None
+            demo_kol.last_synced_at = None
+            mock_search.return_value = [real_kol, demo_kol]
+
+            from app.api.kol import KolSearchRequest, search_kols_endpoint
+
+            result = await search_kols_endpoint(
+                request=KolSearchRequest(query="护肤"),
+                company_id="1",
+                user_id=0,
+            )
+
+            assert result.total == 1
+            assert [item["name"] for item in result.results] == ["企业护肤达人"]
+            assert result.data_source_summary == {"manual_upload": 1}
+            assert result.source_labels == {"manual_upload": "人工导入"}
 
     @pytest.mark.asyncio
     async def test_search_empty_results(self, setup_db_proxy, mock_db_adapter):
@@ -272,6 +324,8 @@ class TestSearchKolsEndpoint:
         assert result.total == 1
         assert [item["name"] for item in result.results] == ["企业护肤达人A"]
         assert result.data_source_summary == {"manual_upload": 1}
+        assert result.results[0]["source_label"] == "人工导入"
+        assert result.results[0]["source_available_for_search"] is True
         assert result.data_source_warning is None
 
 

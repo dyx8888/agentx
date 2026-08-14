@@ -14,11 +14,13 @@ const REQUIRED_HEADERS = ['name', 'platform', 'category', 'data_source'];
 const ALLOWED_SOURCES = ['manual_upload', 'public_web', 'cached_snapshot', 'official_api', 'partner_api'];
 const SOURCE_LABELS = {
   manual_upload: '人工导入',
-  public_web: '公开网页',
-  cached_snapshot: '历史缓存',
-  official_api: '官方 API',
-  partner_api: '合作方 API',
+  manual: '人工导入',
+  public_web: '公开网页整理',
+  cached_snapshot: '历史缓存快照',
+  official_api: '平台授权数据',
+  partner_api: '平台授权数据',
 };
+const DEMO_SOURCE_TOKENS = ['mock', 'demo', 'seed', 'sample', '演示', '示例'];
 
 const SAMPLE_ROWS = [
   'name,platform,platform_uid,followers,engagement_rate,category,sub_category,data_source,source_url,source_note,bio',
@@ -76,6 +78,9 @@ function cleanText(value) {
 }
 
 function normalizeItem(raw) {
+  const dataSource = cleanText(raw.data_source) || 'manual_upload';
+  const sourceLabelValue = cleanText(raw.source_label) || sourceLabel(dataSource);
+
   return {
     name: cleanText(raw.name),
     platform: cleanText(raw.platform),
@@ -95,7 +100,9 @@ function normalizeItem(raw) {
     bio: cleanText(raw.bio),
     avatar_url: cleanText(raw.avatar_url),
     contact_info: cleanText(raw.contact_info),
-    data_source: cleanText(raw.data_source) || 'manual_upload',
+    data_source: dataSource,
+    source_label: sourceLabelValue,
+    source_available_for_search: !hasDemoSourceMarker(dataSource) && !hasDemoSourceMarker(sourceLabelValue),
     source_url: cleanText(raw.source_url),
     source_note: cleanText(raw.source_note),
     is_active: raw.is_active === undefined
@@ -137,15 +144,29 @@ function validateItems(items) {
     if (!ALLOWED_SOURCES.includes(item.data_source)) {
       errors.push(`第 ${row} 行 data_source 不支持：${item.data_source}`);
     }
+    if (hasDemoSourceMarker(item.data_source) || hasDemoSourceMarker(item.source_label)) {
+      errors.push(`第 ${row} 行来源不能标记为 mock/demo/seed/sample`);
+    }
   });
   return errors;
 }
 
-function sourceLabel(source) {
-  return SOURCE_LABELS[source] || source;
+function hasDemoSourceMarker(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return DEMO_SOURCE_TOKENS.some((token) => normalized.includes(token));
 }
 
-function DataSourceChips({ summary = {} }) {
+function sourceLabel(source, explicitLabel) {
+  return explicitLabel || SOURCE_LABELS[source] || source || '未知来源';
+}
+
+function formatNumber(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return '0';
+  return number.toLocaleString('zh-CN');
+}
+
+function DataSourceChips({ summary = {}, labels = {} }) {
   const entries = Object.entries(summary || {}).filter(([, count]) => Number(count) > 0);
   if (entries.length === 0) {
     return <span className="text-muted-foreground">暂无来源</span>;
@@ -157,7 +178,7 @@ function DataSourceChips({ summary = {} }) {
           key={source}
           className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground"
         >
-          {sourceLabel(source)} {count}
+          {sourceLabel(source, labels[source])} {count}
         </span>
       ))}
     </span>
@@ -294,6 +315,15 @@ export default function KolDataSection() {
         </div>
       )}
 
+      {!error && items.length === 0 && !result && (
+        <section className="rounded-2xl border border-dashed border-border bg-background/40 p-4 text-sm">
+          <p className="font-medium text-foreground">暂无企业达人数据</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            请上传 CSV 导入达人数据，或完成平台授权后再搜索验证。
+          </p>
+        </section>
+      )}
+
       {items.length > 0 && (
         <section className="rounded-2xl border border-border bg-card p-4">
           <div className="flex items-center justify-between gap-3">
@@ -343,10 +373,12 @@ export default function KolDataSection() {
                   <tr key={`${item.platform}-${item.platform_uid || item.name}-${idx}`}>
                     <td className="px-3 py-2 text-foreground">{item.name}</td>
                     <td className="px-3 py-2 text-muted-foreground">{item.platform}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{item.followers}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{formatNumber(item.followers)}</td>
                     <td className="px-3 py-2 text-muted-foreground">{item.engagement_rate}%</td>
                     <td className="px-3 py-2 text-muted-foreground">{item.category}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{sourceLabel(item.data_source)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {sourceLabel(item.data_source, item.source_label)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -363,8 +395,11 @@ export default function KolDataSection() {
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
             <span>新增 {result.imported} · 更新 {result.updated} · 跳过 {result.skipped} · 来源</span>
-            <DataSourceChips summary={result.data_source_summary} />
+            <DataSourceChips summary={result.data_source_summary} labels={result.source_labels} />
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            导入后可在下方按同样字段搜索验证；聊天回答会使用同一套来源标签。
+          </p>
           {result.data_source_warning && (
             <p className="mt-2 text-xs text-muted-foreground">{result.data_source_warning}</p>
           )}
@@ -393,24 +428,43 @@ export default function KolDataSection() {
         {searchResult && (
           <div className="mt-3 rounded-xl border border-border bg-background/40 p-3">
             <p className="text-xs font-medium text-foreground">
-              搜索结果 {searchResult.total} 条
+              搜索结果已按企业达人库字段验证：{searchResult.total} 条
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
               <span>来源</span>
-              <DataSourceChips summary={searchResult.data_source_summary} />
+              <DataSourceChips
+                summary={searchResult.data_source_summary}
+                labels={searchResult.source_labels}
+              />
             </div>
             {searchResult.data_source_warning && (
               <p className="mt-1 text-xs text-muted-foreground">{searchResult.data_source_warning}</p>
             )}
             <div className="mt-2 flex flex-col gap-2">
-              {(searchResult.results || []).slice(0, 5).map((item) => (
-                <div key={item.id} className="rounded-lg border border-border bg-card px-3 py-2">
-                  <p className="text-sm font-medium text-foreground">{item.name}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {item.platform} · {item.followers} 粉丝 · {item.category} · {sourceLabel(item.data_source)}
-                  </p>
+              {(searchResult.results || []).length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border bg-card px-3 py-3 text-xs text-muted-foreground">
+                  当前企业达人库暂无匹配数据。请上传 CSV 导入达人数据，或完成平台授权后再搜索验证。
                 </div>
-              ))}
+              ) : (
+                (searchResult.results || []).slice(0, 5).map((item) => (
+                  <div key={item.id} className="rounded-lg border border-border bg-card px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium text-foreground">{item.name}</p>
+                      <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-muted-foreground">
+                        {sourceLabel(item.data_source, item.source_label)}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {item.platform} · {formatNumber(item.followers)} 粉丝 · 互动率 {item.engagement_rate ?? 0}% · {item.category || '未分类'}
+                    </p>
+                    {item.source_available_for_search === false && (
+                      <p className="mt-1 text-xs text-destructive">
+                        该来源仅用于演示/测试，不能用于真实业务搜索。
+                      </p>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
