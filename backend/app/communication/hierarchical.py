@@ -177,7 +177,7 @@ class HierarchicalOrchestrator:
             if self._a2a:  # 有 A2A 适配器时通过 A2A 协议发送任务给 Agent
                 a2a_result = self._a2a.send_task(
                     target_agent_name=task.assigned_agent,
-                    task_description=task.description,
+                    task_message=task.description,
                     task_type="subtask",  # 标记为子任务类型，便于 Agent 区分处理
                 )
 

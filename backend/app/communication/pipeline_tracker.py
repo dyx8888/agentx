@@ -328,7 +328,7 @@ class MixedModeDispatcher:
             adapter = get_a2a_adapter()
             return adapter.send_task(
                 target_agent_name=task.get("agent", ""),
-                task_description=task.get("task", ""),
+                task_message=task.get("task", ""),
                 task_type=task.get("type", "general"),
             )
         except Exception as e:

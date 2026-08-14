@@ -388,7 +388,7 @@ class MasterDispatcher:
                 None,
                 lambda: send(
                     target_agent_name=task.agent_name,
-                    task_description=description,
+                    task_message=description,
                     task_type=DELEGATION_TASK_TYPE,
                 ),
             )

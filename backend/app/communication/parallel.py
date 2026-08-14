@@ -148,8 +148,8 @@ class ParallelAgentDispatcher:
         try:
             if self._a2a:  # 有 A2A 适配器时通过 A2A 协议发送任务
                 result = self._a2a.send_task(
-                    target_agent_name=task.target_agent,
-                    task_description=task.task_description,
+                    task.target_agent,
+                    task.task_description,
                     task_type=task.task_type,
                 )
 
