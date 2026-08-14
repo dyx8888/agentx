@@ -25,6 +25,17 @@ from app.database import User  # 用户模型：用于依赖注入获取当前�
 logger = get_logger(__name__)
 
 
+A2A_PUBLIC_PREFIX = "/api/a2a"
+A2A_ENDPOINTS = {
+    "discovery": f"{A2A_PUBLIC_PREFIX}/agents",
+    "well_known": f"{A2A_PUBLIC_PREFIX}/.well-known/agent.json",
+    "delegate": f"{A2A_PUBLIC_PREFIX}/delegate",
+    "delegate_task": f"{A2A_PUBLIC_PREFIX}/delegate",
+    "a2a_delegate": f"{A2A_PUBLIC_PREFIX}/delegate",
+    "health": f"{A2A_PUBLIC_PREFIX}/health",
+}
+
+
 router = APIRouter(prefix="/a2a", tags=["a2a"])  # 前缀 /a2a 区分 A2A 协议端点
 
 
@@ -127,12 +138,7 @@ async def get_agent_card(current_user: User = Depends(get_current_active_user)):
             + "Z",  # UTC 时间后缀 Z，符合 ISO 8601 / A2A 协议规范
             "version": "1.0.0",  # 语义化版本控制
             "protocol": "a2a",
-            "endpoints": {  # 暴露所有 A2A 相关端点，便于客户端动态发现
-                "delegate_task": "/agent/delegate_task",
-                "a2a_delegate": "/agent/a2a_delegate_task",
-                "discovery": "/a2a/agents",
-                "well_known": "/a2a/.well-known/agent.json",  # 自身引用，形成发现链
-            },
+            "endpoints": dict(A2A_ENDPOINTS),
         }
 
         return agent_card  # 直接返回 dict，由 FastAPI 自动序列化为 JSON
@@ -160,6 +166,7 @@ async def discover_agents(current_user: User = Depends(get_current_active_user))
             "count": len(agent_cards),  # 返回 Agent 数量便于前端分页判断
             "agents": agent_cards,
             "protocol": "a2a",  # 协议标识
+            "endpoints": dict(A2A_ENDPOINTS),
             "timestamp": datetime.now(UTC).isoformat() + "Z",  # 返回时间戳便于缓存策略
         }
 

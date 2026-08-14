@@ -125,6 +125,7 @@ _install_signal_handlers()  # 紧随其后安装信号处理器，因为 import 
 # Import API routers
 # Legacy get_agent_async removed; unified AgentRuntime is the single agent entry point
 from app.api.admin.admin import router as admin_router  # admin 路由单独命名以区分其他 admin 子模块
+from app.api.a2a import router as a2a_router
 from app.api.agent_communication import router as agent_communication_router  # agent 间通信路由，支持多 agent 协作消息传递
 from app.api.agents import router as agents_router
 from app.api.auth_router import router as auth_router
@@ -251,6 +252,7 @@ app.include_router(tasks_module.router, prefix="/api/tasks", tags=["tasks"])  # 
 
 # Include agent communication router
 app.include_router(agent_communication_router, prefix="/api/agent")  # agent 通信不加 tags，可能是不需要在 Swagger 中公开的内部接口
+app.include_router(a2a_router, prefix="/api", tags=["a2a"])
 
 # Include workflow router
 from app.workflow.api import router as workflow_router  # workflow 模块较重，延迟导入避免影响启动速度

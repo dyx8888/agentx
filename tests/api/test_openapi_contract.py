@@ -123,3 +123,12 @@ def test_openapi_static_contract_rejects_unconstrained_id_routes_with_static_sib
                 offenders.append((str(route["file"]), route["method"], route["path"]))
 
     assert not offenders
+
+
+def test_openapi_schema_includes_a2a_agents_route():
+    from app.main import app
+
+    paths = app.openapi()["paths"]
+
+    assert "/api/a2a/agents" in paths
+    assert "get" in paths["/api/a2a/agents"]
