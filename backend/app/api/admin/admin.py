@@ -20,9 +20,11 @@ from pydantic import BaseModel
 
 # 导入用户认证功能，用来验证当前用户是否已登录
 from app.auth import get_current_active_user
+from app.core.logging import get_logger
 
 # 创建路由对象，tags=["admin"] 表示这个路由在 API 文档中归入 "admin" 分组
 router = APIRouter(tags=["admin"])
+logger = get_logger(__name__)
 
 
 def _is_production_env() -> bool:
@@ -378,37 +380,68 @@ async def admin_get_usage(
 ):
     if not current_user.is_admin:
         raise HTTPException(403, "Admin access required")
-    # 8 个 Agent 的英文标识和中文名称
-    # 这两个列表的位置一一对应
-    agent_keys = ["brand_bd", "content_ops", "data_analyst", "customer_service",
-                  "warehouse_logistics", "visual_designer", "product_selector", "ad_delivery"]
-    display_names = ["品牌商务", "内容运营", "数据分析", "客服专员",
-                     "仓储物流", "视觉设计", "供应链选品", "智能投流"]
-    # 获取公司列表
-    companies = _get_real_companies()
-    if not companies and _allow_mock_admin_fallback():
-        companies = _mock_companies()
-    elif not companies:
+
+    from app.database import db
+    from app.tracking.cost_tracker import CostTracker
+
+    def _field(item, name: str, default=None):
+        if isinstance(item, dict):
+            return item.get(name, default)
+        return getattr(item, name, default)
+
+    try:
+        companies = db.get_all_companies()
+    except Exception as exc:
+        logger.warning("admin_usage_companies_unavailable", error=str(exc))
+        companies = []
+
+    if not companies:
         return UsageListResponse(usages=[], total_tokens_all=0, total_cost_all=0.0)
-    usages = []
+
+    company_map = {_field(company, "id"): company for company in companies if _field(company, "id") is not None}
+    all_agents = []
+    for company_id in company_map:
+        try:
+            for agent in db.get_agents_by_company(company_id):
+                agent_id = _field(agent, "id")
+                if agent_id is not None:
+                    all_agents.append((company_id, agent))
+        except Exception as exc:
+            logger.warning("admin_usage_agents_unavailable", company_id=company_id, error=str(exc))
+
+    if not all_agents:
+        return UsageListResponse(usages=[], total_tokens_all=0, total_cost_all=0.0)
+
+    agent_ids = [_field(agent, "id") for _, agent in all_agents]
+    summary = CostTracker.get_cost_summary_by_agents(agent_ids, days)
+
+    usages: list[UsageItem] = []
     total_tokens = 0
     total_cost = 0.0
-    # 使用随机数生成模拟数据
-    # 注意：这里的用量是随机生成的，不是真实数据
-    # 目前还没有实现真实的 Token 用量统计功能
-    import random
-    random.seed(days)  # 固定种子，保证同一天的统计结果一致
-    for c in companies:
-        # 每个公司下每个 Agent 都生成一条用量记录
-        for ak, dn in zip(agent_keys, display_names, strict=False):
-            tokens = random.randint(50000, 300000)  # 随机生成5万到30万 Token
-            cost = round(tokens * 0.000004, 2)       # 按费率计算费用（约每Token 0.000004美元）
-            usages.append(UsageItem(
-                company_id=c.id, company_name=c.name,
-                agent_key=ak, agent_display_name=dn,
-                total_tokens=tokens, total_cost=cost, period_days=days,
-            ))
-            total_tokens += tokens
-            total_cost += cost
+
+    for company_id, agent in all_agents:
+        agent_id = _field(agent, "id")
+        row = summary.get(agent_id)
+        if not row:
+            continue
+        tokens = int(row.get("total_tokens") or 0)
+        cost = float(row.get("total_cost") or 0.0)
+        if tokens == 0 and cost == 0:
+            continue
+        company = company_map.get(company_id)
+        agent_name = _field(agent, "name", "")
+        display_name = _field(agent, "display_name", agent_name)
+        usages.append(UsageItem(
+            company_id=company_id,
+            company_name=_field(company, "name", ""),
+            agent_key=agent_name,
+            agent_display_name=display_name,
+            total_tokens=tokens,
+            total_cost=round(cost, 2),
+            period_days=days,
+        ))
+        total_tokens += tokens
+        total_cost += cost
+
     return UsageListResponse(usages=usages, total_tokens_all=total_tokens,
                                total_cost_all=round(total_cost, 2))

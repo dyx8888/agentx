@@ -94,8 +94,8 @@ async def get_cost_summary(
     except HTTPException:
         raise  # 如果是已知的 HTTP 错误，直接抛出
     except Exception:
-        logger.exception(get_cost_summary_failed)
-        raise HTTPException(status_code=500, detail=内部服务器错误)
+        logger.exception("get_cost_summary_failed")
+        raise HTTPException(status_code=500, detail="内部服务器错误")
 
 
 # API 接口：获取成本趋势（每日数据）
