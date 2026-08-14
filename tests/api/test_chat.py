@@ -4,7 +4,12 @@ Tests for ChatRequest schema, helper functions, and health endpoint
 """
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 
 # ============================================================
@@ -19,6 +24,73 @@ def setup_db_proxy():
     db_proxy._instance = adapter
     yield adapter
     db_proxy._instance = None
+
+
+@pytest.fixture
+def kol_db_proxy():
+    """Provide a real in-memory ORM session through the app database proxy."""
+    from app.database import db as db_proxy
+    from app.database.models import Base
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    class Adapter:
+        def get_session(self):
+            return SessionLocal()
+
+    previous = db_proxy._instance
+    db_proxy._instance = Adapter()
+    try:
+        yield SessionLocal
+    finally:
+        db_proxy._instance = previous
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def _add_kol(
+    session,
+    *,
+    company_id=1,
+    name="企业护肤达人A",
+    platform="xiaohongshu",
+    category="护肤",
+    data_source="manual_upload",
+    active=True,
+):
+    from app.database.models import KolProfile
+
+    session.add(
+        KolProfile(
+            company_id=company_id,
+            name=name,
+            platform=platform,
+            platform_uid=f"{company_id}:{platform}:{name}",
+            followers=120000,
+            engagement_rate=4.2,
+            category=category,
+            sub_category=category,
+            avg_views=30000,
+            avg_likes=2500,
+            avg_comments=180,
+            avg_shares=80,
+            data_source=data_source,
+            is_active=active,
+        )
+    )
+
+
+async def _collect_stream_text(response):
+    chunks = []
+    async for chunk in response.body_iterator:
+        chunks.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk))
+    return "".join(chunks)
 
 
 # ============================================================
@@ -287,3 +359,55 @@ class TestChatErrorPayloads:
         assert payload["requires_config"] is True
         assert payload["config_target"] == "llm_api_key"
         assert "DEEPSEEK_API_KEY" in payload["message"]
+
+
+class TestChatKolSearchGrounding:
+    """Test that chat KOL intent is grounded in tenant-scoped KOL data."""
+
+    @pytest.mark.asyncio
+    async def test_chat_returns_company_kols_instead_of_empty_rag_or_model(
+        self, kol_db_proxy, monkeypatch
+    ):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        with kol_db_proxy() as session:
+            _add_kol(session, name="企业护肤达人A")
+            _add_kol(session, company_id=2, name="跨租户护肤达人B")
+            _add_kol(session, name="演示护肤达人C", data_source="demo")
+            session.commit()
+
+        from app.api.chat import ChatRequest, chat_stream
+
+        response = await chat_stream(
+            ChatRequest(message="帮我找2位小红书护肤达人"),
+            MagicMock(),
+            current_user=SimpleNamespace(id=101, company_id=1),
+        )
+        body = await _collect_stream_text(response)
+
+        assert "企业护肤达人A" in body
+        assert "已基于当前企业达人库找到" in body
+        assert "跨租户护肤达人B" not in body
+        assert "演示护肤达人C" not in body
+        assert "无结果" not in body
+        assert "model_api_key_missing" not in body
+        assert "未使用 mock/demo/fallback 数据" in body
+
+    @pytest.mark.asyncio
+    async def test_chat_empty_company_kol_data_returns_requires_kol_data(
+        self, kol_db_proxy, monkeypatch
+    ):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+        from app.api.chat import ChatRequest, chat_stream
+
+        response = await chat_stream(
+            ChatRequest(message="找小红书护肤达人"),
+            MagicMock(),
+            current_user=SimpleNamespace(id=102, company_id=9),
+        )
+        body = await _collect_stream_text(response)
+
+        assert "当前企业达人库无匹配数据" in body
+        assert "requires_kol_data" in body
+        assert "没有使用 mock、demo 或通用知识库结果补齐" in body
+        assert "model_api_key_missing" not in body

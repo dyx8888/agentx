@@ -222,8 +222,10 @@ def _format_company_kol_search_response(payload: dict[str, Any]) -> str:
 
     results = payload.get("results") or []
     if not results:
+        code = payload.get("code") or "requires_kol_data"
         return (
-            f"没有在当前企业达人库中找到匹配“{filter_text}”的达人。\n\n"
+            f"没有在当前企业达人库中找到匹配“{filter_text}”的达人；"
+            f"当前企业达人库无匹配数据（{code}）。\n\n"
             "我没有使用 mock、demo 或通用知识库结果补齐；"
             "请先在“设置 - 达人数据”导入或接入真实数据源后再搜索。"
         )
@@ -282,6 +284,7 @@ def _search_company_kols_for_chat(
             "params": params,
             "results": [],
             "data_source_summary": {},
+            "code": "requires_kol_data",
             "data_source_warning": (
                 "missing_company_context: 无法确认当前企业，已拒绝跨租户达人搜索。"
             ),
@@ -293,8 +296,10 @@ def _search_company_kols_for_chat(
             company_id=company_id_int,
             query=params["query"],
             platform=params["platform"],
+            category=params["category_label"] or None,
             limit=params["limit"],
         )
+        kol_dicts = [_kol_to_dict(kol) for kol in results]
         if user_id:
             try:
                 save_search_history(
@@ -309,13 +314,13 @@ def _search_company_kols_for_chat(
             except Exception as hist_err:
                 logger.warning("chat_kol_search_history_save_failed", error=str(hist_err))
 
-    kol_dicts = [_kol_to_dict(kol) for kol in results]
     data_source_summary, data_source_warning = _summarize_kol_data_sources(kol_dicts)
     return {
         "message": message,
         "params": params,
         "results": kol_dicts,
         "data_source_summary": data_source_summary,
+        "code": "ok" if kol_dicts else "requires_kol_data",
         "data_source_warning": data_source_warning,
     }
 
@@ -628,6 +633,7 @@ async def chat_stream(
                                 "data_source_summary": kol_payload.get(
                                     "data_source_summary", {}
                                 ),
+                                "code": kol_payload.get("code", ""),
                             },
                         )
                     except Exception as persist_err:

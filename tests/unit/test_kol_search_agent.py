@@ -7,7 +7,11 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-from app.database.models import KolProfile, KolSearchHistory
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.database.models import Base, KolProfile, KolSearchHistory
 
 
 # ============================================================
@@ -172,6 +176,71 @@ class TestSearchKols:
 
         # 验证 filter 被调用（company_id 过滤）
         assert mock_query.filter.called
+
+    def test_search_kols_excludes_cross_tenant_and_non_production_data(self):
+        """真实查询路径必须过滤跨租户和 mock/demo/seed 数据。"""
+        from app.agents.kol_search import search_kols
+
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        SessionLocal = sessionmaker(bind=engine)
+        try:
+            with SessionLocal() as session:
+                session.add_all(
+                    [
+                        KolProfile(
+                            company_id=1,
+                            name="企业护肤达人A",
+                            platform="xiaohongshu",
+                            platform_uid="1:xhs:a",
+                            followers=120000,
+                            engagement_rate=4.2,
+                            category="护肤",
+                            data_source="manual_upload",
+                            is_active=True,
+                        ),
+                        KolProfile(
+                            company_id=2,
+                            name="跨租户护肤达人B",
+                            platform="xiaohongshu",
+                            platform_uid="2:xhs:b",
+                            followers=150000,
+                            engagement_rate=4.5,
+                            category="护肤",
+                            data_source="manual_upload",
+                            is_active=True,
+                        ),
+                        KolProfile(
+                            company_id=1,
+                            name="演示护肤达人C",
+                            platform="xiaohongshu",
+                            platform_uid="1:xhs:c",
+                            followers=180000,
+                            engagement_rate=4.8,
+                            category="护肤",
+                            data_source="demo",
+                            is_active=True,
+                        ),
+                    ]
+                )
+                session.commit()
+
+                results = search_kols(
+                    session=session,
+                    company_id=1,
+                    query="护肤",
+                    platform="xiaohongshu",
+                    category="护肤",
+                )
+
+            assert [kol.name for kol in results] == ["企业护肤达人A"]
+        finally:
+            Base.metadata.drop_all(engine)
+            engine.dispose()
 
 
 # ============================================================

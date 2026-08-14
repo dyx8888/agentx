@@ -4,7 +4,12 @@ Tests for POST /api/kol/search, GET /api/kol/{id}, POST /api/kol/export
 """
 
 import pytest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 
 # ============================================================
@@ -30,6 +35,61 @@ def setup_db_proxy(mock_db_adapter):
     db_proxy._instance = adapter
     yield
     db_proxy._instance = None
+
+
+@pytest.fixture
+def real_kol_db_proxy():
+    """Provide tenant-scoped KOL records through the real ORM query path."""
+    from app.database import db as db_proxy
+    from app.database.models import Base
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+
+    class Adapter:
+        def get_session(self):
+            return SessionLocal()
+
+    previous = db_proxy._instance
+    db_proxy._instance = Adapter()
+    try:
+        yield SessionLocal
+    finally:
+        db_proxy._instance = previous
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def _add_kol(
+    session,
+    *,
+    company_id=1,
+    name="企业护肤达人A",
+    platform="xiaohongshu",
+    category="护肤",
+    data_source="manual_upload",
+):
+    from app.database.models import KolProfile
+
+    session.add(
+        KolProfile(
+            company_id=company_id,
+            name=name,
+            platform=platform,
+            platform_uid=f"{company_id}:{platform}:{name}",
+            followers=120000,
+            engagement_rate=4.2,
+            category=category,
+            sub_category=category,
+            data_source=data_source,
+            is_active=True,
+        )
+    )
 
 
 # ============================================================
@@ -183,6 +243,36 @@ class TestSearchKolsEndpoint:
             )
 
             assert result.search_id is not None
+
+    @pytest.mark.asyncio
+    async def test_search_uses_authenticated_company_and_filters_demo_data(
+        self, real_kol_db_proxy
+    ):
+        """搜索必须使用认证用户公司边界，且不能返回 demo/mock 达人。"""
+        with real_kol_db_proxy() as session:
+            _add_kol(session, company_id=1, name="企业护肤达人A")
+            _add_kol(session, company_id=2, name="跨租户护肤达人B")
+            _add_kol(session, company_id=1, name="演示护肤达人C", data_source="demo")
+            session.commit()
+
+        from app.api.kol import KolSearchRequest, search_kols_endpoint
+
+        result = await search_kols_endpoint(
+            request=KolSearchRequest(
+                query="护肤",
+                platform="xiaohongshu",
+                category="护肤",
+                limit=10,
+            ),
+            company_id="2",
+            user_id=0,
+            current_user=SimpleNamespace(company_id=1),
+        )
+
+        assert result.total == 1
+        assert [item["name"] for item in result.results] == ["企业护肤达人A"]
+        assert result.data_source_summary == {"manual_upload": 1}
+        assert result.data_source_warning is None
 
 
 # ============================================================
