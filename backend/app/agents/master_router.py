@@ -28,6 +28,7 @@ from app.agents.master_routing import (
     ExecutionPath,
     select_path,
 )
+from app.core.high_risk_actions import detect_high_risk_action
 from app.core.logging import get_logger
 from app.perception.context_package import ContextPackage
 
@@ -46,6 +47,93 @@ TOOL_CONFIG_DIR = os.path.join(
 )
 # 审查重试上限
 REVIEW_MAX_RETRIES = 2
+
+HIGH_RISK_DIRECT_TERMS = (
+    "直接",
+    "立刻",
+    "马上",
+    "自动",
+    "不用审核",
+    "不要审核",
+    "不需要审核",
+    "不用人工确认",
+    "不要人工确认",
+    "绕过审核",
+    "立即执行",
+)
+
+HIGH_RISK_ACTION_RULES = (
+    {
+        "domain": "price_change",
+        "action_terms": ("改价", "修改价格", "调价", "降价到", "涨价到", "改成"),
+        "scope_terms": ("商品", "产品", "SKU", "价格", "上架"),
+        "label": "商品改价/上架",
+    },
+    {
+        "domain": "order_creation",
+        "action_terms": ("下单", "代客下单", "创建订单", "提交订单"),
+        "scope_terms": ("客户", "用户", "订单", "商品"),
+        "label": "下单/创建订单",
+    },
+    {
+        "domain": "customer_blacklist",
+        "action_terms": ("拉黑", "加入黑名单", "封禁客户", "禁言客户", "屏蔽客户"),
+        "scope_terms": ("客户", "用户", "买家", "会员"),
+        "label": "客户拉黑/封禁",
+    },
+    {
+        "domain": "external_message",
+        "action_terms": ("发消息", "发送消息", "群发消息", "自动回复", "发私信"),
+        "scope_terms": ("客户", "用户", "达人", "买家", "粉丝"),
+        "label": "外联消息发送",
+    },
+)
+
+def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
+    return any(term and term in text for term in terms)
+
+
+def _build_approval_required_response(action_label: str) -> str:
+    return (
+        f"{action_label}属于需要人工确认的高风险业务动作。"
+        "我不会代替人工完成资金、订单、价格、物流、账号处置或外联发送。"
+        "我可以先整理背景、影响范围、风险点和建议话术，生成待人工审核草稿；"
+        "负责人确认后再由有权限的人或系统执行。"
+    )
+
+
+def _detect_master_high_risk_action(message: str, agent_name: str = "master") -> dict | None:
+    """Detect high-risk actions at the master router boundary before model/tool execution."""
+
+    core_decision = detect_high_risk_action(message, agent_name)
+    if core_decision is not None:
+        return {
+            "risk_domain": core_decision.risk_domain,
+            "risk_level": core_decision.risk_level,
+            "response": core_decision.response,
+            "requires_human_review": core_decision.requires_human_review,
+        }
+
+    text = (message or "").strip()
+    if not text:
+        return None
+
+    for rule in HIGH_RISK_ACTION_RULES:
+        action_terms = rule["action_terms"]
+        scope_terms = rule["scope_terms"]
+        if not _contains_any(text, action_terms):
+            continue
+        if not (_contains_any(text, scope_terms) or _contains_any(text, HIGH_RISK_DIRECT_TERMS)):
+            continue
+        return {
+            "risk_domain": rule["domain"],
+            "risk_level": "L2",
+            "response": _build_approval_required_response(rule["label"]),
+            "requires_human_review": True,
+        }
+
+    return None
+
 
 # LLM slot-filling 提示词：从自由文本查询抽取结构化引擎入参
 SLOT_FILL_PROMPT = """你是参数抽取器。请从用户查询中抽取结构化参数，用于调用确定性计算引擎。
@@ -239,6 +327,27 @@ class MasterAgentRouter:
         Yields:
             SSE 事件字典（含 retry/warning 新事件类型，前端忽略未知类型不影响）
         """
+        guard_decision = _detect_master_high_risk_action(
+            context.raw_input or context.rewritten_query or "",
+            "master",
+        )
+        if guard_decision:
+            yield {
+                "type": "routing",
+                "path": "guardrail",
+                "guarded": True,
+                "risk_domain": guard_decision["risk_domain"],
+            }
+            yield {
+                "type": "result",
+                "data": guard_decision["response"],
+                "guarded": True,
+                "requires_human_review": guard_decision["requires_human_review"],
+                "risk_domain": guard_decision["risk_domain"],
+            }
+            yield {"type": "done", "guarded": True}
+            return
+
         # Step 1: 智能路由
         path = select_path(context)
         yield {"type": "routing", "path": path.value}

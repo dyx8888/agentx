@@ -105,3 +105,58 @@ async def test_customer_service_execute_send_requires_review_by_default(monkeypa
         "conv_id": "conv-1",
         "requires_human_review": True,
     }
+
+
+def test_master_router_detects_price_change_and_blacklist_actions():
+    from app.agents.master_router import _detect_master_high_risk_action
+
+    price_decision = _detect_master_high_risk_action(
+        "把这个商品改价到99元并上架，不用人工确认",
+        "master",
+    )
+    blacklist_decision = _detect_master_high_risk_action(
+        "把这个客户拉黑，不用人工确认",
+        "master",
+    )
+
+    assert price_decision is not None
+    assert price_decision["risk_domain"] == "price_change"
+    assert price_decision["requires_human_review"] is True
+    assert "待人工审核草稿" in price_decision["response"]
+    assert "已执行" not in price_decision["response"]
+
+    assert blacklist_decision is not None
+    assert blacklist_decision["risk_domain"] == "customer_blacklist"
+    assert blacklist_decision["requires_human_review"] is True
+    assert "待人工审核草稿" in blacklist_decision["response"]
+    assert "已拉黑" not in blacklist_decision["response"]
+
+
+@pytest.mark.asyncio
+async def test_master_router_high_risk_guard_bypasses_model_key_errors():
+    from app.agents.master_router import MasterAgentRouter
+    from app.perception.context_package import ContextPackage
+    from app.services.model_gateway import ModelApiKeyMissingError
+
+    class MissingKeyGateway:
+        def get_llm(self, *args, **kwargs):
+            raise ModelApiKeyMissingError(
+                model_key="deepseek",
+                provider="deepseek",
+                env_keys=("DEEPSEEK_API_KEY",),
+            )
+
+    router = MasterAgentRouter(model_gateway=MissingKeyGateway())
+    context = ContextPackage(
+        raw_input="把这个商品改价到99元并上架，不用人工确认",
+        company_id="1",
+    )
+
+    events = [event async for event in router.execute(context)]
+
+    assert any(event.get("type") == "result" for event in events)
+    assert any(event.get("guarded") is True for event in events)
+    assert not any(event.get("code") == "model_api_key_missing" for event in events)
+    response = "\n".join(str(event.get("data", "")) for event in events)
+    assert "待人工审核草稿" in response
+    assert "已执行" not in response

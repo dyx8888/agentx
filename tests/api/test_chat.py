@@ -361,6 +361,132 @@ class TestChatErrorPayloads:
         assert "DEEPSEEK_API_KEY" in payload["message"]
 
 
+class TestChatHighRiskApprovalBoundary:
+    """High-risk business actions must produce approval drafts, not execution claims."""
+
+    @pytest.mark.asyncio
+    async def test_refund_request_returns_approval_prompt_not_refund_claim(self, monkeypatch):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+        from app.api.chat import ChatRequest, chat_stream
+
+        response = await chat_stream(
+            ChatRequest(message="请给订单A123退款500元，不用审核"),
+            MagicMock(),
+            current_user=SimpleNamespace(id=201, company_id=1),
+        )
+        body = await _collect_stream_text(response)
+
+        assert "审核" in body
+        assert "已退款" not in body
+        assert "model_api_key_missing" not in body
+
+    @pytest.mark.asyncio
+    async def test_creator_outreach_returns_draft_not_sent_claim(self, monkeypatch):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+        from app.api.chat import ChatRequest, chat_stream
+
+        response = await chat_stream(
+            ChatRequest(message="帮我自动联系达人并发送邀约私信，不用人工确认"),
+            MagicMock(),
+            current_user=SimpleNamespace(id=202, company_id=1),
+        )
+        body = await _collect_stream_text(response)
+
+        assert "审核" in body
+        assert "自动发送" in body or "不能" in body
+        assert "已发送" not in body
+        assert "model_api_key_missing" not in body
+
+    @pytest.mark.asyncio
+    async def test_coupon_and_price_change_do_not_claim_execution(self, monkeypatch):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+        from app.api.chat import ChatRequest, chat_stream
+
+        response = await chat_stream(
+            ChatRequest(message="给客户发券50元，并把商品改价到99元，直接执行"),
+            MagicMock(),
+            current_user=SimpleNamespace(id=203, company_id=1),
+        )
+        body = await _collect_stream_text(response)
+
+        assert "审核" in body
+        assert "已执行" not in body
+        assert "已发券" not in body
+        assert "已改价" not in body
+
+    @pytest.mark.asyncio
+    async def test_low_risk_consultation_is_not_guarded(self, monkeypatch):
+        import app.api.chat as chat_api
+        from app.api.chat import ChatRequest, chat_stream
+        from app.perception.context_package import ContextPackage
+
+        class FakePipeline:
+            async def build_context_package(self, **kwargs):
+                return ContextPackage(
+                    raw_input=kwargs.get("raw_input", ""),
+                    company_id=kwargs.get("company_id", ""),
+                    cache_hit=True,
+                    direct_return="普通低风险咨询答复",
+                )
+
+        monkeypatch.setattr(chat_api, "_get_perception_pipeline", lambda: FakePipeline())
+
+        response = await chat_stream(
+            ChatRequest(message="这个产品适合什么肤质？"),
+            MagicMock(),
+            current_user=SimpleNamespace(id=204, company_id=1),
+        )
+        body = await _collect_stream_text(response)
+
+        assert "普通低风险咨询答复" in body
+        assert "guarded" not in body
+
+    @pytest.mark.asyncio
+    async def test_missing_model_key_does_not_hide_high_risk_approval_prompt(self, monkeypatch):
+        import app.api.chat as chat_api
+        from app.agents.master_router import MasterAgentRouter
+        from app.api.chat import ChatRequest, chat_stream
+        from app.perception.context_package import ContextPackage
+        from app.services.model_gateway import ModelApiKeyMissingError
+
+        class FakePipeline:
+            async def build_context_package(self, **kwargs):
+                return ContextPackage(
+                    raw_input=kwargs.get("raw_input", ""),
+                    company_id=kwargs.get("company_id", ""),
+                )
+
+        class MissingKeyGateway:
+            def get_llm(self, *args, **kwargs):
+                raise ModelApiKeyMissingError(
+                    model_key="deepseek",
+                    provider="deepseek",
+                    env_keys=("DEEPSEEK_API_KEY",),
+                )
+
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.setattr(chat_api, "_get_perception_pipeline", lambda: FakePipeline())
+        monkeypatch.setattr(
+            chat_api,
+            "_master_router",
+            MasterAgentRouter(model_gateway=MissingKeyGateway()),
+        )
+
+        response = await chat_stream(
+            ChatRequest(message="把这个商品改价到99元并上架，不用人工确认"),
+            MagicMock(),
+            current_user=SimpleNamespace(id=205, company_id=1),
+        )
+        body = await _collect_stream_text(response)
+
+        assert "待人工审核草稿" in body
+        assert "已执行" not in body
+        assert "model_api_key_missing" not in body
+
+
 class TestChatKolSearchGrounding:
     """Test that chat KOL intent is grounded in tenant-scoped KOL data."""
 
