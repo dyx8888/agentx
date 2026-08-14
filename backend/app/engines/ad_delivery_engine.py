@@ -1,6 +1,6 @@
 """
-广告投放执行引擎 - 自动止损/A/B测试/ROI优化
-"""  # 广告投放引擎：通过规则判断实现自动止损、A/B测试建议和ROI优化，不依赖LLM
+广告投放评估引擎 - 止损复核/A/B测试/ROI优化
+"""  # 广告投放引擎：通过规则判断生成止损复核、A/B测试建议和ROI优化，不依赖LLM
 
 from dataclasses import dataclass, field  # 使用dataclass定义数据模型，减少样板代码
 from datetime import datetime  # 记录指标时间戳，用于判断投放时长
@@ -13,8 +13,8 @@ logger = get_logger(__name__)  # 模块级日志记录器，使用__name__确保
 
 class CampaignStatus(StrEnum):  # 广告计划状态枚举，使用StrEnum便于前端直接使用字符串值
     RUNNING = "running"  # 正常运行中
-    PAUSED = "paused"  # 已暂停（止损触发）
-    BUDGET_REDUCED = "budget_reduced"  # 预算已削减
+    PAUSED = "paused"  # 已暂停（外部执行或历史兼容状态）
+    BUDGET_REDUCED = "budget_reduced"  # 预算已调整（外部执行或历史兼容状态）
     PENDING_REVIEW = "pending_review"  # 等待人工审核
 
 
@@ -38,7 +38,7 @@ class CampaignMetrics:  # 广告计划的核心指标数据载体
 
 
 class AdDeliveryEngine:
-    """广告投放自动执行引擎"""  # 核心引擎：通过多维度规则评估实现自动止损、A/B测试建议和优化提示
+    """广告投放复核建议引擎"""  # 核心引擎：通过多维度规则评估生成止损复核、A/B测试建议和优化提示
 
     INDUSTRY_AVG_CTR = 0.02  # 行业平均点击率2%，作为CTR对比基准
     CPA_TOLERANCE = 1.5  # CPA超出目标的容忍倍数，超过此值触发止损
@@ -56,7 +56,7 @@ class AdDeliveryEngine:
     async def evaluate_campaign(self, campaign_id: str, target_cpa: float,  # 异步评估广告计划，集成止损+A/B测试+优化建议
                                    target_roi: float, daily_budget: float,
                                    company_id: int) -> list[dict]:
-        """评估广告计划并执行自动止损"""
+        """评估广告计划并生成复核建议"""
         metrics = self._active_campaigns.get(campaign_id)  # O(1)查找
         if not metrics:
             return []
@@ -91,7 +91,9 @@ class AdDeliveryEngine:
                 "campaign_id": campaign_id,
                 "action": "reduce_budget",  # 降低预算50%而非直接暂停，给计划一个缓冲期
                 "message": f"CPA({m.cpa:.2f})超过目标({target_cpa:.2f})的{self.CPA_TOLERANCE}x，持续{m.lasting_hours}h",
-                "auto_execute": True,  # 可自动执行，因为降预算风险可控
+                "auto_execute": False,
+                "require_review": True,
+                "review_reason": "广告预算调整属于高风险外部副作用，必须人工确认后执行。",
                 "new_budget_pct": 50,
             })
 
@@ -101,7 +103,9 @@ class AdDeliveryEngine:
                 "campaign_id": campaign_id,
                 "action": "pause_campaign",  # 直接暂停，因为每多跑一小时就多亏一小时
                 "message": f"ROI({m.roi:.2f})低于盈亏线{self.ROI_BREAKEVEN_THRESHOLD}，持续{m.lasting_hours}h",
-                "auto_execute": True,
+                "auto_execute": False,
+                "require_review": True,
+                "review_reason": "暂停广告计划属于高风险外部副作用，必须人工确认后执行。",
             })
 
         if m.ctr < self.INDUSTRY_AVG_CTR * 0.5:  # CTR低于行业均值50%，素材可能已严重疲劳或受众不精准
@@ -120,7 +124,9 @@ class AdDeliveryEngine:
                 "campaign_id": campaign_id,
                 "action": "pause_campaign",
                 "message": f"消耗已达日预算{daily_budget}的{self.BUDGET_EXHAUSTION_THRESHOLD*100}%且ROI({m.roi:.2f})<1",
-                "auto_execute": True,
+                "auto_execute": False,
+                "require_review": True,
+                "review_reason": "暂停广告计划属于高风险外部副作用，必须人工确认后执行。",
             })
 
         return actions
@@ -157,34 +163,35 @@ class AdDeliveryEngine:
             })
         return tips
 
-    async def execute_stop_loss_action(self, campaign_id: str, action_type: str,  # 执行止损动作，通过协作引擎通知相关人员
+    async def execute_stop_loss_action(self, campaign_id: str, action_type: str,  # 创建止损人工复核请求，通过协作引擎通知相关人员
                                          company_id: int) -> dict:
-        logger.info("ad_stop_loss_executing", campaign=campaign_id, action=action_type)  # 记录止损执行
+        logger.info("ad_stop_loss_review_requested", campaign=campaign_id, action=action_type)  # 记录止损复核请求
         from app.communication.collaboration import collaboration_engine  # 延迟导入避免循环依赖
 
         if action_type == "reduce_budget":
             await collaboration_engine.create_alert(  # 创建协作告警，通知相关Agent
                 company_id=company_id,
                 alert_type="ad_stop_loss",
-                title="广告自动止损",
-                message=f"广告计划 {campaign_id} CPA过高，已自动降低预算50%",
+                title="广告预算调整待审核",
+                message=f"广告计划 {campaign_id} CPA过高，建议降低预算50%，待人工确认。",
                 severity="warning",  # 降预算用warning级别，因为计划仍在运行
                 related_agents=["smart_ad_delivery"],
             )
-            return {"campaign_id": campaign_id, "action": "budget_reduced",
-                    "new_budget_pct": 50, "status": CampaignStatus.BUDGET_REDUCED.value}
+            return {"campaign_id": campaign_id, "action": "reduce_budget",
+                    "new_budget_pct": 50, "status": CampaignStatus.PENDING_REVIEW.value,
+                    "requires_human_review": True}
         elif action_type == "pause_campaign":
-            self._active_campaigns.pop(campaign_id, None)  # 从活跃列表中移除暂停的计划
             await collaboration_engine.create_alert(
                 company_id=company_id,
                 alert_type="ad_stop_loss",
-                title="广告自动暂停",
-                message=f"广告计划 {campaign_id} 已自动暂停（止损规则触发）",
+                title="广告暂停待审核",
+                message=f"广告计划 {campaign_id} 触发止损规则，建议暂停，待人工确认。",
                 severity="critical",  # 暂停计划用critical级别，因为涉及损失
                 related_agents=["smart_ad_delivery"],
             )
-            return {"campaign_id": campaign_id, "action": "paused",
-                    "status": CampaignStatus.PAUSED.value}
+            return {"campaign_id": campaign_id, "action": "pause_campaign",
+                    "status": CampaignStatus.PENDING_REVIEW.value,
+                    "requires_human_review": True}
 
         return {"campaign_id": campaign_id, "action": action_type, "status": "unknown"}
 

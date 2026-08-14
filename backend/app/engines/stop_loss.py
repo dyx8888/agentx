@@ -1,23 +1,25 @@
 """
 StopLossEngine - Deterministic ad delivery stop-loss rule evaluation engine
 Zero LLM dependency, pure rule-based evaluation.
-"""  # 纯规则驱动的广告止损引擎：通过预定义规则+eval表达式评估广告计划是否需要止损
+"""  # 纯规则驱动的广告止损引擎：通过预定义规则+安全表达式评估广告计划是否需要人工复核
 
 from dataclasses import dataclass, field  # 数据模型定义
 from datetime import datetime, timedelta  # 时间计算：触发时间、历史查询时间窗口
 from enum import StrEnum  # 字符串枚举
 
+from app.core.safe_expression import SafeExpressionError, safe_eval_bool
+
 
 class StopLossAction(StrEnum):  # 止损动作枚举，定义了所有可能的止损操作类型
-    REDUCE_BUDGET_50 = "reduce_budget_50"  # 将日预算减半
-    PAUSE_CAMPAIGN = "pause_campaign"  # 暂停计划
+    REDUCE_BUDGET_50 = "reduce_budget_50"  # 建议将日预算减半，必须人工确认
+    PAUSE_CAMPAIGN = "pause_campaign"  # 建议暂停计划，必须人工确认
     REPLACE_CREATIVE = "replace_creative"  # 替换素材
     NOTIFY_ONLY = "notify_only"  # 仅通知，不自动执行
     HUMAN_CONFIRM = "human_confirm"  # 需要人工确认后才执行
 
 
 class StopLossSeverity(StrEnum):  # 止损严重等级
-    CRITICAL = "critical"  # 严重：需要立即自动执行
+    CRITICAL = "critical"  # 严重：需要立即人工复核
     WARNING = "warning"  # 警告：需要关注
     INFO = "info"  # 信息：仅供参考
 
@@ -26,10 +28,10 @@ class StopLossSeverity(StrEnum):  # 止损严重等级
 class StopLossRule:  # 止损规则定义，每条规则包含触发条件和执行动作
     rule_id: str  # 规则唯一ID，如"SL-001"
     description: str  # 规则描述，用于日志和通知
-    condition_expr: str  # eval表达式字符串，在受控上下文中执行
-    action: StopLossAction  # 触发后执行的动作
+    condition_expr: str  # 安全表达式字符串，在受控上下文中执行
+    action: StopLossAction  # 触发后建议的动作
     severity: StopLossSeverity  # 严重等级
-    auto_execute: bool = False  # 是否自动执行：True=自动止损，False=仅通知
+    auto_execute: bool = False  # 预算/暂停类规则必须保持False，等待人工确认
     notify_channels: list[str] = field(default_factory=lambda: ["dashboard", "ad_agent"])  # 通知渠道列表
 
 
@@ -42,9 +44,9 @@ class StopLossTrigger:  # 止损触发记录，保存每次触发的完整信息
     reason: str  # 触发原因（规则描述）
     current_value: float  # 当前指标值
     threshold: float  # 阈值
-    action: StopLossAction  # 将执行的动作
+    action: StopLossAction  # 建议动作
     severity: StopLossSeverity  # 严重等级
-    auto_executed: bool  # 是否自动执行
+    auto_executed: bool  # 是否自动执行，预算/暂停类规则应为False
     recommended_action: str  # 推荐的操作说明（人类可读）
 
 
@@ -68,24 +70,24 @@ class CampaignMetrics:  # 广告计划指标（与ad_delivery_engine中的Campai
 
 
 class StopLossEngine:
-    """Automatic stop-loss rule evaluation engine for ad delivery."""  # 自动止损引擎：预定义8条规则覆盖CPA/ROI/CTR/预算/转化等核心维度
+    """Stop-loss rule review engine for ad delivery."""  # 止损复核引擎：预定义8条规则覆盖CPA/ROI/CTR/预算/转化等核心维度
 
     DEFAULT_RULES: list[StopLossRule] = [  # 默认规则集，涵盖电商广告最常见的止损场景
         StopLossRule(
             rule_id="SL-001",
-            description="CPA \u8d85\u6807 1.5\u500d\u6301\u7eed2\u5c0f\u65f6 \u2192 \u964d\u9884\u7b9750%",  # 出价过高，降预算控制成本
+            description="CPA \u8d85\u6807 1.5\u500d\u6301\u7eed2\u5c0f\u65f6 \u2192 \u5efa\u8bae\u964d\u9884\u7b9750%\uff08\u5f85\u4eba\u5de5\u786e\u8ba4\uff09",  # 出价过高，建议降预算控制成本
             condition_expr="cpa > target_cpa * 1.5 and running_hours >= 2",
             action=StopLossAction.REDUCE_BUDGET_50,
             severity=StopLossSeverity.CRITICAL,
-            auto_execute=True,  # 降预算风险可控，可自动执行
+            auto_execute=False,
         ),
         StopLossRule(
             rule_id="SL-002",
-            description="ROI \u4f4e\u4e8e\u76c8\u4e8f\u7ebf\u6301\u7eed4\u5c0f\u65f6 \u2192 \u6682\u505c\u8ba1\u5212",  # 持续亏损，必须暂停
+            description="ROI \u4f4e\u4e8e\u76c8\u4e8f\u7ebf\u6301\u7eed4\u5c0f\u65f6 \u2192 \u5efa\u8bae\u6682\u505c\u8ba1\u5212\uff08\u5f85\u4eba\u5de5\u786e\u8ba4\uff09",  # 持续亏损，建议人工确认是否暂停
             condition_expr="roi < breakeven_roi and running_hours >= 4",
             action=StopLossAction.PAUSE_CAMPAIGN,
             severity=StopLossSeverity.CRITICAL,
-            auto_execute=True,
+            auto_execute=False,
         ),
         StopLossRule(
             rule_id="SL-003",
@@ -98,11 +100,11 @@ class StopLossEngine:
         ),
         StopLossRule(
             rule_id="SL-004",
-            description="\u6d88\u8017 > \u65e5\u9884\u7b9790% \u4e14 ROI < 1 \u2192 \u6682\u505c\u8ba1\u5212",  # 避免预算耗尽但效果差
+            description="\u6d88\u8017 > \u65e5\u9884\u7b9790% \u4e14 ROI < 1 \u2192 \u5efa\u8bae\u6682\u505c\u8ba1\u5212\uff08\u5f85\u4eba\u5de5\u786e\u8ba4\uff09",  # 避免预算耗尽但效果差
             condition_expr="current_spend > daily_budget * 0.9 and roi < 1.0",
             action=StopLossAction.PAUSE_CAMPAIGN,
             severity=StopLossSeverity.CRITICAL,
-            auto_execute=True,
+            auto_execute=False,
         ),
         StopLossRule(
             rule_id="SL-005",
@@ -114,19 +116,19 @@ class StopLossEngine:
         ),
         StopLossRule(
             rule_id="SL-006",
-            description="\u5355\u6b21\u8f6c\u5316\u6210\u672c > \u76ee\u6807CPA 3\u500d \u2192 \u7acb\u5373\u6682\u505c",  # 极端异常，必须立即止损
+            description="\u5355\u6b21\u8f6c\u5316\u6210\u672c > \u76ee\u6807CPA 3\u500d \u2192 \u5efa\u8bae\u7acb\u5373\u6682\u505c\uff08\u5f85\u4eba\u5de5\u786e\u8ba4\uff09",  # 极端异常，建议立即复核
             condition_expr="cpa > target_cpa * 3",
             action=StopLossAction.PAUSE_CAMPAIGN,
             severity=StopLossSeverity.CRITICAL,
-            auto_execute=True,
+            auto_execute=False,
         ),
         StopLossRule(
             rule_id="SL-007",
-            description="\u8f6c\u5316\u7387\u4e3a0\u6301\u7eed4\u5c0f\u65f6 \u2192 \u6682\u505c\u8ba1\u5212",  # 完全无转化但有花费
+            description="\u8f6c\u5316\u7387\u4e3a0\u6301\u7eed4\u5c0f\u65f6 \u2192 \u5efa\u8bae\u6682\u505c\u8ba1\u5212\uff08\u5f85\u4eba\u5de5\u786e\u8ba4\uff09",  # 完全无转化但有花费
             condition_expr="conversions == 0 and running_hours >= 4 and current_spend > 0",
             action=StopLossAction.PAUSE_CAMPAIGN,
             severity=StopLossSeverity.CRITICAL,
-            auto_execute=True,
+            auto_execute=False,
         ),
         StopLossRule(
             rule_id="SL-008",
@@ -155,7 +157,7 @@ class StopLossEngine:
         triggers = []
 
         for rule in self.rules:
-            condition_met = self._evaluate_condition(rule, metrics, consecutive_low_roi_days)  # 使用eval检查条件
+            condition_met = self._evaluate_condition(rule, metrics, consecutive_low_roi_days)  # 使用安全表达式检查条件
             if not condition_met:
                 continue
 
@@ -181,9 +183,9 @@ class StopLossEngine:
 
         return triggers
 
-    def _evaluate_condition(self, rule: StopLossRule, m: CampaignMetrics, consecutive_low_roi_days: int) -> bool:  # 使用eval评估规则表达式
+    def _evaluate_condition(self, rule: StopLossRule, m: CampaignMetrics, consecutive_low_roi_days: int) -> bool:  # 使用安全表达式评估规则表达式
         try:
-            ctx = {  # 构建受控的eval上下文，只暴露必要的变量
+            ctx = {  # 构建受控上下文，只暴露必要的变量
                 "cpa": m.cpa,
                 "target_cpa": m.target_cpa,
                 "roi": m.roi,
@@ -198,8 +200,8 @@ class StopLossEngine:
                 "impressions": m.impressions,
                 "consecutive_low_roi_days": consecutive_low_roi_days,  # 跨天指标
             }
-            return bool(eval(rule.condition_expr, {"__builtins__": {}}, ctx))  # 禁用builtins防止代码注入，只允许简单的逻辑表达式
-        except Exception:  # eval异常时默认不触发，安全第一
+            return safe_eval_bool(rule.condition_expr, ctx)
+        except (SafeExpressionError, ZeroDivisionError):  # 表达式异常时默认不触发，安全第一
             return False
 
     @staticmethod
@@ -233,8 +235,8 @@ class StopLossEngine:
     @staticmethod
     def _format_action(rule: StopLossRule, m: CampaignMetrics) -> str:  # 格式化为人类可读的操作建议
         actions = {
-            StopLossAction.REDUCE_BUDGET_50: f"\u3010\u81ea\u52a8\u6267\u884c\u3011\u5c06\u8ba1\u5212{m.campaign_name}\u65e5\u9884\u7b97\u4ece{m.daily_budget}\u964d\u81f3{m.daily_budget/2}",
-            StopLossAction.PAUSE_CAMPAIGN: f"\u3010\u81ea\u52a8\u6267\u884c\u3011\u6682\u505c\u8ba1\u5212{m.campaign_name}\uff0c\u907f\u514d\u7ee7\u7eed\u4e8f\u635f",
+            StopLossAction.REDUCE_BUDGET_50: f"\u3010\u5f85\u786e\u8ba4\u3011\u5efa\u8bae\u5c06\u8ba1\u5212{m.campaign_name}\u65e5\u9884\u7b97\u4ece{m.daily_budget}\u964d\u81f3{m.daily_budget/2}\uff0c\u8bf7\u4eba\u5de5\u786e\u8ba4",
+            StopLossAction.PAUSE_CAMPAIGN: f"\u3010\u5f85\u786e\u8ba4\u3011\u5efa\u8bae\u6682\u505c\u8ba1\u5212{m.campaign_name}\uff0c\u907f\u514d\u7ee7\u7eed\u4e8f\u635f\uff0c\u8bf7\u4eba\u5de5\u786e\u8ba4",
             StopLossAction.REPLACE_CREATIVE: f"\u3010\u5f85\u786e\u8ba4\u3011\u5efa\u8bae\u66ff\u6362\u8ba1\u5212{m.campaign_name}\u7684\u6295\u653e\u7d20\u6750",
             StopLossAction.NOTIFY_ONLY: f"\u3010\u901a\u77e5\u3011\u8ba1\u5212{m.campaign_name}\u5b58\u5728\u98ce\u9669\uff0c\u8bf7\u5173\u6ce8",
             StopLossAction.HUMAN_CONFIRM: f"\u3010\u9700\u786e\u8ba4\u3011\u8ba1\u5212{m.campaign_name}\u8fde\u7eed\u4f4eROI\uff0c\u5efa\u8bae\u6682\u505c\uff0c\u8bf7\u4eba\u5de5\u786e\u8ba4",

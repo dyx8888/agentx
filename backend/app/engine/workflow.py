@@ -2,7 +2,6 @@
 Workflow Engine - 基于YAML的工作流引擎
 支持固定步骤编排，与Agent混合使用
 """  # 工作流引擎：将确定性流程写死为YAML工作流，避免LLM自主决策，降低成本和提高容错性
-import json  # 用于条件评估中的JSON解析
 import os  # 用于构建工作流配置文件的绝对路径
 import yaml  # 使用YAML定义工作流，比JSON更易读，适合非技术人员维护
 from dataclasses import dataclass, field  # 数据模型定义，减少样板代码
@@ -10,6 +9,7 @@ from enum import StrEnum  # 使用StrEnum方便序列化和日志记录
 from typing import Any, Callable  # 类型标注
 
 from app.core.logging import get_logger  # 结构化日志
+from app.core.safe_expression import SafeExpressionError, safe_eval_bool
 
 logger = get_logger(__name__)
 
@@ -264,15 +264,15 @@ class WorkflowEngine:
             return None  # 未注册的Agent返回None
 
         elif step.type == "condition":
-            # 条件步骤：通过eval动态计算条件表达式，决定走true_branch还是false_branch
+            # 条件步骤：使用受限表达式求值，拒绝函数导入/属性访问等危险语法
             condition = step.params.get("condition", "")
             true_branch = step.params.get("true_branch", "")
             false_branch = step.params.get("false_branch", "")
             try:
-                # eval使用受限的命名空间（context和json），防止任意代码执行
-                result = eval(condition, {"context": context, "json": json})
+                result = safe_eval_bool(condition, {"context": context})
                 return {"branch": true_branch if result else false_branch}
-            except Exception:
+            except SafeExpressionError as exc:
+                logger.warning("workflow_condition_rejected", condition=condition, error=str(exc))
                 return {"branch": false_branch}  # 条件评估失败时走false分支，安全兜底
 
         return None
