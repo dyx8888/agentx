@@ -150,6 +150,11 @@ from app.tools.registry import registry  # 工具注册表，管理 agent 可调
 async def lifespan(app: FastAPI):
     # lifespan 分为 yield 前（启动）和 yield 后（关闭）两个阶段，保证资源初始化和释放的对称性
     """Initialize Agent on startup"""
+    from app.core.config import validate_secrets_on_startup
+
+    validate_secrets_on_startup()
+    logger.info("secret_keys_validated")
+
     from app.database import init_database  # 延迟导入避免循环依赖：main 是入口模块，提前导入所有子模块可能产生循环引用
 
     init_database()  # 在 agent runtime 之前初始化数据库，因为 runtime 启动时就需要读取 agent 配置

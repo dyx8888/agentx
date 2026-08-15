@@ -1,8 +1,10 @@
+import asyncio
 import inspect
 import sys
 import types
 from unittest.mock import MagicMock
 
+import pytest
 from sqlalchemy.sql.elements import TextClause
 
 
@@ -115,3 +117,113 @@ def test_health_check_uses_short_lived_milvus_client(monkeypatch):
     clients[0].close.assert_called_once()
     fake_connections.connect.assert_not_called()
     fake_connections.disconnect.assert_not_called()
+
+
+def _set_config_secrets(monkeypatch, *, env, jwt_secret, encryption_key):
+    import app.core.config as config
+
+    monkeypatch.setenv("ENV", env)
+    monkeypatch.setattr(config, "JWT_SECRET_KEY", jwt_secret)
+    monkeypatch.setattr(config, "ENCRYPTION_KEY", encryption_key)
+    return config
+
+
+def _patch_lifespan_dependencies(monkeypatch, events):
+    import app.database as database
+    import app.main as main
+
+    monkeypatch.setattr(database, "init_database", lambda: events.append("database"))
+    monkeypatch.setattr(
+        main.registry,
+        "initialize_from_config",
+        lambda: events.append("tools"),
+    )
+    monkeypatch.setattr(
+        main.skill_registry,
+        "load_from_config",
+        lambda: events.append("skills"),
+    )
+    monkeypatch.setattr(main, "EVOLUTION_API_ENABLED", False)
+
+    class FakeRuntime:
+        async def initialize(self):
+            events.append("runtime")
+
+    monkeypatch.setattr(main, "AgentRuntime", FakeRuntime)
+    return main
+
+
+async def _enter_lifespan(main):
+    app = types.SimpleNamespace(state=types.SimpleNamespace())
+    context = main.lifespan(app)
+    await context.__aenter__()
+    await context.__aexit__(None, None, None)
+
+
+def test_lifespan_blocks_prod_default_jwt_before_startup(monkeypatch):
+    config = _set_config_secrets(
+        monkeypatch,
+        env="prod",
+        jwt_secret="default",
+        encryption_key="safe-encryption-key-for-startup-test",
+    )
+    events = []
+    original_validate = config.validate_secrets_on_startup
+
+    def wrapped_validate():
+        events.append("validate")
+        return original_validate()
+
+    monkeypatch.setattr(config, "validate_secrets_on_startup", wrapped_validate)
+    main = _patch_lifespan_dependencies(monkeypatch, events)
+
+    with pytest.raises(RuntimeError, match="JWT_SECRET_KEY"):
+        asyncio.run(_enter_lifespan(main))
+
+    assert events == ["validate"]
+
+
+def test_lifespan_blocks_prod_missing_encryption_key_before_startup(monkeypatch):
+    config = _set_config_secrets(
+        monkeypatch,
+        env="prod",
+        jwt_secret="safe-jwt-secret-for-startup-test",
+        encryption_key=None,
+    )
+    events = []
+    original_validate = config.validate_secrets_on_startup
+
+    def wrapped_validate():
+        events.append("validate")
+        return original_validate()
+
+    monkeypatch.setattr(config, "validate_secrets_on_startup", wrapped_validate)
+    main = _patch_lifespan_dependencies(monkeypatch, events)
+
+    with pytest.raises(RuntimeError, match="ENCRYPTION_KEY"):
+        asyncio.run(_enter_lifespan(main))
+
+    assert events == ["validate"]
+
+
+def test_lifespan_allows_dev_missing_secrets_and_validates_first(monkeypatch):
+    config = _set_config_secrets(
+        monkeypatch,
+        env="dev",
+        jwt_secret=None,
+        encryption_key=None,
+    )
+    events = []
+    original_validate = config.validate_secrets_on_startup
+
+    def wrapped_validate():
+        events.append("validate")
+        return original_validate()
+
+    monkeypatch.setattr(config, "validate_secrets_on_startup", wrapped_validate)
+    main = _patch_lifespan_dependencies(monkeypatch, events)
+
+    asyncio.run(_enter_lifespan(main))
+
+    assert events[:4] == ["validate", "database", "tools", "skills"]
+    assert "runtime" in events
