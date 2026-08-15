@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Cpu,
   Check,
@@ -15,48 +15,72 @@ import { useAuth } from '@/lib/AuthContext';
 import { cn } from '@/lib/utils';
 import { getLlmConfig, updateLlmConfig } from '@/api/llmConfig';
 
-// 状态色（保存成功提示）
 const SUCCESS_COLOR = 'oklch(0.7 0.09 145)';
+const DEFAULT_PROVIDER_TYPE = 'openai_compatible';
+const TASK_OPTIONS = [
+  { value: 'chat', label: '聊天' },
+  { value: 'analysis', label: '分析' },
+  { value: 'content', label: '内容' },
+  { value: 'workflow', label: '工作流' },
+];
 const LLM_STATUS_LABELS = {
-  provider: '\u6a21\u578b\u5382\u5546',
-  gateway: '\u7f51\u5173\u5730\u5740',
-  apiKey: 'API Key',
+  provider: '模型厂商',
+  gateway: '网关地址',
+  baseUrl: '网关地址',
+  modelName: '模型名称',
+  apiKey: 'API 密钥',
 };
-
-/* ═══════════════════════════════════════════════════════════════
-   3) 大模型配置 — 模型按钮选择 + 配置卡片
-   - 顶部一行 provider 按钮
-   - 点击后展示该 provider 的配置（网关 / API Key / 限额 / 超额提醒）
-   ═══════════════════════════════════════════════════════════════ */
 
 const LLM_PROVIDERS = [
   {
     key: 'deepseek',
     name: 'DeepSeek',
-    desc: '深度求索 — 中文场景优秀',
+    desc: 'DeepSeek 兼容 OpenAI 的接口',
+    defaultProviderType: DEFAULT_PROVIDER_TYPE,
     defaultGateway: 'https://api.deepseek.com/v1',
+    defaultModelName: 'deepseek-chat',
+    defaultPreferredTasks: ['chat', 'analysis'],
     models: [
-      { value: 'deepseek-chat',  label: 'DeepSeek-V3',     defaultTpm: 200000 },
-      { value: 'deepseek-coder', label: 'DeepSeek-Coder',  defaultTpm: 100000 },
+      { value: 'deepseek-chat', label: 'DeepSeek-V3', defaultTpm: 200000 },
+      { value: 'deepseek-coder', label: 'DeepSeek-Coder', defaultTpm: 100000 },
     ],
     placeholder: 'sk-...',
   },
   {
     key: 'openai',
     name: 'OpenAI',
-    desc: 'GPT-4o 系列 — 多模态与推理',
+    desc: 'OpenAI 兼容 GPT 接口',
+    defaultProviderType: DEFAULT_PROVIDER_TYPE,
     defaultGateway: 'https://api.openai.com/v1',
+    defaultModelName: 'gpt-4o-mini',
+    defaultPreferredTasks: ['chat', 'analysis'],
     models: [
-      { value: 'gpt-4o',      label: 'GPT-4o',      defaultTpm: 200000 },
+      { value: 'gpt-4o', label: 'GPT-4o', defaultTpm: 200000 },
       { value: 'gpt-4o-mini', label: 'GPT-4o mini', defaultTpm: 500000 },
+    ],
+    placeholder: 'sk-...',
+  },
+  {
+    key: 'custom_proxy',
+    name: '自定义中转站',
+    desc: '兼容 OpenAI 的网关地址 / 模型 / API 密钥',
+    defaultProviderType: DEFAULT_PROVIDER_TYPE,
+    defaultGateway: 'https://proxy.example.com/v1',
+    defaultModelName: 'custom-chat-model',
+    defaultPreferredTasks: ['chat'],
+    models: [
+      { value: 'custom-chat-model', label: '自定义模型', defaultTpm: 200000 },
     ],
     placeholder: 'sk-...',
   },
   {
     key: 'anthropic',
     name: 'Anthropic',
-    desc: 'Claude 系列 — 长文本与代码',
+    desc: '通过 OpenAI-compatible 中转站接入 Claude',
+    defaultProviderType: DEFAULT_PROVIDER_TYPE,
     defaultGateway: 'https://api.anthropic.com/v1',
+    defaultModelName: 'claude-3-5-sonnet',
+    defaultPreferredTasks: ['chat', 'analysis'],
     models: [
       { value: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', defaultTpm: 100000 },
     ],
@@ -64,9 +88,73 @@ const LLM_PROVIDERS = [
   },
 ];
 
-/* ═══════════════════════════════════════════════════════════════
-   ProviderCardSkeleton — 加载中骨架屏（替代简单 spinner）
-   ═══════════════════════════════════════════════════════════════ */
+const PROVIDER_BY_KEY = Object.fromEntries(LLM_PROVIDERS.map((provider) => [provider.key, provider]));
+
+function normalizePreferredTasks(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(',');
+  const normalized = [];
+  for (const item of raw) {
+    const task = String(item || '').trim();
+    if (task && !normalized.includes(task)) normalized.push(task);
+  }
+  return normalized;
+}
+
+function preferredTasksToInput(value) {
+  return normalizePreferredTasks(value).join(', ');
+}
+
+function providerDefaults(provider) {
+  const fallbackModel = provider?.models?.[0]?.value || '';
+  return {
+    providerType: provider?.defaultProviderType || DEFAULT_PROVIDER_TYPE,
+    baseUrl: provider?.defaultGateway || '',
+    gateway: provider?.defaultGateway || '',
+    modelName: provider?.defaultModelName || fallbackModel,
+    enabled: true,
+    preferredTasks: provider?.defaultPreferredTasks || [],
+    apiKey: '',
+    tpm: {},
+    usage: {},
+    warnAt90: true,
+  };
+}
+
+function normalizeProviderState(provider, cfg = {}) {
+  const defaults = providerDefaults(provider);
+  const baseUrl = cfg.baseUrl ?? cfg.gateway ?? defaults.baseUrl;
+  return {
+    ...defaults,
+    providerType: cfg.providerType || defaults.providerType,
+    baseUrl,
+    gateway: cfg.gateway ?? baseUrl,
+    modelName: cfg.modelName || defaults.modelName,
+    enabled: cfg.enabled ?? defaults.enabled,
+    preferredTasks: normalizePreferredTasks(cfg.preferredTasks ?? cfg.preferred_tasks ?? defaults.preferredTasks),
+    apiKey: cfg.apiKey || '',
+    tpm: cfg.tpm || {},
+    usage: cfg.usage || {},
+    warnAt90: cfg.warnAt90 ?? true,
+  };
+}
+
+function buildProviderPayload(key, cfg = {}) {
+  const provider = PROVIDER_BY_KEY[key] || { key };
+  const normalized = normalizeProviderState(provider, cfg);
+  const baseUrl = normalized.baseUrl || normalized.gateway || '';
+  return {
+    providerType: normalized.providerType || DEFAULT_PROVIDER_TYPE,
+    baseUrl,
+    gateway: baseUrl,
+    modelName: normalized.modelName || '',
+    enabled: normalized.enabled ?? true,
+    preferredTasks: normalizePreferredTasks(normalized.preferredTasks),
+    apiKey: normalized.apiKey || '',
+    tpm: normalized.tpm || {},
+    warnAt90: normalized.warnAt90 ?? true,
+  };
+}
+
 function ProviderCardSkeleton() {
   return (
     <div className="rounded-2xl border border-border bg-card p-5">
@@ -91,29 +179,22 @@ function ProviderCardSkeleton() {
         <div className="skeleton h-3 w-16 rounded-md" />
         <div className="skeleton h-9 w-full rounded-md" />
       </div>
-      <div className="mt-4 flex flex-col gap-2.5">
-        <div className="skeleton h-3 w-32 rounded-md" />
-        <div className="skeleton h-16 w-full rounded-lg" />
-        <div className="skeleton h-16 w-full rounded-lg" />
-      </div>
     </div>
   );
 }
 
 function ProviderCard({ provider, data, onChange, apiKeyPlaceholder }) {
   const [showKey, setShowKey] = useState(false);
-  const modelsWithUsage = provider.models.map((m) => {
-    const used = data.usage?.[m.value] ?? 0;
-    const limit = data.tpm?.[m.value] ?? m.defaultTpm;
-    return { ...m, used, limit };
+  const formData = normalizeProviderState(provider, data);
+  const modelsWithUsage = provider.models.map((model) => {
+    const used = formData.usage?.[model.value] ?? 0;
+    const limit = formData.tpm?.[model.value] ?? model.defaultTpm;
+    return { ...model, used, limit };
   });
-  const totalUsed = modelsWithUsage.reduce((s, m) => s + m.used, 0);
-  const totalLimit = modelsWithUsage.reduce((s, m) => s + m.limit, 0);
+  const totalUsed = modelsWithUsage.reduce((sum, model) => sum + model.used, 0);
+  const totalLimit = modelsWithUsage.reduce((sum, model) => sum + model.limit, 0);
   const pct = totalLimit > 0 ? Math.min(100, Math.round((totalUsed / totalLimit) * 100)) : 0;
-  const tone =
-    pct >= 90 ? 'var(--destructive)' :
-    pct >= 70 ? 'oklch(0.78 0.14 60)'  :
-                'oklch(0.78 0.13 145)';
+  const tone = pct >= 90 ? 'var(--destructive)' : pct >= 70 ? 'oklch(0.78 0.14 60)' : 'oklch(0.78 0.13 145)';
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5">
@@ -123,62 +204,115 @@ function ProviderCard({ provider, data, onChange, apiKeyPlaceholder }) {
             <div className="flex size-8 items-center justify-center rounded-lg bg-secondary">
               <Cpu className="size-4 text-foreground/80" />
             </div>
-            <h3 className="font-heading text-base font-semibold text-foreground">
-              {provider.name}
-            </h3>
+            <h3 className="font-heading text-base font-semibold text-foreground">{provider.name}</h3>
           </div>
           <p className="mt-1.5 text-xs text-muted-foreground">{provider.desc}</p>
         </div>
         <div className="flex flex-col items-end gap-1">
           <span
             className="rounded-full px-2 py-0.5 text-[10px] font-medium"
-            style={{
-              backgroundColor: `color-mix(in oklch, ${tone} 12%, transparent)`,
-              color: tone,
-            }}
+            style={{ backgroundColor: `color-mix(in oklch, ${tone} 12%, transparent)`, color: tone }}
           >
             今日已用 {pct}%
           </span>
           <span className="text-[10px] text-muted-foreground">
-            {totalUsed.toLocaleString()} / {totalLimit.toLocaleString()} tokens
+            已用 {totalUsed.toLocaleString()} / {totalLimit.toLocaleString()} Token
           </span>
         </div>
       </div>
 
-      {/* 网关地址 */}
+      <div className="mb-3 grid gap-3 md:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-foreground">模型厂商类型</label>
+          <select
+            aria-label="模型厂商类型"
+            value={formData.providerType}
+            onChange={(event) => onChange(provider.key, { providerType: event.target.value })}
+            className="input-base h-9 text-xs"
+          >
+            <option value="openai_compatible">兼容 OpenAI</option>
+          </select>
+        </div>
+        <div className="flex items-center justify-between rounded-lg bg-background/40 px-3 py-2.5">
+          <div>
+            <p className="text-xs font-medium text-foreground">启用模型厂商</p>
+            <p className="text-[10px] text-muted-foreground">关闭后后端会安全拒绝调用</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-label="启用模型厂商"
+            aria-checked={formData.enabled}
+            onClick={() => onChange(provider.key, { enabled: !formData.enabled })}
+            className={cn(
+              'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors',
+              formData.enabled ? 'bg-primary' : 'bg-border'
+            )}
+          >
+            <span
+              className={cn(
+                'inline-block size-4 rounded-full bg-card shadow-sm transition-transform',
+                formData.enabled ? 'translate-x-4' : 'translate-x-0.5'
+              )}
+            />
+          </button>
+        </div>
+      </div>
+
       <div className="mb-3 flex flex-col gap-1.5">
         <label className="flex items-center gap-1 text-xs font-medium text-foreground">
           <Globe className="size-3" />
-          网关地址
+          网关地址（Base URL）
         </label>
         <input
+          aria-label="网关地址"
           type="url"
-          value={data.gateway ?? provider.defaultGateway}
-          onChange={(e) => onChange(provider.key, { gateway: e.target.value })}
+          value={formData.baseUrl}
+          onChange={(event) => onChange(provider.key, { baseUrl: event.target.value, gateway: event.target.value })}
           placeholder={provider.defaultGateway}
           className="input-base h-9 text-xs"
         />
       </div>
 
-      {/* API Key */}
+      <div className="mb-3 flex flex-col gap-1.5">
+        <label className="flex items-center gap-1 text-xs font-medium text-foreground">
+          <Cpu className="size-3" />
+          模型名称
+        </label>
+        <input
+          aria-label="模型名称"
+          list={`${provider.key}-model-options`}
+          value={formData.modelName}
+          onChange={(event) => onChange(provider.key, { modelName: event.target.value })}
+          placeholder={provider.defaultModelName}
+          className="input-base h-9 text-xs"
+        />
+        <datalist id={`${provider.key}-model-options`}>
+          {provider.models.map((model) => (
+            <option key={model.value} value={model.value}>{model.label}</option>
+          ))}
+        </datalist>
+      </div>
+
       <div className="mb-3 flex flex-col gap-1.5">
         <label className="flex items-center gap-1 text-xs font-medium text-foreground">
           <KeyRound className="size-3" />
-          API Key
+          API 密钥
         </label>
         <div className="relative">
           <input
+            aria-label="API 密钥"
             type={showKey ? 'text' : 'password'}
-            value={data.apiKey ?? ''}
-            onChange={(e) => onChange(provider.key, { apiKey: e.target.value })}
+            value={formData.apiKey}
+            onChange={(event) => onChange(provider.key, { apiKey: event.target.value })}
             placeholder={apiKeyPlaceholder || provider.placeholder}
             className="input-base h-9 w-full pr-9 text-xs"
             autoComplete="off"
           />
           <button
             type="button"
-            onClick={() => setShowKey((v) => !v)}
-            aria-label={showKey ? '隐藏' : '显示'}
+            onClick={() => setShowKey((value) => !value)}
+            aria-label={showKey ? '隐藏密钥' : '显示密钥'}
             className="absolute right-2 top-1/2 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             {showKey ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
@@ -186,48 +320,72 @@ function ProviderCard({ provider, data, onChange, apiKeyPlaceholder }) {
         </div>
       </div>
 
-      {/* 各模型限额 */}
+      <div className="mb-3 flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-foreground">适用任务</label>
+        <input
+          aria-label="适用任务"
+          value={preferredTasksToInput(formData.preferredTasks)}
+          onChange={(event) => onChange(provider.key, { preferredTasks: normalizePreferredTasks(event.target.value) })}
+          placeholder="chat, analysis"
+          className="input-base h-9 text-xs"
+        />
+        <div className="flex flex-wrap gap-1.5">
+          {TASK_OPTIONS.map((task) => {
+            const selected = formData.preferredTasks.includes(task.value);
+            return (
+              <button
+                key={task.value}
+                type="button"
+                onClick={() => {
+                  const next = selected
+                    ? formData.preferredTasks.filter((item) => item !== task.value)
+                    : [...formData.preferredTasks, task.value];
+                  onChange(provider.key, { preferredTasks: next });
+                }}
+                className={cn(
+                  'rounded-full border px-2 py-0.5 text-[10px] transition-colors',
+                  selected ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {task.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="mt-4 flex flex-col gap-2.5">
         <label className="flex items-center gap-1 text-xs font-medium text-foreground">
           <Hash className="size-3" />
-          模型与每日 Token 限额
+          每日 Token 限额
         </label>
-        {modelsWithUsage.map((m) => {
-          const mpct = m.limit > 0 ? Math.min(100, Math.round((m.used / m.limit) * 100)) : 0;
-          const mtone =
-            mpct >= 90 ? 'var(--destructive)' :
-            mpct >= 70 ? 'oklch(0.78 0.14 60)'  :
-                        'oklch(0.78 0.13 145)';
+        {modelsWithUsage.map((model) => {
+          const modelPct = model.limit > 0 ? Math.min(100, Math.round((model.used / model.limit) * 100)) : 0;
+          const modelTone = modelPct >= 90 ? 'var(--destructive)' : modelPct >= 70 ? 'oklch(0.78 0.14 60)' : 'oklch(0.78 0.13 145)';
           return (
-            <div key={m.value} className="rounded-lg border border-border bg-background/40 p-3">
+            <div key={model.value} className="rounded-lg border border-border bg-background/40 p-3">
               <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-foreground">{m.label}</span>
+                <span className="text-xs font-medium text-foreground">{model.label}</span>
                 <span className="font-mono text-[10px] text-muted-foreground">
-                  {m.used.toLocaleString()} / {m.limit.toLocaleString()}
+                  {model.used.toLocaleString()} / {model.limit.toLocaleString()}
                 </span>
               </div>
-              <div
-                className="mb-1.5 h-1 w-full overflow-hidden rounded-full"
-                style={{ backgroundColor: 'var(--secondary)' }}
-              >
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{ width: `${mpct}%`, backgroundColor: mtone }}
-                />
+              <div className="mb-1.5 h-1 w-full overflow-hidden rounded-full" style={{ backgroundColor: 'var(--secondary)' }}>
+                <div className="h-full rounded-full transition-all" style={{ width: `${modelPct}%`, backgroundColor: modelTone }} />
               </div>
               <div className="flex items-center gap-1.5">
                 <input
                   type="number"
                   min="0"
                   step="10000"
-                  value={m.limit}
-                  onChange={(e) =>
+                  value={model.limit}
+                  onChange={(event) =>
                     onChange(provider.key, {
-                      tpm: { ...(data.tpm || {}), [m.value]: Number(e.target.value) || 0 },
+                      tpm: { ...(formData.tpm || {}), [model.value]: Number(event.target.value) || 0 },
                     })
                   }
                   className="input-base h-7 w-32 text-[11px]"
-                  aria-label={`${m.label} 限额`}
+                  aria-label={`${model.label} 限额`}
                 />
                 <span className="text-[11px] text-muted-foreground">tokens / 日</span>
               </div>
@@ -236,7 +394,6 @@ function ProviderCard({ provider, data, onChange, apiKeyPlaceholder }) {
         })}
       </div>
 
-      {/* 超标警告开关 */}
       <div className="mt-4 flex items-center justify-between rounded-lg bg-background/40 px-3 py-2.5">
         <div className="flex items-center gap-2">
           <AlertTriangle className="size-3.5 text-foreground/70" />
@@ -248,17 +405,18 @@ function ProviderCard({ provider, data, onChange, apiKeyPlaceholder }) {
         <button
           type="button"
           role="switch"
-          aria-checked={data.warnAt90 ?? true}
-          onClick={() => onChange(provider.key, { warnAt90: !(data.warnAt90 ?? true) })}
+          aria-label="超额提醒"
+          aria-checked={formData.warnAt90}
+          onClick={() => onChange(provider.key, { warnAt90: !formData.warnAt90 })}
           className={cn(
             'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors',
-            (data.warnAt90 ?? true) ? 'bg-primary' : 'bg-border'
+            formData.warnAt90 ? 'bg-primary' : 'bg-border'
           )}
         >
           <span
             className={cn(
               'inline-block size-4 rounded-full bg-card shadow-sm transition-transform',
-              (data.warnAt90 ?? true) ? 'translate-x-4' : 'translate-x-0.5'
+              formData.warnAt90 ? 'translate-x-4' : 'translate-x-0.5'
             )}
           />
         </button>
@@ -272,22 +430,19 @@ export default function LlmConfigSection() {
   const companyId = user?.company_id ? String(user.company_id) : '';
   const [activeKey, setActiveKey] = useState(LLM_PROVIDERS[0].key);
   const [providers, setProviders] = useState({});
-  // 单独保存后端返回的脱敏 key（用作 placeholder 显示，不会进入提交体）
   const [maskedKeys, setMaskedKeys] = useState({});
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [llmStatus, setLlmStatus] = useState(null);
-  // toast：保存成功 / 失败时浮层提示（无第三方 toast 库，用 setTimeout 自实现）
-  const [toast, setToast] = useState(null); // null | { type: 'success' | 'error', message: string }
+  const [toast, setToast] = useState(null);
 
   const showToast = (type, message) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 2400);
   };
 
-  // 加载：先调 API；为兼容旧版本，若 API 返回空则回退读取 localStorage('llm_providers')（deprecated）
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -312,33 +467,13 @@ export default function LlmConfigSection() {
         const next = {};
         const nextMasked = {};
         for (const [key, cfg] of Object.entries(remote)) {
-          next[key] = {
-            gateway: cfg.gateway || '',
-            apiKey: '',  // 输入框留空，避免覆盖
-            tpm: cfg.tpm || {},
-            warnAt90: cfg.warnAt90 ?? true,
-          };
+          const provider = PROVIDER_BY_KEY[key] || { key };
+          next[key] = normalizeProviderState(provider, { ...cfg, apiKey: '' });
           if (cfg.apiKeyMasked) nextMasked[key] = cfg.apiKeyMasked;
         }
-        // 旧 localStorage 迁移（deprecated）：仅在 API 返回为空时使用一次
         if (Object.keys(next).length === 0) {
           try {
-            const raw = localStorage.getItem('llm_providers');
-            if (raw) {
-              const legacy = JSON.parse(raw);
-              if (legacy && typeof legacy === 'object') {
-                for (const [k, v] of Object.entries(legacy)) {
-                  next[k] = {
-                    gateway: v.gateway || '',
-                    apiKey: '',  // 不复制明文 key，引导用户重新输入
-                    tpm: v.tpm || {},
-                    warnAt90: v.warnAt90 ?? true,
-                  };
-                  // 若旧数据已有 apiKey，提示用户原值已弃用，需重新输入
-                  if (v.apiKey) nextMasked[k] = '****（旧值未迁移，请重新输入）';
-                }
-              }
-            }
+            localStorage.removeItem('llm_providers');
           } catch { /* noop */ }
         }
         setProviders(next);
@@ -360,7 +495,7 @@ export default function LlmConfigSection() {
   const handleChange = (key, patch) => {
     setProviders((prev) => ({
       ...prev,
-      [key]: { ...(prev[key] || {}), ...patch },
+      [key]: { ...normalizeProviderState(PROVIDER_BY_KEY[key] || { key }, prev[key] || {}), ...patch },
     }));
   };
 
@@ -374,39 +509,26 @@ export default function LlmConfigSection() {
     setSaving(true);
     setError('');
     try {
-      // 整份配置提交：apiKey 为空表示保留原值
       const payload = Object.fromEntries(
-        Object.entries(providers).map(([k, v]) => [
-          k,
-          {
-            gateway: v.gateway || '',
-            apiKey: v.apiKey || '',
-            tpm: v.tpm || {},
-            warnAt90: v.warnAt90 ?? true,
-          },
-        ])
+        Object.entries(providers).map(([key, value]) => [key, buildProviderPayload(key, value)])
       );
       const data = await updateLlmConfig(companyId, payload);
-      // 用响应刷新脱敏 key + 清空输入框
       const remote = data?.providers || {};
       const nextMasked = {};
       const next = {};
-      for (const [k, cfg] of Object.entries(remote)) {
-        next[k] = {
-          gateway: cfg.gateway || '',
-          apiKey: '',
-          tpm: cfg.tpm || {},
-          warnAt90: cfg.warnAt90 ?? true,
-        };
-        if (cfg.apiKeyMasked) nextMasked[k] = cfg.apiKeyMasked;
+      for (const [key, cfg] of Object.entries(remote)) {
+        const provider = PROVIDER_BY_KEY[key] || { key };
+        next[key] = normalizeProviderState(provider, { ...cfg, apiKey: '' });
+        if (cfg.apiKeyMasked) nextMasked[key] = cfg.apiKeyMasked;
       }
-      // 保留前端未提交的 provider（如未在响应中返回）
       setProviders((prev) => {
-        const merged = { ...next };
-        for (const [k, v] of Object.entries(prev)) {
-          if (!merged[k]) merged[k] = v;
-        }
-        return merged;
+        const cleared = Object.fromEntries(
+          Object.entries(prev).map(([key, value]) => [
+            key,
+            { ...normalizeProviderState(PROVIDER_BY_KEY[key] || { key }, value), apiKey: '' },
+          ])
+        );
+        return { ...cleared, ...next };
       });
       setMaskedKeys((prev) => ({ ...prev, ...nextMasked }));
       setLlmStatus({
@@ -426,7 +548,7 @@ export default function LlmConfigSection() {
     }
   };
 
-  const activeProvider = LLM_PROVIDERS.find((p) => p.key === activeKey) || LLM_PROVIDERS[0];
+  const activeProvider = LLM_PROVIDERS.find((provider) => provider.key === activeKey) || LLM_PROVIDERS[0];
   const missingLlmLabels = (llmStatus?.missing_required || []).map(
     (field) => LLM_STATUS_LABELS[field] || field
   );
@@ -438,7 +560,7 @@ export default function LlmConfigSection() {
           大模型配置
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          选择模型厂商并配置网关地址、API Key 与每日 Token 限额
+          配置模型厂商类型、网关地址、模型名称、API 密钥、任务路由与 Token 限额。
         </p>
       </header>
 
@@ -446,28 +568,26 @@ export default function LlmConfigSection() {
         <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
           <div className="space-y-1">
-            <p className="font-medium">{'\u5927\u6a21\u578b\u914d\u7f6e\u672a\u5b8c\u6574\uff0c\u7cfb\u7edf\u53ef\u80fd\u4f1a\u4f9d\u8d56\u5168\u5c40\u73af\u5883\u53d8\u91cf\u6216\u8c03\u7528\u5931\u8d25\u3002'}</p>
+            <p className="font-medium">大模型配置未完整，系统可能安全拒绝调用或使用服务端全局配置。</p>
             {missingLlmLabels.length > 0 && (
-              <p>{'\u5f85\u8865\u5168\uff1a'}{missingLlmLabels.join('\u3001')}</p>
+              <p>待补全：{missingLlmLabels.join('、')}</p>
             )}
           </div>
         </div>
       )}
 
-
-      {/* 模型厂商按钮组 */}
       <div>
         <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
           选择模型厂商
         </p>
         <div className="flex flex-wrap gap-2">
-          {LLM_PROVIDERS.map((p) => {
-            const isActive = p.key === activeKey;
+          {LLM_PROVIDERS.map((provider) => {
+            const isActive = provider.key === activeKey;
             return (
               <button
-                key={p.key}
+                key={provider.key}
                 type="button"
-                onClick={() => setActiveKey(p.key)}
+                onClick={() => setActiveKey(provider.key)}
                 aria-pressed={isActive}
                 className={cn(
                   'group inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all',
@@ -477,7 +597,7 @@ export default function LlmConfigSection() {
                 )}
               >
                 <Cpu className={cn('size-3.5', isActive ? 'text-primary-foreground' : 'text-primary')} />
-                <span>{p.name}</span>
+                <span>{provider.name}</span>
                 {isActive && <Check className="size-3.5" />}
               </button>
             );
@@ -485,7 +605,6 @@ export default function LlmConfigSection() {
         </div>
       </div>
 
-      {/* 当前选中厂商的配置卡片 */}
       {loading ? (
         <ProviderCardSkeleton />
       ) : (
@@ -522,13 +641,8 @@ export default function LlmConfigSection() {
         </button>
       </div>
 
-      {/* Toast 浮层：保存成功 / 失败提示 */}
       {toast && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="pointer-events-none fixed right-4 top-4 z-[200] animate-fade-in-up"
-        >
+        <div role="status" aria-live="polite" className="pointer-events-none fixed right-4 top-4 z-[200] animate-fade-in-up">
           <div
             className={cn(
               'pointer-events-auto flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-lg',
