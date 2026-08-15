@@ -1,0 +1,116 @@
+{
+  "documents": [
+    {
+      "doc_id": "company_a_ads_q2",
+      "company_id": "company_a",
+      "title": "Fictional Q2 ad efficiency memo",
+      "content": "Fictional company Qinglan Beauty set the ad CPA target at 48 yuan. The current blended ROI is 2.8, above the industry benchmark of 2.1. The memo recommends cutting spend only after human review.",
+      "keywords": ["ads", "cpa", "roi", "benchmark", "q2"],
+      "source_file": "fictional_ads_q2.md",
+      "chunk_index": 0
+    },
+    {
+      "doc_id": "company_a_gmv_july",
+      "company_id": "company_a",
+      "title": "Fictional July GMV channel review",
+      "content": "Fictional company Qinglan Beauty reported July GMV of 8.6 million yuan, up 18 percent month over month. Douyin livestream contributed 52 percent of the growth, while store search contributed 21 percent.",
+      "keywords": ["gmv", "growth", "douyin", "livestream", "july"],
+      "source_file": "fictional_gmv_july.md",
+      "chunk_index": 0
+    },
+    {
+      "doc_id": "company_a_content_plan",
+      "company_id": "company_a",
+      "title": "Fictional short video content plan",
+      "content": "The short video plan says the first three seconds should show the before-and-after skin texture comparison. It also says creator clips should avoid medical claims and use product routine demonstrations.",
+      "keywords": ["short video", "content", "creator", "medical claims", "routine"],
+      "source_file": "fictional_content_plan.md",
+      "chunk_index": 0
+    },
+    {
+      "doc_id": "company_a_service_sla",
+      "company_id": "company_a",
+      "title": "Fictional customer service SLA",
+      "content": "Customer service SLA requires first response within 60 seconds during campaign hours. Refund questions should be escalated to a human reviewer before any compensation promise is made.",
+      "keywords": ["service", "sla", "response", "refund", "human review"],
+      "source_file": "fictional_service_sla.md",
+      "chunk_index": 0
+    },
+    {
+      "doc_id": "company_b_ads_q2",
+      "company_id": "company_b",
+      "title": "Fictional separate tenant ad memo",
+      "content": "Fictional company Beichen Home set the ad CPA target at 72 yuan. This number belongs only to company_b and must never answer company_a questions.",
+      "keywords": ["ads", "cpa", "tenant", "company_b"],
+      "source_file": "fictional_company_b_ads.md",
+      "chunk_index": 0
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "company_a_cpa_exact_fact",
+      "company_id": "company_a",
+      "query": "What is Qinglan Beauty's ad CPA target and ROI?",
+      "query_terms": ["cpa", "roi", "ads"],
+      "expected_doc_ids": ["company_a_ads_q2"],
+      "required_facts": ["CPA target is 48 yuan", "ROI is 2.8", "industry benchmark is 2.1"],
+      "support_terms": ["48 yuan", "2.8", "2.1"],
+      "forbidden_claims": ["72 yuan", "company_b"],
+      "no_answer": false
+    },
+    {
+      "case_id": "company_a_gmv_growth_source",
+      "company_id": "company_a",
+      "query": "Where did July GMV growth mainly come from?",
+      "query_terms": ["gmv", "growth", "douyin", "livestream"],
+      "expected_doc_ids": ["company_a_gmv_july"],
+      "required_facts": ["July GMV is 8.6 million yuan", "month-over-month growth is 18 percent", "Douyin livestream contributed 52 percent"],
+      "support_terms": ["8.6 million yuan", "18 percent", "52 percent"],
+      "forbidden_claims": ["offline store", "72 yuan"],
+      "no_answer": false
+    },
+    {
+      "case_id": "company_a_content_citation",
+      "company_id": "company_a",
+      "query": "What should the short video opening show?",
+      "query_terms": ["short video", "content", "first three seconds"],
+      "expected_doc_ids": ["company_a_content_plan"],
+      "required_facts": ["first three seconds should show before-and-after skin texture comparison"],
+      "support_terms": ["first three seconds", "before-and-after skin texture comparison"],
+      "forbidden_claims": ["medical efficacy guarantee", "hospital endorsement"],
+      "no_answer": false
+    },
+    {
+      "case_id": "company_a_no_return_rate_data",
+      "company_id": "company_a",
+      "query": "Which SKU has the highest return rate?",
+      "query_terms": ["return rate", "sku"],
+      "expected_doc_ids": [],
+      "required_facts": [],
+      "support_terms": [],
+      "forbidden_claims": ["SKU-A", "12 percent", "highest return rate is"],
+      "no_answer": true
+    },
+    {
+      "case_id": "company_a_tenant_isolation",
+      "company_id": "company_a",
+      "query": "What CPA target should company_a use?",
+      "query_terms": ["cpa", "target", "ads"],
+      "expected_doc_ids": ["company_a_ads_q2"],
+      "required_facts": ["CPA target is 48 yuan"],
+      "support_terms": ["48 yuan"],
+      "forbidden_doc_ids": ["company_b_ads_q2"],
+      "forbidden_claims": ["72 yuan", "Beichen Home", "company_b"],
+      "no_answer": false
+    }
+  ],
+  "thresholds": {
+    "hit_at_3": 0.9,
+    "mrr": 0.75,
+    "citation_hit_rate": 0.9,
+    "refusal_rate": 0.95,
+    "cross_company_leaks": 0,
+    "unsupported_claims": 0,
+    "max_latency_ms": 500
+  }
+}
