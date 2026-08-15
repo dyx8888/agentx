@@ -35,6 +35,18 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
+PLATFORM_API_PAUSED_DETAIL = {
+    "code": "platform_api_paused",
+    "message": "平台 API 暂停，数据获取将通过浏览器连接器",
+}
+
+
+def _raise_platform_api_paused() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=PLATFORM_API_PAUSED_DETAIL,
+    )
+
 
 class OAuthCallbackRequest(BaseModel):
     code: str | None = None
@@ -314,6 +326,8 @@ async def authorize(
 
     不直接 302 重定向，让前端控制跳转时机和方式。
     """
+    _raise_platform_api_paused()
+
     if platform not in OAUTH_PLATFORMS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -376,6 +390,8 @@ async def oauth_callback(
     注意：此端点不需要 JWT 鉴权（平台回调时不会携带 Authorization 头），
     安全性由 state 校验保证。
     """
+    _raise_platform_api_paused()
+
     if not isinstance(code, str) or not code.strip() or not isinstance(state, str) or not state.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -448,6 +464,8 @@ async def oauth_callback(
 @router.post("/callback/{platform}")
 async def oauth_callback_post(platform: str, payload: OAuthCallbackRequest):
     """JSON callback endpoint used by the frontend OAuth callback page."""
+    _raise_platform_api_paused()
+
     if not isinstance(payload.code, str) or not payload.code.strip() or not isinstance(payload.state, str) or not payload.state.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

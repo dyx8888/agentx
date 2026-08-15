@@ -23,6 +23,18 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
+PLATFORM_API_PAUSED_DETAIL = {
+    "code": "platform_api_paused",
+    "message": "平台 API 暂停，数据获取将通过浏览器连接器",
+}
+
+
+def _raise_platform_api_paused() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=PLATFORM_API_PAUSED_DETAIL,
+    )
+
 
 # Pydantic models
 class CompanyCreate(BaseModel):
@@ -401,6 +413,8 @@ async def verify_platform_credentials(
     流程：读取已存凭证 → 尝试实例化适配器 → 调用 authenticate()（若适配器已实现），
     否则退化为字段完整性校验。验证结果回写 _meta.last_verified。
     """
+    _raise_platform_api_paused()
+
     company = _check_company_access(current_user, company_id)
 
     if platform not in CREDENTIAL_FIELD_MAP:
