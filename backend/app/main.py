@@ -171,6 +171,14 @@ async def lifespan(app: FastAPI):
     app.state.runtime = runtime  # 挂载到 app.state 上，所有请求处理器通过 request.app.state.runtime 访问
     logger.info("agent_runtime_initialized")
 
+    try:
+        from app.services.session_store import get_session_store
+
+        await get_session_store().init()
+        logger.info("session_store_initialized")
+    except Exception as e:
+        logger.warning("session_store_init_failed_fallback_memory", error=str(e))
+
     logger.info("startup_complete")  # 标记所有初始化步骤完成，日志中这条记录之后才代表服务真正就绪
 
     # Start evolution services (sleep consolidation, memory auto-write)
@@ -187,6 +195,13 @@ async def lifespan(app: FastAPI):
     if EVOLUTION_API_ENABLED:
         from app.services.evolution import stop_evolution_services
         stop_evolution_services()  # 确保后台定时任务停止，防止进程退出后仍有残留线程
+    try:
+        from app.services.session_store import get_session_store
+
+        await get_session_store().close()
+        logger.info("session_store_closed")
+    except Exception as e:
+        logger.warning("session_store_close_failed", error=str(e))
     logger.info("shutting_down")  # 最后一条日志，标志着优雅关闭流程完成
 
 # Create FastAPI application

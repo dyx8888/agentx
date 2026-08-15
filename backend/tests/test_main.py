@@ -128,7 +128,13 @@ def _set_config_secrets(monkeypatch, *, env, jwt_secret, encryption_key):
     return config
 
 
-def _patch_lifespan_dependencies(monkeypatch, events):
+def _patch_lifespan_dependencies(
+    monkeypatch,
+    events,
+    *,
+    session_init_error=None,
+    session_close_error=None,
+):
     import app.database as database
     import app.main as main
 
@@ -150,6 +156,24 @@ def _patch_lifespan_dependencies(monkeypatch, events):
             events.append("runtime")
 
     monkeypatch.setattr(main, "AgentRuntime", FakeRuntime)
+
+    class FakeSessionStore:
+        async def init(self):
+            events.append("session_init")
+            if session_init_error:
+                raise session_init_error
+
+        async def close(self):
+            events.append("session_close")
+            if session_close_error:
+                raise session_close_error
+
+    fake_store = FakeSessionStore()
+    monkeypatch.setitem(
+        sys.modules,
+        "app.services.session_store",
+        types.SimpleNamespace(get_session_store=lambda: fake_store),
+    )
     return main
 
 
@@ -225,5 +249,60 @@ def test_lifespan_allows_dev_missing_secrets_and_validates_first(monkeypatch):
 
     asyncio.run(_enter_lifespan(main))
 
-    assert events[:4] == ["validate", "database", "tools", "skills"]
+    assert events[:6] == ["validate", "database", "tools", "skills", "runtime", "session_init"]
     assert "runtime" in events
+    assert events[-1] == "session_close"
+
+
+def test_lifespan_session_store_init_failure_falls_back_to_memory(monkeypatch):
+    config = _set_config_secrets(
+        monkeypatch,
+        env="dev",
+        jwt_secret=None,
+        encryption_key=None,
+    )
+    events = []
+    original_validate = config.validate_secrets_on_startup
+
+    def wrapped_validate():
+        events.append("validate")
+        return original_validate()
+
+    monkeypatch.setattr(config, "validate_secrets_on_startup", wrapped_validate)
+    main = _patch_lifespan_dependencies(
+        monkeypatch,
+        events,
+        session_init_error=RuntimeError("redis unavailable"),
+    )
+
+    asyncio.run(_enter_lifespan(main))
+
+    assert "session_init" in events
+    assert "session_close" in events
+
+
+def test_lifespan_session_store_close_failure_does_not_crash(monkeypatch):
+    config = _set_config_secrets(
+        monkeypatch,
+        env="dev",
+        jwt_secret=None,
+        encryption_key=None,
+    )
+    events = []
+    original_validate = config.validate_secrets_on_startup
+
+    def wrapped_validate():
+        events.append("validate")
+        return original_validate()
+
+    monkeypatch.setattr(config, "validate_secrets_on_startup", wrapped_validate)
+    main = _patch_lifespan_dependencies(
+        monkeypatch,
+        events,
+        session_close_error=RuntimeError("close failed"),
+    )
+
+    asyncio.run(_enter_lifespan(main))
+
+    assert "session_init" in events
+    assert "session_close" in events
