@@ -134,6 +134,7 @@ from app.api.companies import router as companies_router
 from app.api.dashboard import router as dashboard_router  # 仪表盘数据聚合接口
 from app.api.feedback import router as feedback_router  # 用户反馈收集，用于 RLHF 和模型优化
 from app.api.knowledge import router as knowledge_router  # 知识库管理，RAG 检索增强的数据源
+from app.api.oauth_router import router as oauth_router
 from app.api.subscription import router as subscription_router
 from app.api.conversations import router as conversations_router
 from app.api.tools import router as tools_router
@@ -225,6 +226,7 @@ app.include_router(kol_router, prefix="/api/kol", tags=["kol"])
 from app.api.platforms import router as platforms_router
 
 app.include_router(platforms_router, prefix="/api/platforms", tags=["platforms"])
+app.include_router(oauth_router, prefix="/api/oauth", tags=["oauth"])
 app.include_router(feedback_router, prefix="/api/feedback", tags=["feedback"])  # feedback 独立路由，支持用户对对话结果的评价收集
 app.include_router(companies_router, prefix="/api/admin/companies", tags=["admin"])  # admin 子路由统一用 /api/admin 前缀做权限网关隔离
 if EVOLUTION_API_ENABLED:

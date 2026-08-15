@@ -143,6 +143,18 @@ def test_openapi_schema_includes_feedback_stats_route():
     assert "get" in paths["/api/feedback/stats"]
 
 
+def test_openapi_schema_includes_oauth_routes():
+    from app.main import app
+
+    paths = app.openapi()["paths"]
+
+    assert "/api/oauth/authorize/{platform}" in paths
+    assert "get" in paths["/api/oauth/authorize/{platform}"]
+    assert "/api/oauth/callback/{platform}" in paths
+    assert "get" in paths["/api/oauth/callback/{platform}"]
+    assert "post" in paths["/api/oauth/callback/{platform}"]
+
+
 def test_openapi_schema_includes_admin_companies_routes():
     from app.main import app
 
