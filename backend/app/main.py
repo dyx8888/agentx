@@ -347,7 +347,7 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 @app.get("/health")  # 健康检查独立于 /api 前缀，方便 K8s liveness/readiness probe 直接访问
-async def health_check():
+def health_check():
     # 分级健康检查：不仅报告"活着"，还检查关键依赖是否可用，支持 K8s 根据 degraded 状态决定是否摘流量
     """Enhanced health check endpoint"""
     checks = {}  # 字典存储各组件的健康状态，方便扩展新的检查项
@@ -359,10 +359,12 @@ async def health_check():
             conn = db.get_connection()
             conn.close()  # 立即关闭连接避免泄漏，仅验证连通性
         else:
+            from sqlalchemy import text
+
             from app.database.core import get_engine  # 兜底方案：通过 SQLAlchemy engine 执行简单查询
             engine = get_engine()
             with engine.connect() as conn:  # 使用 context manager 保证连接自动归还连接池
-                conn.execute("SELECT 1")  # SELECT 1 是最轻量的数据库探活查询，不依赖任何表存在
+                conn.execute(text("SELECT 1"))  # SQLAlchemy 2.0 requires executable SQL
         checks["database"] = "healthy"
     except Exception as e:
         checks["database"] = f"unhealthy: {str(e)}"  # 包含错误信息用于排查，但生产环境可能需要脱敏
@@ -381,9 +383,12 @@ async def health_check():
     try:
         milvus_host = os.getenv("MILVUS_HOST", "localhost")  # 向量数据库连接参数从环境变量读取，支持不同部署环境
         milvus_port = os.getenv("MILVUS_PORT", "19530")
-        from pymilvus import connections  # 延迟导入 pymilvus，未安装时走 ImportError 分支
-        connections.connect(host=milvus_host, port=milvus_port, timeout=2)
-        connections.disconnect("default")  # Milvus 使用命名连接，默认连接名为 "default"，用完即断
+        from pymilvus import MilvusClient  # 延迟导入 pymilvus，未安装时走 ImportError 分支
+        client = MilvusClient(uri=f"http://{milvus_host}:{milvus_port}", timeout=2)
+        try:
+            client.list_collections()
+        finally:
+            client.close()
         checks["milvus"] = "healthy"
     except ImportError:
         checks["milvus"] = "not_installed"  # 区分未安装和不可用：未安装是预期行为（轻量部署），不可用才是问题
