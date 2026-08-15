@@ -57,15 +57,31 @@ class SkillRegistry:
     def register(self, meta: SkillMeta):
         self._skills[meta.name] = meta
 
-    def load_from_config(self, config_path: str = None):
+    def load_from_config(self, config_path: str = None) -> bool:
         """从 skills_config.yaml 加载所有 Skill 元数据"""
         if config_path is None:
-            config_path = os.path.join(
+            config_path = os.environ.get("SKILLS_CONFIG") or os.path.join(
                 os.path.dirname(__file__), '..', '..', 'config', 'skills_config.yaml'
             )
         self._config_path = config_path
-        with open(config_path, encoding='utf-8') as f:
-            config = yaml.safe_load(f)
+        try:
+            with open(config_path, encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+        except FileNotFoundError:
+            logger.warning("skills_config_not_found", path=config_path)
+            return False
+        except yaml.YAMLError as e:
+            logger.error("skills_config_parse_error", path=config_path, error=str(e))
+            return False
+        except Exception as e:
+            logger.error("skills_config_load_error", path=config_path, error=str(e))
+            return False
+
+        if not config:
+            logger.warning("skills_config_empty", path=config_path)
+            return False
+
+        loaded_skills: dict[str, SkillMeta] = {}
 
         for skill_cfg in config.get('skills', []):
             meta = SkillMeta(
@@ -79,12 +95,16 @@ class SkillRegistry:
                 prompt_template=skill_cfg.get('prompt_template', ''),
                 knowledge_base_ids=skill_cfg.get('knowledge_base_ids', []),
             )
-            self.register(meta)
+            loaded_skills[meta.name] = meta
+
+        self._skills = loaded_skills
+        self._embedding_cache = {}
 
         # 预计算 embedding 向量
         self._precompute_embeddings()
 
         logger.info("skill_registry_loaded", skill_count=len(self._skills))
+        return True
 
     # ── 语义匹配 (Phase 7) ──────────────────────────────────
 
@@ -266,12 +286,28 @@ class SkillRegistry:
 
     def _reload(self):
         """热加载：重新读取配置，保留已加载的 content 缓存"""
+        old_skills = self._skills
+        old_embedding_cache = self._embedding_cache
         old_contents = dict(self._loaded_contents)
-        self._skills.clear()
-        self._embedding_cache.clear()
-        self.load_from_config(self._config_path)
+        try:
+            success = self.load_from_config(self._config_path)
+        except Exception as e:
+            self._skills = old_skills
+            self._embedding_cache = old_embedding_cache
+            self._loaded_contents = old_contents
+            logger.error("skill_reload_failed", error=str(e))
+            return False
+
+        if not success:
+            self._skills = old_skills
+            self._embedding_cache = old_embedding_cache
+            self._loaded_contents = old_contents
+            logger.error("skill_reload_failed", reason="load_from_config_returned_false")
+            return False
+
         self._loaded_contents = old_contents
         logger.info("skill_reload_complete", skill_count=len(self._skills))
+        return True
 
     def load_skill_content(self, skill_name: str) -> str:
         """按需加载完整 SKILL.md 内容"""
