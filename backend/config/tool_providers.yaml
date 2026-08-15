@@ -214,7 +214,7 @@ providers:
 
   - name: kol_search_http
     type: http_endpoint
-    url: "http://localhost:8101/tools/search_kols"
+    url: "${KOL_SEARCH_TOOL_URL:-http://kol-search:8101/tools/search_kols}"
     timeout_ms: 30000
     retry:
       max_attempts: 3
@@ -224,11 +224,11 @@ providers:
     degradation:
       critical: true
       cache_ttl: 3600
-      fallback_url: "http://localhost:8101/tools/search_kols_cache"
+      fallback_url: "${KOL_SEARCH_CACHE_TOOL_URL:-http://kol-search:8101/tools/search_kols_cache}"
 
   - name: generate_outreach_http
     type: http_endpoint
-    url: "http://localhost:8105/tools/generate_outreach"
+    url: "${OUTREACH_TOOL_URL:-http://outreach-server:8105/tools/generate_outreach}"
     timeout_ms: 30000
     retry:
       max_attempts: 3
@@ -241,7 +241,7 @@ providers:
 
   - name: generate_script_http
     type: http_endpoint
-    url: "http://localhost:8103/tools/generate_script"
+    url: "${SCRIPT_TOOL_URL:-http://script-server:8103/tools/generate_script}"
     timeout_ms: 30000
     retry:
       max_attempts: 3
@@ -254,7 +254,7 @@ providers:
 
   - name: check_delivery_http
     type: http_endpoint
-    url: "http://localhost:8104/tools/check_delivery_status"
+    url: "${DELIVERY_TOOL_URL:-http://report-server:8104/tools/check_delivery_status}"
     timeout_ms: 15000
     retry:
       max_attempts: 2
@@ -267,7 +267,7 @@ providers:
 
   - name: generate_arrival_http
     type: http_endpoint
-    url: "http://localhost:8106/tools/generate_arrival_script"
+    url: "${ARRIVAL_SCRIPT_TOOL_URL:-http://logistics-server:8106/tools/generate_arrival_script}"
     timeout_ms: 15000
     retry:
       max_attempts: 2
@@ -280,7 +280,7 @@ providers:
 
   - name: generate_report_http
     type: http_endpoint
-    url: "http://localhost:8104/tools/generate_performance_report"
+    url: "${REPORT_TOOL_URL:-http://report-server:8104/tools/generate_performance_report}"
     timeout_ms: 30000
     retry:
       max_attempts: 3
@@ -293,7 +293,7 @@ providers:
 
   - name: generate_strategy_http
     type: http_endpoint
-    url: "http://localhost:8104/tools/generate_strategy_suggestion"
+    url: "${STRATEGY_TOOL_URL:-http://report-server:8104/tools/generate_strategy_suggestion}"
     timeout_ms: 30000
     retry:
       max_attempts: 3

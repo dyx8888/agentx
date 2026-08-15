@@ -10,37 +10,37 @@ tools:
     module: app.mcp_servers.kol_search_server
     function: search_kols
     description: "查找特定品类的达人（KOL）"
-    endpoint: "http://localhost:8101/tools/search_kols"
+    endpoint: "${KOL_SEARCH_TOOL_URL:-http://kol-search:8101/tools/search_kols}"
   - name: generate_outreach
     module: app.mcp_servers.outreach_server
     function: generate_outreach
     description: "生成达人合作邀约话术"
-    endpoint: "http://localhost:8105/tools/generate_outreach"
+    endpoint: "${OUTREACH_TOOL_URL:-http://outreach-server:8105/tools/generate_outreach}"
   - name: generate_script
     module: app.mcp_servers.script_server
     function: generate_script
     description: "生成短视频脚本"
-    endpoint: "http://localhost:8103/tools/generate_script"
+    endpoint: "${SCRIPT_TOOL_URL:-http://script-server:8103/tools/generate_script}"
   - name: check_delivery_status
     module: app.mcp_servers.monitor_server
     function: check_delivery_status
     description: "查询快递配送状态"
-    endpoint: "http://localhost:8104/tools/check_delivery_status"
+    endpoint: "${DELIVERY_TOOL_URL:-http://report-server:8104/tools/check_delivery_status}"
   - name: generate_arrival_script
     module: app.mcp_servers.monitor_server
     function: generate_arrival_script
     description: "生成快递提醒私信"
-    endpoint: "http://localhost:8106/tools/generate_arrival_script"
+    endpoint: "${ARRIVAL_SCRIPT_TOOL_URL:-http://logistics-server:8106/tools/generate_arrival_script}"
   - name: generate_performance_report
     module: app.mcp_servers.report_server
     function: generate_performance_report
     description: "生成达人合作效果报告"
-    endpoint: "http://localhost:8104/tools/generate_performance_report"
+    endpoint: "${REPORT_TOOL_URL:-http://report-server:8104/tools/generate_performance_report}"
   - name: generate_strategy_suggestion
     module: app.mcp_servers.report_server
     function: generate_strategy_suggestion
     description: "生成平台营销策略建议"
-    endpoint: "http://localhost:8104/tools/generate_strategy_suggestion"
+    endpoint: "${STRATEGY_TOOL_URL:-http://report-server:8104/tools/generate_strategy_suggestion}"
   - name: get_current_time
     module: app.agent
     function: get_current_time
