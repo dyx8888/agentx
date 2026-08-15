@@ -18,6 +18,7 @@
 import asyncio  # 用于异步流式输出和重试延迟
 import contextlib
 import hashlib  # 用于生成幂等key
+import ipaddress
 import json  # 用于结构化输出JSON Schema校验
 import os
 import random  # 用于 jitter 随机延迟
@@ -30,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date  # CostAttributor 按日聚合查询使用 date
 from enum import StrEnum
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 from dotenv import load_dotenv
@@ -183,6 +185,16 @@ class ModelApiKeyMissingError(ValueError):
         }
 
 
+class ModelProviderConfigError(ValueError):
+    """Raised when a company-level model provider config is present but unusable."""
+
+    code = "model_provider_config_invalid"
+
+    def __init__(self, *, model_key: str, reason: str):
+        self.model_key = model_key
+        self.reason = reason
+        super().__init__(f"Model provider '{model_key}' is not usable: {reason}")
+
 @dataclass  # 使用dataclass，因为ModelCapability是纯数据描述
 class ModelCapability:  # 描述每个模型的能力和成本，用于路由决策
     provider: str  # 提供商名称
@@ -224,27 +236,38 @@ class EnterpriseKeyManager:  # 企业自有API Key管理器，支持多租户Key
             key = keys.get(provider)
         return key  # 可能返回None，调用方需处理
 
-    def _load_from_db(self, company_id: int):  # 从数据库加载企业Key，使用延迟导入避免循环依赖
-        """从数据库加载企业 API Key"""
+    def _load_from_db(self, company_id: int):
         try:  # 数据库加载失败不应影响主流程
             from app.database import db  # 延迟导入，避免启动时数据库未就绪
 
             company = db.get_company(company_id)
-            if not company:  # 企业不存在时静默返回
+            if not company:
                 return
-            credentials = getattr(company, "platform_credentials", None)  # 使用getattr安全获取属性
-            if not credentials:  # 无凭证时静默返回
-                return
-            import json  # 仅在需要时导入json
 
-            creds = (
-                json.loads(credentials) if isinstance(credentials, str) else credentials
-            )  # 兼容字符串和字典两种格式
-            llm_keys = creds.get("llm_api_keys", {})  # 从platform_credentials中提取LLM Key
-            self._company_keys[company_id] = llm_keys  # 更新缓存
+            loaded_keys: dict[str, str] = {}
+            llm_config = getattr(company, "llm_api_key", None)
+            if llm_config:
+                config_map = json.loads(llm_config) if isinstance(llm_config, str) else llm_config
+                if isinstance(config_map, dict):
+                    for provider_key, cfg in config_map.items():
+                        if not isinstance(cfg, dict) or cfg.get("enabled") is False:
+                            continue
+                        api_key = str(cfg.get("apiKey") or cfg.get("api_key") or "").strip()
+                        if api_key:
+                            loaded_keys[str(provider_key)] = api_key
+            if loaded_keys:
+                self._company_keys[company_id] = loaded_keys
+                return
+
+            credentials = getattr(company, "platform_credentials", None)
+            if not credentials:
+                return
+            creds = json.loads(credentials) if isinstance(credentials, str) else credentials
+            if isinstance(creds, dict):
+                llm_keys = creds.get("llm_api_keys", {})
+                self._company_keys[company_id] = llm_keys if isinstance(llm_keys, dict) else {}
         except Exception as e:
             logger.warning("enterprise_key_load_failed", company_id=company_id, error=str(e))
-
 
 class TokenQuotaManager:  # Token配额管理器，按企业ID隔离，支持日配额和月配额
     """Token 配额管理器"""
@@ -1439,7 +1462,7 @@ class FailoverChatModel:  # 故障转移聊天模型：主模型失败时自动�
         self.fallback_models = []
         self._init_models()
         # Token预算管理器
-        cfg = gateway.models_config.get(model_key, {})
+        cfg = gateway._get_model_config(model_key, company_id)
         window = cfg.get("context_window", DEFAULT_TOKEN_WINDOW)
         max_out = cfg.get("max_tokens", MAX_OUTPUT_TOKENS_DEFAULT)
         self._token_budget = TokenBudgetManager(window_size=window, max_output=max_out)
@@ -1451,15 +1474,15 @@ class FailoverChatModel:  # 故障转移聊天模型：主模型失败时自动�
     def _init_models(self):  # 初始化模型实例列表，主模型+fallback按顺序排列
         self.gateway._load_config()  # 确保配置已加载
         self.models = [
-            self.gateway._create_model_instance(self.model_key, self.company_api_key)
+            self.gateway._create_model_instance(self.model_key, self.company_api_key, self._company_id)
         ]  # 主模型放在第一位
-        config = self.gateway.models_config.get(self.model_key, {})  # 获取主模型配置
+        config = self.gateway._get_model_config(self.model_key, self._company_id)  # 获取主模型配置
         self.fallback_models = config.get("fallback_models", [])  # 获取fallback模型列表
         for fb in self.fallback_models:  # 遍历fallback模型
             if fb in self.gateway.models_config:  # 仅创建已配置的fallback模型
                 try:
                     self.models.append(
-                        self.gateway._create_model_instance(fb, self.company_api_key)
+                        self.gateway._create_model_instance(fb, self.company_api_key, self._company_id)
                     )
                 except ValueError as e:
                     logger.warning(
@@ -1643,7 +1666,7 @@ class FailoverChatModel:  # 故障转移聊天模型：主模型失败时自动�
                 input_tokens = sum(len(getattr(m, "content", "") or "") for m in messages) // 2
                 output_tokens = len(getattr(response, "content", "") or "") // 2
 
-            cfg = self.gateway.models_config.get(model_key, {})
+            cfg = self.gateway._get_model_config(model_key, getattr(self, "_company_id", None))
             cost_usd = (input_tokens / 1000) * cfg.get("cost_per_1k_input", 0) + (
                 output_tokens / 1000
             ) * cfg.get("cost_per_1k_output", 0)
@@ -2187,6 +2210,7 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
         self.default_model = "deepseek"  # 默认模型，在配置加载失败时使用
         self._config_loaded = False  # 配置加载标志，用于懒加载
         self.key_manager = EnterpriseKeyManager()  # 企业Key管理器
+        self._company_provider_configs: dict[int, dict[str, dict]] = {}
         self.quota_manager = TokenQuotaManager()  # Token配额管理器
         self.router = ModelRouter()  # 模型路由器（P4 增强：含任务类型路由 + 健康度感知）
         # P4 新增：语义缓存、成本归因、审计日志
@@ -2269,9 +2293,12 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
             "fallback_models": [],
         }
 
-    def _resolve_model_key(self, model_key: str | None) -> str:
-        # Resolve legacy model keys to keys that exist in the loaded config.
+    def _resolve_model_key(self, model_key: str | None, company_id: int | None = None) -> str:
+        # Resolve legacy model keys to keys that exist in static config or company provider config.
         candidate = model_key or self.default_model
+        if company_id is not None and candidate in self._load_company_provider_configs(company_id):
+            return candidate
+
         if candidate in self.models_config:
             return candidate
 
@@ -2287,7 +2314,6 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
             return alias
 
         return candidate
-
     def _configured_model_exists(self, model_key: str | None) -> bool:
         if not model_key:
             return False
@@ -2373,6 +2399,134 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
             },
         }
 
+    def _load_company_provider_configs(self, company_id: int | None) -> dict[str, dict]:
+        if company_id is None:
+            return {}
+        try:
+            from app.database import db
+
+            company = db.get_company(company_id)
+            raw_config = getattr(company, "llm_api_key", None) if company else None
+            if not raw_config:
+                self._company_provider_configs[company_id] = {}
+                return {}
+            config_map = json.loads(raw_config) if isinstance(raw_config, str) else raw_config
+            if not isinstance(config_map, dict):
+                self._company_provider_configs[company_id] = {}
+                return {}
+            providers = {
+                str(provider_key): cfg
+                for provider_key, cfg in config_map.items()
+                if isinstance(cfg, dict)
+            }
+            self._company_provider_configs[company_id] = providers
+            return providers
+        except Exception as exc:
+            logger.warning("company_model_provider_load_failed", company_id=company_id, error=str(exc))
+            self._company_provider_configs[company_id] = {}
+            return {}
+
+    @staticmethod
+    def _preferred_tasks_from_provider_config(cfg: dict) -> list[str]:
+        tasks = cfg.get("preferredTasks")
+        if tasks is None:
+            tasks = cfg.get("preferred_tasks")
+        if not isinstance(tasks, list):
+            return []
+        return [str(task).strip() for task in tasks if str(task).strip()]
+
+    @staticmethod
+    def _company_provider_base_url(cfg: dict) -> str:
+        return str(cfg.get("baseUrl") or cfg.get("base_url") or cfg.get("gateway") or "").strip()
+
+    @staticmethod
+    def _validate_company_provider_base_url(model_key: str, base_url: str) -> str:
+        parsed = urlparse(base_url)
+        hostname = (parsed.hostname or "").strip().lower()
+        if parsed.scheme.lower() != "https" or not parsed.netloc or not hostname:
+            raise ModelProviderConfigError(model_key=model_key, reason="baseUrl must be an https URL")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ModelProviderConfigError(
+                model_key=model_key,
+                reason="baseUrl must not include userinfo, query, or fragment",
+            )
+        if hostname == "localhost" or hostname.endswith(".localhost"):
+            raise ModelProviderConfigError(model_key=model_key, reason="baseUrl must not target localhost")
+        try:
+            host_ip = ipaddress.ip_address(hostname)
+        except ValueError:
+            return base_url
+        if not host_ip.is_global:
+            raise ModelProviderConfigError(
+                model_key=model_key,
+                reason="baseUrl must not target private or metadata IP ranges",
+            )
+        return base_url
+
+    def _normalize_company_provider_config(self, model_key: str, cfg: dict) -> dict | None:
+        provider_type = str(cfg.get("providerType") or cfg.get("provider_type") or "").strip()
+        base_url = self._company_provider_base_url(cfg)
+        model_name = str(cfg.get("modelName") or cfg.get("model_name") or "").strip()
+        has_dynamic_fields = bool(provider_type or base_url or model_name)
+
+        if cfg.get("enabled") is False:
+            raise ModelProviderConfigError(model_key=model_key, reason="provider is disabled")
+        if not has_dynamic_fields and model_key in self.models_config:
+            return None
+        if not provider_type:
+            provider_type = "openai_compatible"
+        if provider_type != "openai_compatible":
+            raise ModelProviderConfigError(model_key=model_key, reason=f"unsupported providerType '{provider_type}'")
+
+        api_key = str(cfg.get("apiKey") or cfg.get("api_key") or "").strip()
+        if not api_key:
+            raise ModelProviderConfigError(model_key=model_key, reason="apiKey is required")
+        if not base_url:
+            raise ModelProviderConfigError(model_key=model_key, reason="baseUrl is required")
+        if not model_name:
+            raise ModelProviderConfigError(model_key=model_key, reason="modelName is required")
+
+        normalized = {
+            "provider": model_key,
+            "model_name": model_name,
+            "base_url": self._validate_company_provider_base_url(model_key, base_url),
+            "temperature": cfg.get("temperature", 0.7),
+            "fallback_models": [],
+            "_company_api_key": api_key,
+            "_company_provider": True,
+        }
+        max_tokens = cfg.get("maxTokens") or cfg.get("max_tokens")
+        if max_tokens:
+            normalized["max_tokens"] = max_tokens
+        return normalized
+
+    def _get_company_model_config(self, company_id: int | None, model_key: str) -> dict | None:
+        if company_id is None or not model_key:
+            return None
+        providers = self._load_company_provider_configs(company_id)
+        cfg = providers.get(model_key)
+        if not isinstance(cfg, dict):
+            return None
+        return self._normalize_company_provider_config(model_key, cfg)
+
+    def _select_company_model_for_task(self, company_id: int | None, task_type: str) -> str | None:
+        if company_id is None:
+            return None
+        providers = self._load_company_provider_configs(company_id)
+        for provider_key, cfg in providers.items():
+            tasks = self._preferred_tasks_from_provider_config(cfg)
+            if task_type not in tasks:
+                continue
+            company_cfg = self._normalize_company_provider_config(provider_key, cfg)
+            if company_cfg is not None or provider_key in self.models_config:
+                return provider_key
+        return None
+
+    def _get_model_config(self, model_key: str, company_id: int | None = None) -> dict:
+        company_cfg = self._get_company_model_config(company_id, model_key) if company_id else None
+        if company_cfg is not None:
+            return company_cfg
+        return self.models_config.get(model_key, {})
     def _get_env_api_key(
         self, provider: str
     ) -> str | None:  # 从环境变量获取API Key，映射规则可配置
@@ -2384,39 +2538,43 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
         return None
 
     def _create_model_instance(
-        self, model_key: str, company_api_key: str | None = None
-    ) -> ChatOpenAI:  # 创建ChatOpenAI实例，企业Key优先于环境变量
-        cfg = self.models_config.get(model_key, {})  # 获取模型配置
-        if not cfg:  # 未知模型key抛出异常
+        self,
+        model_key: str,
+        company_api_key: str | None = None,
+        company_id: int | None = None,
+    ) -> ChatOpenAI:
+        cfg = self._get_model_config(model_key, company_id)
+        if not cfg:
             raise ValueError(f"Unknown model key: {model_key}")
 
-        provider = cfg.get("provider", "deepseek")  # 默认deepseek
+        provider = cfg.get("provider", "deepseek")
+        if cfg.get("_company_provider"):
+            api_key = cfg.get("_company_api_key")
+        else:
+            api_key = company_api_key
+            if not api_key:
+                api_key = self._get_env_api_key(provider)
 
-        api_key = company_api_key  # 优先使用企业Key
-        if not api_key:  # 企业Key为空时使用环境变量
-            api_key = self._get_env_api_key(provider)
-
-        if not api_key:  # 仍然没有Key则抛出明确、可面向用户的配置错误
+        if not api_key:
             raise ModelApiKeyMissingError(
                 model_key=model_key,
                 provider=provider,
                 env_keys=API_KEY_ENV_MAP.get(provider, (f"{provider.upper()}_API_KEY",)),
             )
 
-        params = {  # 构建ChatOpenAI参数
-            "model": cfg["model_name"],  # 实际模型名称
+        params = {
+            "model": cfg["model_name"],
             "api_key": api_key,
-            "temperature": cfg.get("temperature", 0.7),  # 默认温度0.7
+            "temperature": cfg.get("temperature", 0.7),
         }
-        if "base_url" in cfg:  # 仅在有base_url时设置，OpenAI默认不需要
+        if "base_url" in cfg:
             params["base_url"] = cfg["base_url"]
-        if cfg.get("max_tokens"):  # 仅在有值时设置
+        if cfg.get("max_tokens"):
             params["max_tokens"] = cfg["max_tokens"]
-        if cfg.get("top_p"):  # top_p通过model_kwargs传递
+        if cfg.get("top_p"):
             params["model_kwargs"] = {"top_p": cfg["top_p"]}
 
-        return ChatOpenAI(**params)  # 创建实例
-
+        return ChatOpenAI(**params)
     def get_llm(
         self,
         model_key: str = None,
@@ -2424,25 +2582,28 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
         company_id: int = None,
         agent_key: str = "",
     ) -> FailoverChatModel:  # 获取LLM实例，默认使用default_model
-        self._load_config()  # 确保配置已加载
-        resolved_model_key = self._resolve_model_key(model_key)
+        self._load_config()
+        if company_id:
+            self._load_company_provider_configs(company_id)
+        resolved_model_key = self._resolve_model_key(model_key, company_id=company_id)
+        company_model_config = (
+            self._get_company_model_config(company_id, resolved_model_key) if company_id else None
+        )
 
-        if company_id and company_api_key is None:  # 指定了企业ID但未提供Key时自动获取
+        if company_id and company_api_key is None and company_model_config is None:
+            model_cfg = self._get_model_config(resolved_model_key, company_id)
             company_api_key = self.key_manager.get_key(
                 company_id,
-                self.models_config.get(resolved_model_key, {}).get(
-                    "provider", "deepseek"
-                ),
+                model_cfg.get("provider", "deepseek"),
             )
 
         return FailoverChatModel(
             self,
-            resolved_model_key,  # 使用默认模型作为兜底
+            resolved_model_key,
             company_api_key,
             company_id,
             agent_key,
         )
-
     def get_llm_for_agent(
         self,
         agent_name: str,
@@ -2454,10 +2615,10 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
 
         complexity = self.router.estimate_complexity(task_description)  # 估算任务复杂度
         model_key = self.router.get_model(agent_name, complexity)  # 根据Agent和复杂度选择模型
-        model_key = self._resolve_model_key(model_key)
+        model_key = self._resolve_model_key(model_key, company_id=company_id)
 
         if company_id and not company_api_key:  # 自动获取企业Key
-            provider = self.models_config.get(model_key, {}).get("provider", "deepseek")
+            provider = self._get_model_config(model_key, company_id).get("provider", "deepseek")
             company_api_key = self.key_manager.get_key(company_id, provider)
 
         logger.info(  # 记录路由决策，便于后续分析
@@ -2493,16 +2654,20 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
         """
         self._load_config()  # 确保配置已加载
 
-        # 通过 ModelRouter.route 选择最优模型（含健康度感知 + 公司偏好）
-        model_key = await self.router.route(
-            task_type=task_type,
-            company_id=company_id,
-            available_models=self.models_config,
-        )
-        model_key = self._resolve_model_key(model_key)
+        company_model_key = self._select_company_model_for_task(company_id, task_type)
+        if company_model_key:
+            model_key = company_model_key
+        else:
+            model_key = await self.router.route(
+                task_type=task_type,
+                company_id=None,
+                available_models=self.models_config,
+            )
+        model_key = self._resolve_model_key(model_key, company_id=company_id)
 
-        if company_id and not company_api_key:
-            provider = self.models_config.get(model_key, {}).get("provider", "deepseek")
+        company_model_config = self._get_company_model_config(company_id, model_key) if company_id else None
+        if company_id and not company_api_key and company_model_config is None:
+            provider = self._get_model_config(model_key, company_id).get("provider", "deepseek")
             company_api_key = self.key_manager.get_key(company_id, provider)
 
         logger.info(  # 记录任务类型路由决策

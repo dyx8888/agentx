@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+import app.services.model_gateway as model_gateway_module
 from app.services.model_gateway import ModelApiKeyMissingError, ModelGateway
 
 
@@ -94,48 +95,33 @@ class TestDeepSeekFailover:
         except Exception as e:
             pytest.fail(f"Unexpected error: {e}")
 
-    def test_nonexistent_fallback_model(self):
-        """异常场景2：配置了不存在的降级模型时初始化不中断"""
-        # Set environment variables
+    def test_nonexistent_fallback_model(self, tmp_path, monkeypatch):
+        """Nonexistent fallback models are ignored without touching the real config."""
         os.environ["DEEPSEEK_API_KEY"] = "test-deepseek-key"
         os.environ["DEEPSEEK_VOLC_API_KEY"] = "test-volc-key"
+        monkeypatch.setattr(model_gateway_module, "load_dotenv", lambda *args, **kwargs: None)
 
-        # Temporarily modify config to include nonexistent fallback
         config_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "config", "model_config.yaml"
         )
-
-        # Read original config
         with open(config_path, encoding="utf-8") as f:
-            original_config = f.read()
+            config = yaml.safe_load(f)
 
-        try:
-            # Modify config to add nonexistent fallback
-            modified_config = original_config.replace(
-                "fallback_models:\n      - deepseek_volc",
-                "fallback_models:\n      - deepseek_volc\n      - non_exist_model",
-            )
+        config["models"]["deepseek"].setdefault("fallback_models", []).append(
+            "non_exist_model"
+        )
+        temp_config_path = tmp_path / "model_config.yaml"
+        temp_config_path.write_text(
+            yaml.safe_dump(config, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
 
-            with open(config_path, "w", encoding="utf-8") as f:
-                f.write(modified_config)
+        gateway = ModelGateway(config_path=str(temp_config_path))
+        failover_model = gateway.get_llm("deepseek")
 
-            # Create new gateway instance (will reload config)
-            gateway = ModelGateway()
-
-            # This should not crash, but should show warning
-            try:
-                failover_model = gateway.get_llm("deepseek")
-                assert failover_model is not None
-                print("✓ Initialization handled nonexistent fallback model gracefully")
-            except Exception as e:
-                # Should not crash, but if it does, verify it's handled gracefully
-                assert "non_exist_model" in str(e) or "not found" in str(e)
-                print("✓ Nonexistent fallback model handled with appropriate error")
-
-        finally:
-            # Restore original config
-            with open(config_path, "w", encoding="utf-8") as f:
-                f.write(original_config)
+        assert failover_model is not None
+        assert "non_exist_model" in failover_model.fallback_models
+        assert len(failover_model.models) >= 1
 
     def test_master_react_missing_key_returns_error_not_fake_success(self):
         """缺模型 Key 时 master 不能把原始用户问题伪装成正常回答。"""
