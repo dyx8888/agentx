@@ -4,8 +4,10 @@ Manages tenant (company) operations
 """
 
 import inspect
+import ipaddress
 import json
 from datetime import datetime
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -488,14 +490,19 @@ async def verify_platform_credentials(
 # ─── LLM 配置管理（T4.11：多厂商 LLM 配置持久化） ──────────────────────────
 # 复用 Company.llm_api_key (EncryptedText) 字段存储多厂商配置 JSON，
 # 与 platform_credentials 同样享受 EncryptedText 透明加解密保护。
-# 存储结构: { "<provider_key>": { gateway, apiKey, tpm, usage, warnAt90 }, ... }
+# 存储结构: { "<provider_key>": { providerType, baseUrl, gateway, modelName, apiKey, enabled, preferredTasks, tpm, usage, warnAt90 }, ... }
 # GET 返回 apiKey 的脱敏版（apiKeyMasked），PUT 时 apiKey 为空表示保留原值。
 
 
 class LlmProviderConfigResponse(BaseModel):
     """单个厂商配置的响应视图——apiKey 以脱敏形式返回，永不暴露明文"""
 
+    providerType: str | None = None
+    baseUrl: str | None = None
     gateway: str | None = None
+    modelName: str | None = None
+    enabled: bool | None = None
+    preferredTasks: list[str] | None = None
     apiKeyMasked: str = ""
     tpm: dict[str, int] | None = None
     usage: dict[str, int] | None = None
@@ -515,7 +522,12 @@ class LlmConfigResponse(BaseModel):
 class LlmProviderConfigUpdate(BaseModel):
     """单个厂商配置的更新请求——apiKey 为空字符串表示保留原值"""
 
+    providerType: str | None = None
+    baseUrl: str | None = None
     gateway: str | None = None
+    modelName: str | None = None
+    enabled: bool | None = None
+    preferredTasks: list[str] | None = None
     apiKey: str = ""  # 空字符串 => 保留原值；非空 => 更新
     tpm: dict[str, int] | None = None
     usage: dict[str, int] | None = None
@@ -537,6 +549,104 @@ def _mask_api_key(key: str) -> str:
     return f"{key[:3]}****{key[-4:]}"
 
 
+def _validate_llm_base_url(base_url: str | None) -> str | None:
+    if base_url is None:
+        return None
+
+    candidate = str(base_url).strip()
+    if not candidate:
+        return None
+
+    parsed = urlparse(candidate)
+    hostname = (parsed.hostname or "").strip().lower()
+    if parsed.scheme.lower() != "https" or not parsed.netloc or not hostname:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="LLM provider baseUrl must be an https URL",
+        )
+
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="LLM provider baseUrl must not include userinfo, query, or fragment",
+        )
+
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="LLM provider baseUrl must not target localhost",
+        )
+
+    try:
+        host_ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        return candidate
+
+    if not host_ip.is_global:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="LLM provider baseUrl must not target private or metadata IP ranges",
+        )
+
+    return candidate
+
+
+def _normalize_preferred_tasks(preferred_tasks: list[str] | None) -> list[str] | None:
+    if preferred_tasks is None:
+        return None
+
+    normalized: list[str] = []
+    for task in preferred_tasks:
+        task_name = str(task).strip()
+        if task_name and task_name not in normalized:
+            normalized.append(task_name)
+    return normalized
+
+
+def _llm_base_url_from_config(cfg: dict) -> str | None:
+    value = cfg.get("baseUrl")
+    if value is None:
+        value = cfg.get("gateway")
+    if value is None:
+        return None
+    value = str(value).strip()
+    return value or None
+
+
+def _llm_preferred_tasks_from_config(cfg: dict) -> list[str] | None:
+    tasks = cfg.get("preferredTasks")
+    if tasks is None:
+        tasks = cfg.get("preferred_tasks")
+    if not isinstance(tasks, list):
+        return None
+    return _normalize_preferred_tasks(tasks)
+
+
+def _llm_provider_response(cfg: dict) -> LlmProviderConfigResponse:
+    api_key_plain = cfg.get("apiKey", "") or ""
+    base_url = _llm_base_url_from_config(cfg)
+    return LlmProviderConfigResponse(
+        providerType=cfg.get("providerType"),
+        baseUrl=base_url,
+        gateway=cfg.get("gateway") or base_url,
+        modelName=cfg.get("modelName"),
+        enabled=cfg.get("enabled"),
+        preferredTasks=_llm_preferred_tasks_from_config(cfg),
+        apiKeyMasked=_mask_api_key(api_key_plain),
+        tpm=cfg.get("tpm"),
+        usage=cfg.get("usage"),
+        warnAt90=cfg.get("warnAt90"),
+    )
+
+
+def _require_llm_config_update_access(current_user: User) -> None:
+    if not getattr(current_user, "is_admin", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can update LLM provider configuration",
+        )
+
+
 def _llm_config_status(config_map: dict) -> dict:
     configured_provider_count = 0
     has_provider = False
@@ -546,18 +656,18 @@ def _llm_config_status(config_map: dict) -> dict:
         if not isinstance(cfg, dict):
             continue
         has_provider = True
-        has_gateway = bool(str(cfg.get("gateway") or "").strip())
+        has_gateway = bool(_llm_base_url_from_config(cfg))
         has_api_key = bool(str(cfg.get("apiKey") or "").strip())
         if has_gateway and has_api_key:
             configured_provider_count += 1
         else:
             if not has_gateway:
-                missing_required.add("gateway")
+                missing_required.add("baseUrl")
             if not has_api_key:
                 missing_required.add("apiKey")
 
     if not has_provider:
-        missing_required.update({"provider", "gateway", "apiKey"})
+        missing_required.update({"provider", "baseUrl", "apiKey"})
         status_value = "not_configured"
     elif configured_provider_count == 0:
         status_value = "incomplete"
@@ -615,14 +725,7 @@ async def get_llm_config(
         for key, cfg in stored.items():
             if not isinstance(cfg, dict):
                 continue
-            api_key_plain = cfg.get("apiKey", "") or ""
-            providers[key] = LlmProviderConfigResponse(
-                gateway=cfg.get("gateway"),
-                apiKeyMasked=_mask_api_key(api_key_plain),
-                tpm=cfg.get("tpm"),
-                usage=cfg.get("usage"),
-                warnAt90=cfg.get("warnAt90"),
-            )
+            providers[key] = _llm_provider_response(cfg)
         return LlmConfigResponse(providers=providers, **_llm_config_status(stored))
     except HTTPException:
         raise
@@ -647,18 +750,42 @@ async def update_llm_config(
     - 返回更新后的脱敏视图（与 GET 一致）
     """
     company = _check_company_access(current_user, company_id)
+    _require_llm_config_update_access(current_user)
     try:
         existing = _load_llm_config_json(company)
 
         for key, incoming in request.providers.items():
             current_cfg = existing.get(key, {}) if isinstance(existing.get(key), dict) else {}
+            base_url_provided = incoming.baseUrl is not None or incoming.gateway is not None
+            requested_base_url = incoming.baseUrl if incoming.baseUrl is not None else incoming.gateway
+            effective_base_url = (
+                _validate_llm_base_url(requested_base_url)
+                if base_url_provided
+                else _llm_base_url_from_config(current_cfg)
+            )
             # apiKey 空字符串 => 保留原值；非空 => 更新
-            new_api_key = incoming.apiKey or (current_cfg.get("apiKey", "") or "")
+            new_api_key = incoming.apiKey.strip() if incoming.apiKey else ""
+            if not new_api_key:
+                new_api_key = current_cfg.get("apiKey", "") or ""
 
             merged = {
-                "gateway": incoming.gateway
-                if incoming.gateway is not None
-                else current_cfg.get("gateway"),
+                "providerType": incoming.providerType
+                if incoming.providerType is not None
+                else current_cfg.get("providerType"),
+                "baseUrl": effective_base_url,
+                "gateway": effective_base_url,
+                "modelName": incoming.modelName
+                if incoming.modelName is not None
+                else current_cfg.get("modelName"),
+                "enabled": incoming.enabled
+                if incoming.enabled is not None
+                else current_cfg.get("enabled"),
+                "preferredTasks": _normalize_preferred_tasks(incoming.preferredTasks)
+                if incoming.preferredTasks is not None
+                else _llm_preferred_tasks_from_config(current_cfg),
+                "preferred_tasks": _normalize_preferred_tasks(incoming.preferredTasks)
+                if incoming.preferredTasks is not None
+                else _llm_preferred_tasks_from_config(current_cfg),
                 "apiKey": new_api_key,
                 "tpm": incoming.tpm if incoming.tpm is not None else current_cfg.get("tpm"),
                 "usage": incoming.usage if incoming.usage is not None else current_cfg.get("usage"),
@@ -676,14 +803,7 @@ async def update_llm_config(
         for key, cfg in existing.items():
             if not isinstance(cfg, dict):
                 continue
-            api_key_plain = cfg.get("apiKey", "") or ""
-            providers[key] = LlmProviderConfigResponse(
-                gateway=cfg.get("gateway"),
-                apiKeyMasked=_mask_api_key(api_key_plain),
-                tpm=cfg.get("tpm"),
-                usage=cfg.get("usage"),
-                warnAt90=cfg.get("warnAt90"),
-            )
+            providers[key] = _llm_provider_response(cfg)
         return LlmConfigResponse(providers=providers, **_llm_config_status(existing))
     except HTTPException:
         raise
