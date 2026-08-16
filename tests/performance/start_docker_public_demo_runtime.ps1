@@ -175,6 +175,7 @@ function Show-BackendLightweightPlan {
         "ENABLE_EVOLUTION_API=false",
         "ENABLE_PUBLIC_DOCS=false",
         "AGENT_EVAL_MODE=1",
+        "AGENTX_BACKEND_LIGHTWEIGHT_SMOKE=1",
         "TOOL_DESCRIPTION_AUTO_ENHANCE=0",
         "TOOL_LOAD_MODE=local",
         "MILVUS_HOST=127.0.0.1",

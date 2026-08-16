@@ -132,6 +132,7 @@ def _patch_lifespan_dependencies(
     monkeypatch,
     events,
     *,
+    runtime_cls=None,
     session_init_error=None,
     session_close_error=None,
 ):
@@ -155,7 +156,7 @@ def _patch_lifespan_dependencies(
         async def initialize(self):
             events.append("runtime")
 
-    monkeypatch.setattr(main, "AgentRuntime", FakeRuntime)
+    monkeypatch.setattr(main, "AgentRuntime", runtime_cls or FakeRuntime)
 
     class FakeSessionStore:
         async def init(self):
@@ -182,6 +183,7 @@ async def _enter_lifespan(main):
     context = main.lifespan(app)
     await context.__aenter__()
     await context.__aexit__(None, None, None)
+    return app
 
 
 def test_lifespan_blocks_prod_default_jwt_before_startup(monkeypatch):
@@ -253,6 +255,59 @@ def test_lifespan_allows_dev_missing_secrets_and_validates_first(monkeypatch):
     assert "runtime" in events
     assert events[-1] == "session_close"
 
+
+def test_lifespan_backend_lightweight_smoke_skips_runtime_in_dev(monkeypatch):
+    config = _set_config_secrets(
+        monkeypatch,
+        env="dev",
+        jwt_secret=None,
+        encryption_key=None,
+    )
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("AGENTX_BACKEND_LIGHTWEIGHT_SMOKE", "1")
+    events = []
+    original_validate = config.validate_secrets_on_startup
+
+    def wrapped_validate():
+        events.append("validate")
+        return original_validate()
+
+    class RuntimeMustNotStart:
+        def __init__(self):
+            raise AssertionError("AgentRuntime must not be constructed in lightweight smoke")
+
+    monkeypatch.setattr(config, "validate_secrets_on_startup", wrapped_validate)
+    main = _patch_lifespan_dependencies(monkeypatch, events, runtime_cls=RuntimeMustNotStart)
+
+    app = asyncio.run(_enter_lifespan(main))
+
+    assert events == ["validate", "database", "tools", "skills", "session_init", "session_close"]
+    assert app.state.runtime is None
+
+
+def test_lifespan_backend_lightweight_smoke_fails_closed_in_prod(monkeypatch):
+    config = _set_config_secrets(
+        monkeypatch,
+        env="prod",
+        jwt_secret="safe-jwt-secret-for-startup-test",
+        encryption_key="safe-encryption-key-for-startup-test",
+    )
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("AGENTX_BACKEND_LIGHTWEIGHT_SMOKE", "1")
+    events = []
+    original_validate = config.validate_secrets_on_startup
+
+    def wrapped_validate():
+        events.append("validate")
+        return original_validate()
+
+    monkeypatch.setattr(config, "validate_secrets_on_startup", wrapped_validate)
+    main = _patch_lifespan_dependencies(monkeypatch, events)
+
+    with pytest.raises(RuntimeError, match="AGENTX_BACKEND_LIGHTWEIGHT_SMOKE"):
+        asyncio.run(_enter_lifespan(main))
+
+    assert events == ["validate"]
 
 def test_lifespan_session_store_init_failure_falls_back_to_memory(monkeypatch):
     config = _set_config_secrets(

@@ -72,6 +72,10 @@ def _evolution_api_enabled() -> bool:
     return _env_flag("ENABLE_EVOLUTION_API", default=not _is_production())
 
 
+def _backend_lightweight_smoke_enabled() -> bool:
+    return _env_flag("AGENTX_BACKEND_LIGHTWEIGHT_SMOKE")
+
+
 CORS_ALLOW_ORIGINS = _get_cors_origins()
 DOCS_ENABLED = _docs_enabled()
 EVOLUTION_API_ENABLED = _evolution_api_enabled()
@@ -155,6 +159,9 @@ async def lifespan(app: FastAPI):
     validate_secrets_on_startup()
     logger.info("secret_keys_validated")
 
+    if _backend_lightweight_smoke_enabled() and _is_production():
+        raise RuntimeError("AGENTX_BACKEND_LIGHTWEIGHT_SMOKE is not allowed in production")
+
     from app.database import init_database  # 延迟导入避免循环依赖：main 是入口模块，提前导入所有子模块可能产生循环引用
 
     init_database()  # 在 agent runtime 之前初始化数据库，因为 runtime 启动时就需要读取 agent 配置
@@ -166,10 +173,14 @@ async def lifespan(app: FastAPI):
     logger.info("skill_registry_initializing")
     skill_registry.load_from_config()  # 技能加载在 runtime 初始化之前，确保 agent 启动时所有技能立即可用
 
-    runtime = AgentRuntime()  # AgentRuntime 是全局单例，管理所有 agent 的生命周期和执行调度
-    await runtime.initialize()  # async 初始化：可能涉及模型加载、外部服务连接等 I/O 操作
-    app.state.runtime = runtime  # 挂载到 app.state 上，所有请求处理器通过 request.app.state.runtime 访问
-    logger.info("agent_runtime_initialized")
+    if _backend_lightweight_smoke_enabled():
+        app.state.runtime = None
+        logger.warning("backend_lightweight_smoke_runtime_skipped")
+    else:
+        runtime = AgentRuntime()  # AgentRuntime 是全局单例，管理所有 agent 的生命周期和执行调度
+        await runtime.initialize()  # async 初始化：可能涉及模型加载、外部服务连接等 I/O 操作
+        app.state.runtime = runtime  # 挂载到 app.state 上，所有请求处理器通过 request.app.state.runtime 访问
+        logger.info("agent_runtime_initialized")
 
     try:
         from app.services.session_store import get_session_store
