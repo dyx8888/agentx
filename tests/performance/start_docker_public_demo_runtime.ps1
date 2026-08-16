@@ -143,7 +143,7 @@ function Show-BackendLightweightPlan {
     Write-Host "Backend lightweight compose plan; this is for a later no-env backend smoke after explicit authorization."
     Write-Host "backend_lightweight_compose_file: $BackendLightweightComposeFile"
     Write-Host "backend_lightweight_project_name: agentx-public-demo-backend-lightweight"
-    Write-Host "backend_lightweight_image: agentx-backend:latest (existing local image only; not proof of current public-demo HEAD code)"
+    Write-Host "backend_lightweight_image: ${AGENTX_BACKEND_LIGHTWEIGHT_IMAGE:-agentx-backend:latest} (existing local image only; not proof of current public-demo HEAD code unless AGENTX_BACKEND_LIGHTWEIGHT_IMAGE points to a current HEAD smoke tag after an authorized build)"
     Show-Items "backend_lightweight_services" @(
         "main"
     )

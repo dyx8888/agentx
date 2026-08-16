@@ -7,6 +7,7 @@ SCRIPT = ROOT / "tests" / "performance" / "start_docker_public_demo_runtime.ps1"
 OVERLAY = ROOT / "backend" / "docker-compose.full-smoke.yml"
 LIGHTWEIGHT = ROOT / "backend" / "docker-compose.lightweight.yml"
 BACKEND_LIGHTWEIGHT = ROOT / "backend" / "docker-compose.backend-lightweight.yml"
+BACKEND_DOCKERIGNORE = ROOT / "backend" / ".dockerignore"
 
 
 def _read(path: Path) -> str:
@@ -131,7 +132,7 @@ def test_public_demo_docker_precheck_supports_backend_lightweight_plan_and_parse
         "CheckBackendLightweight",
         "docker-compose.backend-lightweight.yml",
         "backend_lightweight_project_name: agentx-public-demo-backend-lightweight",
-        "backend_lightweight_image: agentx-backend:latest",
+        "backend_lightweight_image: ${AGENTX_BACKEND_LIGHTWEIGHT_IMAGE:-agentx-backend:latest}",
         "not proof of current public-demo HEAD code",
         "backend_lightweight_services",
         "backend_lightweight_excluded_services",
@@ -180,12 +181,28 @@ def test_public_demo_lightweight_compose_only_defines_redis_and_postgres():
     assert "public_demo_lightweight_postgres_data" in lightweight
 
 
+
+def test_public_demo_backend_dockerignore_excludes_real_env_files():
+    dockerignore = _read(BACKEND_DOCKERIGNORE)
+
+    for expected in [
+        ".env",
+        ".env.*",
+        ".env.production",
+        ".env.local",
+        ".env.*.local",
+    ]:
+        assert re.search(rf"(?m)^{re.escape(expected)}$", dockerignore)
+
+    assert re.search(r"(?m)^!\.env\.example$", dockerignore)
+    assert dockerignore.index(".env.*") < dockerignore.index("!.env.example")
+
 def test_public_demo_backend_lightweight_compose_is_no_env_backend_only():
     backend_lightweight = _read(BACKEND_LIGHTWEIGHT)
 
     assert "name: agentx-public-demo-backend-lightweight" in backend_lightweight
     assert re.search(r"\n  main:\n", backend_lightweight)
-    assert "image: agentx-backend:latest" in backend_lightweight
+    assert "image: ${AGENTX_BACKEND_LIGHTWEIGHT_IMAGE:-agentx-backend:latest}" in backend_lightweight
     assert "container_name: agentx-lightweight-backend" in backend_lightweight
     assert "build:" not in backend_lightweight
     assert "env_file:" not in backend_lightweight

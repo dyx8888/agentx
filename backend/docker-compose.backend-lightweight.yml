@@ -1,7 +1,7 @@
 # Public-demo backend lightweight compose file.
 # Use only after explicit authorization for a backend startup smoke.
 # This file intentionally defines only the backend main service, does not mount
-# any env files, and reuses the already-local agentx-backend:latest image.
+# any env files, and uses an explicitly selected local backend image.
 # It can only prove the local backend image smoke; it does not prove that the
 # image was built from the current public-demo HEAD.
 # Future startup must use --no-build --pull never so missing images fail closed.
@@ -9,7 +9,7 @@ name: agentx-public-demo-backend-lightweight
 
 services:
   main:
-    image: agentx-backend:latest
+    image: ${AGENTX_BACKEND_LIGHTWEIGHT_IMAGE:-agentx-backend:latest}
     container_name: agentx-lightweight-backend
     ports:
       - "8000:8000"
