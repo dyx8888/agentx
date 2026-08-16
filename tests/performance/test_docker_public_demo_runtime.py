@@ -227,6 +227,11 @@ def test_public_demo_backend_lightweight_compose_is_no_env_backend_only():
     assert "external: true" in backend_lightweight
     assert "agentx-public-demo-lightweight-network" in backend_lightweight
     assert "not prove that the" in backend_lightweight
+    assert "healthcheck:" in backend_lightweight
+    assert "CMD-SHELL" in backend_lightweight
+    assert "python -c" in backend_lightweight
+    assert "urllib.request.urlopen('http://localhost:8000/health', timeout=5)" in backend_lightweight
+    assert "curl" not in backend_lightweight
 
     for forbidden_service in [
         "redis",
