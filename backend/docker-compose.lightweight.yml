@@ -1,0 +1,56 @@
+﻿# Public-demo lightweight compose file.
+# Use only after explicit authorization for the first Docker startup rehearsal.
+# This file intentionally defines only redis and postgres, uses isolated project
+# and volume names, and does not mount backend environment files or frontend env files.
+# Future startup must use --no-build --pull never so missing images fail closed.
+name: agentx-public-demo-lightweight
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: agentx-lightweight-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - public_demo_lightweight_redis_data:/data
+    networks:
+      - public-demo-lightweight-network
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: agentx-lightweight-postgres
+    environment:
+      POSTGRES_DB: agentx
+      POSTGRES_USER: agentx
+      POSTGRES_PASSWORD: change-me-local-only
+    ports:
+      - "5432:5432"
+    volumes:
+      - public_demo_lightweight_postgres_data:/var/lib/postgresql/data
+    networks:
+      - public-demo-lightweight-network
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentx -d agentx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  public-demo-lightweight-network:
+    name: agentx-public-demo-lightweight-network
+    driver: bridge
+
+volumes:
+  public_demo_lightweight_redis_data:
+    name: agentx_public_demo_lightweight_redis_data
+  public_demo_lightweight_postgres_data:
+    name: agentx_public_demo_lightweight_postgres_data
+

@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "tests" / "performance" / "start_docker_public_demo_runtime.ps1"
 OVERLAY = ROOT / "backend" / "docker-compose.full-smoke.yml"
+LIGHTWEIGHT = ROOT / "backend" / "docker-compose.lightweight.yml"
 
 
 def _read(path: Path) -> str:
@@ -15,7 +16,7 @@ def _docker_invocations(script: str) -> list[tuple[str, ...]]:
     pattern = re.compile(r'Invoke-AllowedDocker\s+"docker"\s+@\((.*?)\)', re.DOTALL)
     invocations: list[tuple[str, ...]] = []
     for raw_args in pattern.findall(script):
-        tokens = re.findall(r'"([^"]+)"|(\$ComposeFile|\$OverlayFile)', raw_args)
+        tokens = re.findall(r'"([^"]+)"|(\$ComposeFile|\$OverlayFile|\$LightweightComposeFile)', raw_args)
         normalized = tuple(quoted or variable for quoted, variable in tokens)
         invocations.append(normalized)
     return invocations
@@ -32,6 +33,7 @@ def test_public_demo_docker_precheck_allows_only_safe_config_commands():
         ("compose", "-f", "$ComposeFile", "config", "--services"),
     ]
     assert ("compose", "-f", "$ComposeFile", "-f", "$OverlayFile", "config", "--services") in invocations
+    assert ("compose", "-f", "$LightweightComposeFile", "config", "--services") in invocations
     forbidden = {"up", "build", "pull", "down", "prune"}
     for invocation in invocations:
         assert forbidden.isdisjoint(invocation)
@@ -98,6 +100,25 @@ def test_public_demo_docker_precheck_supports_overlay_config_parse():
     assert "overlay_config_check" in script
 
 
+def test_public_demo_docker_precheck_supports_lightweight_plan_and_parse():
+    script = _read(SCRIPT)
+
+    for expected in [
+        "CheckLightweight",
+        "docker-compose.lightweight.yml",
+        "lightweight_project_name: agentx-public-demo-lightweight",
+        "lightweight_services",
+        "lightweight_excluded_services",
+        "lightweight_bind_mounts",
+        "backend/.env is not mounted",
+        "--no-build --pull never",
+        "missing_image_policy",
+        "lightweight_config_check",
+    ]:
+        assert expected in script
+    assert '("compose", "-f", $LightweightComposeFile, "config", "--services")' in script
+
+
 def test_public_demo_full_smoke_overlay_uses_tmpfs_for_heavy_state():
     overlay = _read(OVERLAY)
 
@@ -108,8 +129,31 @@ def test_public_demo_full_smoke_overlay_uses_tmpfs_for_heavy_state():
     assert "MILVUS_HOST=milvus" in overlay
 
 
+def test_public_demo_lightweight_compose_only_defines_redis_and_postgres():
+    lightweight = _read(LIGHTWEIGHT)
+
+    assert "name: agentx-public-demo-lightweight" in lightweight
+    assert re.search(r"\n  redis:\n", lightweight)
+    assert re.search(r"\n  postgres:\n", lightweight)
+    for forbidden_service in [
+        "milvus",
+        "etcd",
+        "minio",
+        "main",
+        "frontend",
+        "kol-search",
+        "report-server",
+    ]:
+        assert not re.search(rf"\n  {re.escape(forbidden_service)}:\n", lightweight)
+    assert "build:" not in lightweight
+    assert "backend/.env" not in lightweight
+    assert "/app/.env" not in lightweight
+    assert "public_demo_lightweight_redis_data" in lightweight
+    assert "public_demo_lightweight_postgres_data" in lightweight
+
+
 def test_public_demo_docker_files_do_not_embed_real_credentials():
-    combined = "\n".join([_read(SCRIPT), _read(OVERLAY)])
+    combined = "\n".join([_read(SCRIPT), _read(OVERLAY), _read(LIGHTWEIGHT)])
 
     disallowed_patterns = [
         r"AKIA[0-9A-Z]{16}",
