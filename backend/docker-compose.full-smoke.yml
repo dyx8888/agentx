@@ -1,0 +1,29 @@
+﻿# Public-demo full-smoke overlay.
+# Use only after explicit authorization to run Docker full smoke.
+# This overlay avoids persistent Milvus/etcd writes where possible and does not
+# add any real credentials or enable real model calls by default.
+services:
+  etcd:
+    volumes:
+      - type: tmpfs
+        target: /etcd
+        tmpfs:
+          size: 536870912
+
+  milvus:
+    volumes:
+      - type: tmpfs
+        target: /var/lib/milvus
+        tmpfs:
+          size: 2147483648
+
+  main:
+    environment:
+      - VECTOR_DB=milvus
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+      - AGENT_EVAL_MODE=false
+      - MODEL_GATEWAY_DEFAULT=
+      - ALLOW_PLATFORM_MOCK_FALLBACK=false
+      - ALLOW_ENTERPRISE_MOCK_INTEGRATIONS=false
+      - ALLOW_CUSTOMER_SERVICE_AUTO_SEND=false
