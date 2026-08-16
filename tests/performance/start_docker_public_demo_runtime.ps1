@@ -1,7 +1,8 @@
 ﻿param(
     [switch]$PlanOnly,
     [switch]$CheckOverlay,
-    [switch]$CheckLightweight
+    [switch]$CheckLightweight,
+    [switch]$CheckBackendLightweight
 )
 
 Set-StrictMode -Version Latest
@@ -11,6 +12,7 @@ $Root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $ComposeFile = Join-Path $Root "backend\docker-compose.yml"
 $OverlayFile = Join-Path $Root "backend\docker-compose.full-smoke.yml"
 $LightweightComposeFile = Join-Path $Root "backend\docker-compose.lightweight.yml"
+$BackendLightweightComposeFile = Join-Path $Root "backend\docker-compose.backend-lightweight.yml"
 
 function Invoke-AllowedDocker {
     param(
@@ -137,12 +139,60 @@ function Show-LightweightPlan {
     Write-Host "lightweight_config_check: run with -CheckLightweight to parse backend/docker-compose.lightweight.yml with compose config --services."
 }
 
+function Show-BackendLightweightPlan {
+    Write-Host "Backend lightweight compose plan; this is for a later no-env backend smoke after explicit authorization."
+    Write-Host "backend_lightweight_compose_file: $BackendLightweightComposeFile"
+    Write-Host "backend_lightweight_project_name: agentx-public-demo-backend-lightweight"
+    Write-Host "backend_lightweight_image: agentx-backend:latest (existing local image only; not proof of current public-demo HEAD code)"
+    Show-Items "backend_lightweight_services" @(
+        "main"
+    )
+    Show-Items "backend_lightweight_excluded_services" @(
+        "redis",
+        "postgres",
+        "milvus",
+        "etcd",
+        "minio",
+        "frontend",
+        "kol-search",
+        "report-server"
+    )
+    Show-Items "backend_lightweight_ports" @(
+        "main 8000->8000"
+    )
+    Show-Items "backend_lightweight_networks" @(
+        "agentx-public-demo-lightweight-network (external; created by backend/docker-compose.lightweight.yml)"
+    )
+    Show-Items "backend_lightweight_bind_mounts" @(
+        "none; no backend/.env, .env, backend/.env.production, frontend/.env.production, or frontend/.env.local is mounted"
+    )
+    Show-Items "backend_lightweight_safe_env" @(
+        "ENV=dev",
+        "ENVIRONMENT=development",
+        "DATABASE_URL=postgresql://agentx:change-me-local-only@agentx-lightweight-postgres:5432/agentx",
+        "REDIS_URL=redis://agentx-lightweight-redis:6379/0",
+        "RATE_LIMIT_REDIS_URL=redis://agentx-lightweight-redis:6379/1",
+        "ENABLE_EVOLUTION_API=false",
+        "ENABLE_PUBLIC_DOCS=false",
+        "AGENT_EVAL_MODE=1",
+        "TOOL_DESCRIPTION_AUTO_ENHANCE=0",
+        "TOOL_LOAD_MODE=local",
+        "MILVUS_HOST=127.0.0.1",
+        "MILVUS_PORT=19530"
+    )
+    Write-Host "backend_future_start_guard: use docker compose -f backend/docker-compose.backend-lightweight.yml up --no-build --pull never -d main only after explicit authorization."
+    Write-Host "backend_missing_image_policy: if agentx-backend:latest is missing, --pull never must fail and stop instead of downloading."
+    Write-Host "backend_code_proof_limit: this smoke reuses a local image and cannot prove the image was built from the current public-demo HEAD."
+    Write-Host "backend_lightweight_config_check: run with -CheckBackendLightweight to parse backend/docker-compose.backend-lightweight.yml with compose config --services."
+}
+
 Push-Location $Root
 try {
     Write-Host "Public-demo Docker precheck only. No containers are started."
     Write-Host "Allowed default commands: docker --version; docker compose version; docker compose -f backend/docker-compose.yml config --services."
     Write-Host "Optional overlay parse: docker compose -f backend/docker-compose.yml -f backend/docker-compose.full-smoke.yml config --services when -CheckOverlay is set."
     Write-Host "Optional lightweight parse: docker compose -f backend/docker-compose.lightweight.yml config --services when -CheckLightweight is set."
+    Write-Host "Optional backend lightweight parse: docker compose -f backend/docker-compose.backend-lightweight.yml config --services when -CheckBackendLightweight is set."
     Write-Host "Forbidden by this script: docker compose up, docker compose build, docker compose pull, docker compose down -v, docker system prune."
     Write-Host "Full-smoke overlay for later explicit authorization: $OverlayFile"
 
@@ -153,6 +203,7 @@ try {
 
     Show-ComposePlan
     Show-LightweightPlan
+    Show-BackendLightweightPlan
     Write-Host "This precheck reports env file presence only and never reads env file contents."
 
     if ($PlanOnly) {
@@ -170,6 +221,10 @@ try {
 
     if ($CheckLightweight) {
         Invoke-AllowedDocker "docker" @("compose", "-f", $LightweightComposeFile, "config", "--services")
+    }
+
+    if ($CheckBackendLightweight) {
+        Invoke-AllowedDocker "docker" @("compose", "-f", $BackendLightweightComposeFile, "config", "--services")
     }
 
     Write-Host "Docker public-demo precheck completed. No up/build/pull/down/prune command was executed."
