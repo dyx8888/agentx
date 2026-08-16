@@ -23,7 +23,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Download sentence-transformers model during build to avoid runtime downloads
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-zh-v1.5')"
+ARG DOWNLOAD_EMBEDDING_MODEL=true
+RUN if [ "$DOWNLOAD_EMBEDDING_MODEL" = "true" ]; then \
+        python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-zh-v1.5')"; \
+    else \
+        echo "Skipping sentence-transformers model download for smoke build"; \
+    fi
 
 # Production stage
 FROM python:3.11-slim
@@ -32,11 +37,6 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HF_ENDPOINT=https://hf-mirror.com
-
-# Install runtime system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash app
@@ -66,7 +66,7 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)" || exit 1
 
 # Start command
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

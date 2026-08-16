@@ -184,6 +184,7 @@ function Show-BackendLightweightPlan {
     Write-Host "backend_future_start_guard: use docker compose -f backend/docker-compose.backend-lightweight.yml up --no-build --pull never -d main only after explicit authorization."
     Write-Host "backend_missing_image_policy: if agentx-backend:latest is missing, --pull never must fail and stop instead of downloading."
     Write-Host "backend_code_proof_limit: this smoke reuses a local image and cannot prove the image was built from the current public-demo HEAD."
+    Write-Host "backend_smoke_build_arg: authorized current-source smoke builds should pass --build-arg DOWNLOAD_EMBEDDING_MODEL=false to avoid embedding model downloads."
     Write-Host "backend_lightweight_config_check: run with -CheckBackendLightweight to parse backend/docker-compose.backend-lightweight.yml with compose config --services."
 }
 

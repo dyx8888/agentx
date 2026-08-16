@@ -8,6 +8,7 @@ OVERLAY = ROOT / "backend" / "docker-compose.full-smoke.yml"
 LIGHTWEIGHT = ROOT / "backend" / "docker-compose.lightweight.yml"
 BACKEND_LIGHTWEIGHT = ROOT / "backend" / "docker-compose.backend-lightweight.yml"
 BACKEND_DOCKERIGNORE = ROOT / "backend" / ".dockerignore"
+BACKEND_DOCKERFILE = ROOT / "backend" / "Dockerfile"
 
 
 def _read(path: Path) -> str:
@@ -143,6 +144,7 @@ def test_public_demo_docker_precheck_supports_backend_lightweight_plan_and_parse
         "docker compose -f backend/docker-compose.backend-lightweight.yml up --no-build --pull never -d main",
         "backend_missing_image_policy",
         "backend_lightweight_config_check",
+        "--build-arg DOWNLOAD_EMBEDDING_MODEL=false",
     ]:
         assert expected in script
     assert '("compose", "-f", $BackendLightweightComposeFile, "config", "--services")' in script
@@ -197,6 +199,20 @@ def test_public_demo_backend_dockerignore_excludes_real_env_files():
     assert re.search(r"(?m)^!\.env\.example$", dockerignore)
     assert dockerignore.index(".env.*") < dockerignore.index("!.env.example")
 
+
+def test_public_demo_backend_dockerfile_smoke_build_controls():
+    dockerfile = _read(BACKEND_DOCKERFILE)
+
+    assert "ARG DOWNLOAD_EMBEDDING_MODEL=true" in dockerfile
+    assert 'if [ "$DOWNLOAD_EMBEDDING_MODEL" = "true" ]' in dockerfile
+    assert "SentenceTransformer('BAAI/bge-small-zh-v1.5')" in dockerfile
+    assert "Skipping sentence-transformers model download for smoke build" in dockerfile
+    assert "urllib.request.urlopen('http://localhost:8000/health', timeout=5)" in dockerfile
+    assert "CMD curl" not in dockerfile
+    assert "apt-get install -y \\\n    curl" not in dockerfile
+    assert "COPY . ." not in dockerfile
+    assert "COPY app/ ./app/" in dockerfile
+    assert "COPY config/ ./config/" in dockerfile
 def test_public_demo_backend_lightweight_compose_is_no_env_backend_only():
     backend_lightweight = _read(BACKEND_LIGHTWEIGHT)
 
@@ -254,7 +270,7 @@ def test_public_demo_backend_lightweight_compose_is_no_env_backend_only():
 
 def test_public_demo_docker_files_do_not_embed_real_credentials():
     combined = "\n".join(
-        [_read(SCRIPT), _read(OVERLAY), _read(LIGHTWEIGHT), _read(BACKEND_LIGHTWEIGHT)]
+        [_read(SCRIPT), _read(OVERLAY), _read(LIGHTWEIGHT), _read(BACKEND_LIGHTWEIGHT), _read(BACKEND_DOCKERFILE)]
     )
 
     disallowed_patterns = [
