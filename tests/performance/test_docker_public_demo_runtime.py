@@ -15,25 +15,38 @@ def _docker_invocations(script: str) -> list[tuple[str, ...]]:
     pattern = re.compile(r'Invoke-AllowedDocker\s+"docker"\s+@\((.*?)\)', re.DOTALL)
     invocations: list[tuple[str, ...]] = []
     for raw_args in pattern.findall(script):
-        tokens = re.findall(r'"([^"]+)"|(\$ComposeFile)', raw_args)
+        tokens = re.findall(r'"([^"]+)"|(\$ComposeFile|\$OverlayFile)', raw_args)
         normalized = tuple(quoted or variable for quoted, variable in tokens)
         invocations.append(normalized)
     return invocations
 
 
-def test_public_demo_docker_precheck_allows_only_safe_default_commands():
+def test_public_demo_docker_precheck_allows_only_safe_config_commands():
     script = _read(SCRIPT)
 
     invocations = _docker_invocations(script)
 
-    assert invocations == [
+    assert invocations[:3] == [
         ("--version",),
         ("compose", "version"),
         ("compose", "-f", "$ComposeFile", "config", "--services"),
     ]
+    assert ("compose", "-f", "$ComposeFile", "-f", "$OverlayFile", "config", "--services") in invocations
     forbidden = {"up", "build", "pull", "down", "prune"}
     for invocation in invocations:
         assert forbidden.isdisjoint(invocation)
+        if "compose" in invocation:
+            assert "config" in invocation or "version" in invocation
+
+
+def test_public_demo_planonly_returns_before_docker_commands():
+    script = _read(SCRIPT)
+
+    planonly_index = script.index("if ($PlanOnly)")
+    first_docker_index = script.index('Invoke-AllowedDocker "docker"')
+
+    assert planonly_index < first_docker_index
+    assert "PlanOnly set; no docker command was executed." in script
 
 
 def test_public_demo_docker_precheck_reports_env_files_without_reading_them():
@@ -53,11 +66,36 @@ def test_public_demo_docker_precheck_reports_env_files_without_reading_them():
     assert "dotenv" not in script.lower()
 
 
-def test_public_demo_docker_precheck_uses_compose_services_config_gate():
+def test_public_demo_docker_precheck_prints_compose_plan_boundaries():
     script = _read(SCRIPT)
 
-    assert "docker compose -f backend/docker-compose.yml config --services" in script
-    assert '("compose", "-f", $ComposeFile, "config", "--services")' in script
+    for expected in [
+        "default_services",
+        "published_ports",
+        "named_volumes",
+        "bind_mounts",
+        "backend/.env -> /app/.env:ro",
+        "heavy_services",
+        "milvus",
+        "etcd",
+        "minio",
+        "postgres",
+        "redis",
+        "apt-get",
+        "pip install",
+        "npm ci",
+        "embedding model artifacts",
+    ]:
+        assert expected in script
+
+
+def test_public_demo_docker_precheck_supports_overlay_config_parse():
+    script = _read(SCRIPT)
+
+    assert "CheckOverlay" in script
+    assert "backend/docker-compose.full-smoke.yml" in script
+    assert '("compose", "-f", $ComposeFile, "-f", $OverlayFile, "config", "--services")' in script
+    assert "overlay_config_check" in script
 
 
 def test_public_demo_full_smoke_overlay_uses_tmpfs_for_heavy_state():
