@@ -1,25 +1,26 @@
-# frontend/.dockerignore —— 仅对 frontend build context 生效
-# 注意：.env.production 不能忽略！Vite 在 `npm run build` 阶段会读取它
-# 并把变量编译进 dist/ 产物（import.meta.env），构建完成后产物已包含生产值。
+# frontend/.dockerignore applies only to the frontend Docker build context.
+# Vite can inline VITE_* values at build time, so real env files must never
+# enter the Docker context for public-demo smoke builds.
 
-# 依赖与构建产物（多阶段构建第一阶段会重新 npm install + npm run build，无需带入）
+# Dependencies and build outputs are recreated inside the image.
 node_modules
 dist
 dist-ssr
-*.local
 
-# 开发环境变量（可能含本地密钥，不能进镜像；.env.production 保留）
+# Real environment files: keep out of Docker context.
 .env
+.env.*
+.env.production
 .env.local
-.env.development
-.env.development.local
+.env.*.local
+!.env.example
 
-# 版本控制
+# Version control metadata.
 .git
 .gitignore
 .gitattributes
 
-# 测试与缓存
+# Tests and coverage are not required for the production static build.
 __tests__
 *.test.js
 *.test.jsx
@@ -28,19 +29,17 @@ __tests__
 coverage
 .nyc_output
 
-# IDE 与编辑器
+# Editor, log, and local machine files.
 .vscode
 .idea
 *.swp
 *.swo
 *~
-
-# 日志与临时文件
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.log
 .DS_Store
 
-# 文档（构建不需要）
+# Documentation is not needed in the image build context.
 README.md

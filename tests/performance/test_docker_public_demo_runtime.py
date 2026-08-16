@@ -7,7 +7,9 @@ SCRIPT = ROOT / "tests" / "performance" / "start_docker_public_demo_runtime.ps1"
 OVERLAY = ROOT / "backend" / "docker-compose.full-smoke.yml"
 LIGHTWEIGHT = ROOT / "backend" / "docker-compose.lightweight.yml"
 BACKEND_LIGHTWEIGHT = ROOT / "backend" / "docker-compose.backend-lightweight.yml"
+FRONTEND_LIGHTWEIGHT = ROOT / "backend" / "docker-compose.frontend-lightweight.yml"
 BACKEND_DOCKERIGNORE = ROOT / "backend" / ".dockerignore"
+FRONTEND_DOCKERIGNORE = ROOT / "frontend" / ".dockerignore"
 BACKEND_DOCKERFILE = ROOT / "backend" / "Dockerfile"
 
 
@@ -273,9 +275,89 @@ def test_public_demo_backend_lightweight_compose_is_no_env_backend_only():
         assert expected in backend_lightweight
 
 
+
+def test_public_demo_frontend_dockerignore_excludes_real_env_files():
+    dockerignore = _read(FRONTEND_DOCKERIGNORE)
+
+    for expected in [
+        ".env",
+        ".env.*",
+        ".env.production",
+        ".env.local",
+        ".env.*.local",
+    ]:
+        assert re.search(rf"(?m)^{re.escape(expected)}$", dockerignore)
+
+    assert re.search(r"(?m)^!\.env\.example$", dockerignore)
+    assert dockerignore.index(".env.*") < dockerignore.index("!.env.example")
+
+
+def test_public_demo_frontend_lightweight_compose_is_image_only_frontend():
+    frontend_lightweight = _read(FRONTEND_LIGHTWEIGHT)
+
+    assert "name: agentx-public-demo-frontend-lightweight" in frontend_lightweight
+    assert re.search(r"\n  frontend:\n", frontend_lightweight)
+    assert "image: ${AGENTX_FRONTEND_LIGHTWEIGHT_IMAGE:-agentx-frontend:latest}" in frontend_lightweight
+    assert "container_name: agentx-lightweight-frontend" in frontend_lightweight
+    assert '"3000:80"' in frontend_lightweight
+    assert "build:" not in frontend_lightweight
+    assert "env_file:" not in frontend_lightweight
+    assert "volumes:" not in frontend_lightweight
+    assert "secrets:" not in frontend_lightweight
+    assert "restart: \"no\"" in frontend_lightweight
+    assert "external: true" in frontend_lightweight
+    assert "agentx-public-demo-lightweight-network" in frontend_lightweight
+    assert "cannot" in frontend_lightweight and "current public-demo HEAD" in frontend_lightweight
+    assert "AGENTX_FRONTEND_LIGHTWEIGHT_IMAGE" in frontend_lightweight
+    assert "agentx-lightweight-backend" in frontend_lightweight
+    assert "localhost inside the frontend container" in frontend_lightweight
+
+    for forbidden_service in [
+        "backend",
+        "main",
+        "redis",
+        "postgres",
+        "milvus",
+        "etcd",
+        "minio",
+        "kol-search",
+        "report-server",
+    ]:
+        assert not re.search(rf"\n  {re.escape(forbidden_service)}:\n", frontend_lightweight)
+
+    for forbidden_mount in [
+        "frontend/.env.production",
+        "frontend/.env.local",
+        ".env:/",
+        "/app/.env",
+    ]:
+        assert forbidden_mount not in frontend_lightweight
+
+
+def test_public_demo_docker_precheck_prints_frontend_lightweight_plan_without_new_docker_path():
+    script = _read(SCRIPT)
+    invocations = _docker_invocations(script)
+
+    for expected in [
+        "frontend_lightweight_compose_file",
+        "docker-compose.frontend-lightweight.yml",
+        "frontend_lightweight_image: ${AGENTX_FRONTEND_LIGHTWEIGHT_IMAGE:-agentx-frontend:latest}",
+        "old agentx-frontend:latest can only prove an old local image smoke",
+        "frontend nginx must target agentx-lightweight-backend",
+        "do not rely on container localhost",
+        "frontend Dockerfile runs npm ci",
+        "real frontend env files are excluded from Docker context",
+        "frontend_lightweight_config_note: this script does not add a frontend Docker execution path",
+    ]:
+        assert expected in script
+
+    assert "Show-FrontendLightweightPlan" in script
+    assert script.index("Show-BackendLightweightPlan") < script.index("Show-FrontendLightweightPlan")
+    assert all("$FrontendLightweightComposeFile" not in invocation for invocation in invocations)
+
 def test_public_demo_docker_files_do_not_embed_real_credentials():
     combined = "\n".join(
-        [_read(SCRIPT), _read(OVERLAY), _read(LIGHTWEIGHT), _read(BACKEND_LIGHTWEIGHT), _read(BACKEND_DOCKERFILE)]
+        [_read(SCRIPT), _read(OVERLAY), _read(LIGHTWEIGHT), _read(BACKEND_LIGHTWEIGHT), _read(FRONTEND_LIGHTWEIGHT), _read(BACKEND_DOCKERFILE), _read(FRONTEND_DOCKERIGNORE)]
     )
 
     disallowed_patterns = [

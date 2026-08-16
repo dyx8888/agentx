@@ -1,0 +1,35 @@
+# Public-demo frontend lightweight compose file.
+# Use only after explicit authorization for a frontend startup smoke.
+# This file intentionally defines only the frontend service, does not mount
+# env files, and uses an explicitly selected local frontend image.
+# agentx-frontend:latest can only prove an old local image smoke; it cannot
+# prove the image was built from the current public-demo HEAD.
+# To prove current frontend HEAD, build a new smoke tag after explicit
+# authorization and pass it via AGENTX_FRONTEND_LIGHTWEIGHT_IMAGE. Do not
+# overwrite agentx-frontend:latest.
+# The frontend nginx proxy must target the lightweight backend container name
+# agentx-lightweight-backend or a deliberate network alias; do not rely on
+# localhost inside the frontend container.
+# Future startup must use --no-build --pull never so missing images fail closed.
+name: agentx-public-demo-frontend-lightweight
+
+services:
+  frontend:
+    image: ${AGENTX_FRONTEND_LIGHTWEIGHT_IMAGE:-agentx-frontend:latest}
+    container_name: agentx-lightweight-frontend
+    ports:
+      - "3000:80"
+    networks:
+      - public-demo-lightweight-network
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  public-demo-lightweight-network:
+    name: agentx-public-demo-lightweight-network
+    external: true

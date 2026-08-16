@@ -13,6 +13,7 @@ $ComposeFile = Join-Path $Root "backend\docker-compose.yml"
 $OverlayFile = Join-Path $Root "backend\docker-compose.full-smoke.yml"
 $LightweightComposeFile = Join-Path $Root "backend\docker-compose.lightweight.yml"
 $BackendLightweightComposeFile = Join-Path $Root "backend\docker-compose.backend-lightweight.yml"
+$FrontendLightweightComposeFile = Join-Path $Root "backend\docker-compose.frontend-lightweight.yml"
 
 function Invoke-AllowedDocker {
     param(
@@ -188,6 +189,43 @@ function Show-BackendLightweightPlan {
     Write-Host "backend_lightweight_config_check: run with -CheckBackendLightweight to parse backend/docker-compose.backend-lightweight.yml with compose config --services."
 }
 
+function Show-FrontendLightweightPlan {
+    Write-Host "Frontend lightweight compose plan; this is static guidance for a later frontend smoke after explicit authorization."
+    Write-Host "frontend_lightweight_compose_file: $FrontendLightweightComposeFile"
+    Write-Host "frontend_lightweight_project_name: agentx-public-demo-frontend-lightweight"
+    Write-Host "frontend_lightweight_image: ${AGENTX_FRONTEND_LIGHTWEIGHT_IMAGE:-agentx-frontend:latest} (existing local image only; not proof of current public-demo HEAD code unless AGENTX_FRONTEND_LIGHTWEIGHT_IMAGE points to a current HEAD smoke tag after an authorized build)"
+    Show-Items "frontend_lightweight_services" @(
+        "frontend"
+    )
+    Show-Items "frontend_lightweight_excluded_services" @(
+        "backend",
+        "redis",
+        "postgres",
+        "milvus",
+        "etcd",
+        "minio",
+        "kol-search",
+        "report-server"
+    )
+    Show-Items "frontend_lightweight_ports" @(
+        "frontend 3000->80"
+    )
+    Show-Items "frontend_lightweight_networks" @(
+        "agentx-public-demo-lightweight-network (external; shared with lightweight backend when explicitly started)"
+    )
+    Show-Items "frontend_lightweight_bind_mounts" @(
+        "none; no frontend/.env.production, frontend/.env.local, .env, or other env file is mounted"
+    )
+    Show-Items "frontend_lightweight_build_risks" @(
+        "frontend Dockerfile runs npm ci and may access npm registry during an authorized build",
+        "Vite can inline VITE_* values into dist, so real frontend env files are excluded from Docker context"
+    )
+    Write-Host "frontend_proxy_boundary: frontend nginx must target agentx-lightweight-backend or a deliberate network alias; do not rely on container localhost for backend access."
+    Write-Host "frontend_future_start_guard: use docker compose -f backend/docker-compose.frontend-lightweight.yml up --no-build --pull never -d frontend only after explicit authorization."
+    Write-Host "frontend_missing_image_policy: if agentx-frontend:latest or the selected AGENTX_FRONTEND_LIGHTWEIGHT_IMAGE is missing, --pull never must fail and stop instead of downloading."
+    Write-Host "frontend_code_proof_limit: old agentx-frontend:latest can only prove an old local image smoke; current-source proof requires an authorized build to a new non-latest tag."
+    Write-Host "frontend_lightweight_config_note: this script does not add a frontend Docker execution path; parse manually only after explicit authorization."
+}
 Push-Location $Root
 try {
     Write-Host "Public-demo Docker precheck only. No containers are started."
@@ -206,6 +244,7 @@ try {
     Show-ComposePlan
     Show-LightweightPlan
     Show-BackendLightweightPlan
+    Show-FrontendLightweightPlan
     Write-Host "This precheck reports env file presence only and never reads env file contents."
 
     if ($PlanOnly) {
