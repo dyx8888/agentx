@@ -11,6 +11,9 @@ FRONTEND_LIGHTWEIGHT = ROOT / "backend" / "docker-compose.frontend-lightweight.y
 BACKEND_DOCKERIGNORE = ROOT / "backend" / ".dockerignore"
 FRONTEND_DOCKERIGNORE = ROOT / "frontend" / ".dockerignore"
 BACKEND_DOCKERFILE = ROOT / "backend" / "Dockerfile"
+FRONTEND_DOCKERFILE = ROOT / "frontend" / "Dockerfile"
+FRONTEND_NGINX_CONF = ROOT / "frontend" / "nginx.conf"
+FRONTEND_LIGHTWEIGHT_NGINX_CONF = ROOT / "frontend" / "nginx.lightweight.conf"
 
 
 def _read(path: Path) -> str:
@@ -334,6 +337,22 @@ def test_public_demo_frontend_lightweight_compose_is_image_only_frontend():
         assert forbidden_mount not in frontend_lightweight
 
 
+def test_public_demo_frontend_dockerfile_supports_lightweight_nginx_conf():
+    dockerfile = _read(FRONTEND_DOCKERFILE)
+    default_nginx = _read(FRONTEND_NGINX_CONF)
+    lightweight_nginx = _read(FRONTEND_LIGHTWEIGHT_NGINX_CONF)
+
+    assert "ARG NGINX_CONF=nginx.conf" in dockerfile
+    assert "COPY ${NGINX_CONF} /etc/nginx/conf.d/default.conf" in dockerfile
+    assert "COPY nginx.conf /etc/nginx/conf.d/default.conf" not in dockerfile
+    assert "agentx-main:8000" in default_nginx
+    assert "agentx-lightweight-backend:8000/api/" in lightweight_nginx
+    assert "agentx-lightweight-backend:8000/ws/" in lightweight_nginx
+    assert "agentx-main" not in lightweight_nginx
+    assert "OPENAI_API_KEY" not in lightweight_nginx
+    assert "DEEPSEEK_API_KEY" not in lightweight_nginx
+
+
 def test_public_demo_docker_precheck_prints_frontend_lightweight_plan_without_new_docker_path():
     script = _read(SCRIPT)
     invocations = _docker_invocations(script)
@@ -346,6 +365,7 @@ def test_public_demo_docker_precheck_prints_frontend_lightweight_plan_without_ne
         "frontend nginx must target agentx-lightweight-backend",
         "do not rely on container localhost",
         "frontend Dockerfile runs npm ci",
+        "--build-arg NGINX_CONF=nginx.lightweight.conf",
         "real frontend env files are excluded from Docker context",
         "frontend_lightweight_config_note: this script does not add a frontend Docker execution path",
     ]:
@@ -357,7 +377,17 @@ def test_public_demo_docker_precheck_prints_frontend_lightweight_plan_without_ne
 
 def test_public_demo_docker_files_do_not_embed_real_credentials():
     combined = "\n".join(
-        [_read(SCRIPT), _read(OVERLAY), _read(LIGHTWEIGHT), _read(BACKEND_LIGHTWEIGHT), _read(FRONTEND_LIGHTWEIGHT), _read(BACKEND_DOCKERFILE), _read(FRONTEND_DOCKERIGNORE)]
+        [
+            _read(SCRIPT),
+            _read(OVERLAY),
+            _read(LIGHTWEIGHT),
+            _read(BACKEND_LIGHTWEIGHT),
+            _read(FRONTEND_LIGHTWEIGHT),
+            _read(BACKEND_DOCKERFILE),
+            _read(FRONTEND_DOCKERFILE),
+            _read(FRONTEND_DOCKERIGNORE),
+            _read(FRONTEND_LIGHTWEIGHT_NGINX_CONF),
+        ]
     )
 
     disallowed_patterns = [

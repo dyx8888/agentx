@@ -218,7 +218,8 @@ function Show-FrontendLightweightPlan {
     )
     Show-Items "frontend_lightweight_build_risks" @(
         "frontend Dockerfile runs npm ci and may access npm registry during an authorized build",
-        "Vite can inline VITE_* values into dist, so real frontend env files are excluded from Docker context"
+        "Vite can inline VITE_* values into dist, so real frontend env files are excluded from Docker context",
+        "authorized current-source lightweight frontend builds should pass --build-arg NGINX_CONF=nginx.lightweight.conf to proxy to agentx-lightweight-backend"
     )
     Write-Host "frontend_proxy_boundary: frontend nginx must target agentx-lightweight-backend or a deliberate network alias; do not rely on container localhost for backend access."
     Write-Host "frontend_future_start_guard: use docker compose -f backend/docker-compose.frontend-lightweight.yml up --no-build --pull never -d frontend only after explicit authorization."
