@@ -1,4 +1,5 @@
 ﻿import re
+import json
 from pathlib import Path
 
 
@@ -14,6 +15,9 @@ BACKEND_DOCKERFILE = ROOT / "backend" / "Dockerfile"
 FRONTEND_DOCKERFILE = ROOT / "frontend" / "Dockerfile"
 FRONTEND_NGINX_CONF = ROOT / "frontend" / "nginx.conf"
 FRONTEND_LIGHTWEIGHT_NGINX_CONF = ROOT / "frontend" / "nginx.lightweight.conf"
+FRONTEND_PACKAGE_JSON = ROOT / "frontend" / "package.json"
+FRONTEND_PACKAGE_LOCK = ROOT / "frontend" / "package-lock.json"
+FRONTEND_POSTCSS_CONFIG = ROOT / "frontend" / "postcss.config.js"
 
 
 def _read(path: Path) -> str:
@@ -351,6 +355,17 @@ def test_public_demo_frontend_dockerfile_supports_lightweight_nginx_conf():
     assert "agentx-main" not in lightweight_nginx
     assert "OPENAI_API_KEY" not in lightweight_nginx
     assert "DEEPSEEK_API_KEY" not in lightweight_nginx
+
+
+def test_public_demo_frontend_postcss_plugin_is_declared_in_package_files():
+    postcss_config = _read(FRONTEND_POSTCSS_CONFIG)
+    package_json = json.loads(_read(FRONTEND_PACKAGE_JSON))
+    package_lock = json.loads(_read(FRONTEND_PACKAGE_LOCK))
+
+    assert "'@tailwindcss/postcss'" in postcss_config
+    assert package_json["devDependencies"]["@tailwindcss/postcss"] == "^4.3.0"
+    assert package_lock["packages"][""]["devDependencies"]["@tailwindcss/postcss"] == "^4.3.0"
+    assert package_lock["packages"]["node_modules/@tailwindcss/postcss"]["version"] == "4.3.0"
 
 
 def test_public_demo_docker_precheck_prints_frontend_lightweight_plan_without_new_docker_path():
