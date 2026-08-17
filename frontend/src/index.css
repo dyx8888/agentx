@@ -12,10 +12,10 @@
    1) Theme bindings — Tailwind v4 inline
    ─────────────────────────────────────────────────────────────── */
 @theme inline {
-  --font-heading: "Fraunces", ui-serif, serif;
-  --font-serif:   "Fraunces", ui-serif, serif;
-  --font-sans:    "Inter", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+  --font-heading: Georgia, "Times New Roman", "Noto Serif SC", SimSun, ui-serif, serif;
+  --font-serif:   Georgia, "Times New Roman", "Noto Serif SC", SimSun, ui-serif, serif;
+  --font-sans:    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono:    "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", ui-monospace, monospace;
 
   --default-border-width: 1px;
 
@@ -211,7 +211,7 @@ body {
   50.01%, 100% { opacity: 0; }
 }
 
-/* Heading font — Fraunces serif */
+/* Heading font - local serif stack */
 .font-heading {
   font-family: var(--font-heading);
   font-feature-settings: "ss01", "ss02";

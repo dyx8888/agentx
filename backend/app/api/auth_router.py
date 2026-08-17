@@ -149,7 +149,7 @@ class RefreshTokenResponse(BaseModel):
 
 # 登出请求体：前端将持有的 refresh_token 上交，服务端撤销其 jti 加入黑名单
 class LogoutRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 # 登出响应：始终 200，即使 token 已过期或无效也返回 success，

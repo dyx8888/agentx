@@ -15,6 +15,8 @@ BACKEND_DOCKERFILE = ROOT / "backend" / "Dockerfile"
 FRONTEND_DOCKERFILE = ROOT / "frontend" / "Dockerfile"
 FRONTEND_NGINX_CONF = ROOT / "frontend" / "nginx.conf"
 FRONTEND_LIGHTWEIGHT_NGINX_CONF = ROOT / "frontend" / "nginx.lightweight.conf"
+FRONTEND_INDEX_HTML = ROOT / "frontend" / "index.html"
+FRONTEND_INDEX_CSS = ROOT / "frontend" / "src" / "index.css"
 FRONTEND_PACKAGE_JSON = ROOT / "frontend" / "package.json"
 FRONTEND_PACKAGE_LOCK = ROOT / "frontend" / "package-lock.json"
 FRONTEND_POSTCSS_CONFIG = ROOT / "frontend" / "postcss.config.js"
@@ -377,6 +379,20 @@ def test_public_demo_frontend_postcss_plugin_is_declared_in_package_files():
     assert package_json["devDependencies"]["@tailwindcss/postcss"] == "^4.3.0"
     assert package_lock["packages"][""]["devDependencies"]["@tailwindcss/postcss"] == "^4.3.0"
     assert package_lock["packages"]["node_modules/@tailwindcss/postcss"]["version"] == "4.3.0"
+
+
+def test_public_demo_frontend_uses_local_font_stack_without_google_fonts():
+    index_html = _read(FRONTEND_INDEX_HTML)
+    index_css = _read(FRONTEND_INDEX_CSS)
+    combined = "\n".join([index_html, index_css])
+
+    assert "fonts.googleapis.com" not in combined
+    assert "fonts.gstatic.com" not in combined
+    assert "https://fonts." not in combined
+    assert "system-ui" in index_css
+    assert "BlinkMacSystemFont" in index_css
+    assert "Fraunces" not in index_css
+    assert "JetBrains Mono" not in index_css
 
 
 def test_public_demo_docker_precheck_prints_frontend_lightweight_plan_without_new_docker_path():

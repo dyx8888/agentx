@@ -27,7 +27,7 @@ export function AuthProvider({ children }) {
     // 调用后端撤销会话并清除 httpOnly cookie（client 已配置 withCredentials，cookie 自动带）。
     // 即使失败也忽略，继续清除前端状态。
     try {
-      await client.post('/auth/token/logout', {});
+      await client.post('/auth/token/logout');
     } catch {
       // 忽略后端调用失败，继续清除本地状态
     }

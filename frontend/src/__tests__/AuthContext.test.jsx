@@ -2,7 +2,8 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock the API modules using vi.hoisted
-const { mockGetAuthToken, mockSetAuthTokens, mockRemoveAuthTokens, mockGetMe } = vi.hoisted(() => ({
+const { mockClientPost, mockGetAuthToken, mockSetAuthTokens, mockRemoveAuthTokens, mockGetMe } = vi.hoisted(() => ({
+  mockClientPost: vi.fn(() => Promise.resolve({ data: { success: true } })),
   mockGetAuthToken: vi.fn(() => null),
   mockSetAuthTokens: vi.fn(),
   mockRemoveAuthTokens: vi.fn(),
@@ -10,6 +11,7 @@ const { mockGetAuthToken, mockSetAuthTokens, mockRemoveAuthTokens, mockGetMe } =
 }));
 
 vi.mock('@/api/client', () => ({
+  default: { post: mockClientPost },
   getAuthToken: mockGetAuthToken,
   setAuthTokens: mockSetAuthTokens,
   removeAuthTokens: mockRemoveAuthTokens,
@@ -175,6 +177,8 @@ describe('AuthContext', () => {
         await authValue.logout();
       });
 
+      expect(mockClientPost).toHaveBeenCalledWith('/auth/token/logout');
+      expect(mockClientPost).not.toHaveBeenCalledWith('/auth/token/logout', {});
       expect(mockRemoveAuthTokens).toHaveBeenCalled();
       expect(authValue.user).toBeNull();
       expect(authValue.isAuthenticated).toBe(false);
