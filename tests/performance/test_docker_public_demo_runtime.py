@@ -232,6 +232,7 @@ def test_public_demo_backend_lightweight_compose_is_no_env_backend_only():
     assert "build:" not in backend_lightweight
     assert "env_file:" not in backend_lightweight
     assert "volumes:" not in backend_lightweight
+    assert "secrets:" not in backend_lightweight
     assert "restart: \"no\"" in backend_lightweight
     assert "external: true" in backend_lightweight
     assert "agentx-public-demo-lightweight-network" in backend_lightweight
@@ -267,6 +268,7 @@ def test_public_demo_backend_lightweight_compose_is_no_env_backend_only():
     for expected in [
         "ENV: dev",
         "ENVIRONMENT: development",
+        "JWT_SECRET_KEY: agentx-public-demo-lightweight-smoke-only-jwt-key-not-for-production-20260817",
         "DATABASE_URL: postgresql://agentx:change-me-local-only@agentx-lightweight-postgres:5432/agentx",
         "REDIS_URL: redis://agentx-lightweight-redis:6379/0",
         "RATE_LIMIT_REDIS_URL: redis://agentx-lightweight-redis:6379/1",
@@ -280,6 +282,11 @@ def test_public_demo_backend_lightweight_compose_is_no_env_backend_only():
         "MILVUS_PORT: \"19530\"",
     ]:
         assert expected in backend_lightweight
+
+    assert "Local Docker smoke only" in backend_lightweight
+    assert "fake JWT key" in backend_lightweight
+    assert "real .env files" in backend_lightweight
+    assert "your-secret-key-change-in-production" not in backend_lightweight
 
 
 

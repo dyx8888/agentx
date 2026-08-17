@@ -16,6 +16,9 @@ services:
     environment:
       ENV: dev
       ENVIRONMENT: development
+      # Local Docker smoke only. This fake JWT key must never be reused in production
+      # and keeps the lightweight overlay independent from real .env files.
+      JWT_SECRET_KEY: agentx-public-demo-lightweight-smoke-only-jwt-key-not-for-production-20260817
       DATABASE_URL: postgresql://agentx:change-me-local-only@agentx-lightweight-postgres:5432/agentx
       REDIS_URL: redis://agentx-lightweight-redis:6379/0
       RATE_LIMIT_REDIS_URL: redis://agentx-lightweight-redis:6379/1

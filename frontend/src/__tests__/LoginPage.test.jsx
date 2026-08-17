@@ -136,12 +136,15 @@ describe('LoginPage', () => {
     fireEvent.submit(screen.getByLabelText(usernameLabel).closest('form'));
 
     await waitFor(() => {
-      expect(screen.getByText('用户名或密码错误')).toBeInTheDocument();
+      expect(screen.getByText('用户名或密码错误，请检查后重试')).toBeInTheDocument();
     });
   });
 
-  it('displays generic error when no detail in response', async () => {
-    mockLoginApi.mockRejectedValue(new Error('Network error'));
+  it('does not expose raw axios status text on login failure', async () => {
+    mockLoginApi.mockRejectedValue({
+      response: { status: 401, data: {} },
+      message: 'Request failed with status code 401',
+    });
 
     renderLoginPage();
 
@@ -154,7 +157,8 @@ describe('LoginPage', () => {
     fireEvent.submit(screen.getByLabelText(usernameLabel).closest('form'));
 
     await waitFor(() => {
-      expect(screen.getByText('Network error')).toBeInTheDocument();
+      expect(screen.getByText('用户名或密码错误，请检查后重试')).toBeInTheDocument();
+      expect(screen.queryByText('Request failed with status code 401')).not.toBeInTheDocument();
     });
   });
 
@@ -269,6 +273,32 @@ describe('LoginPage', () => {
       });
       expect(mockLoginApi).toHaveBeenCalledWith('newuser', '12345678');
       expect(window.location.pathname).toBe('/settings');
+    });
+  });
+
+  it('does not expose raw axios status text on registration server errors', async () => {
+    mockRegisterApi.mockRejectedValue({
+      response: { status: 500, data: {} },
+      message: 'Request failed with status code 500',
+    });
+
+    renderLoginPage();
+
+    fireEvent.click(screen.getByRole('tab', { name: '注册' }));
+    fireEvent.change(screen.getByLabelText('用户名'), {
+      target: { value: 'newuser' },
+    });
+    fireEvent.change(screen.getByLabelText('邮箱'), {
+      target: { value: 'newuser@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText(passwordLabel), {
+      target: { value: '12345678' },
+    });
+    fireEvent.submit(screen.getByLabelText('邮箱').closest('form'));
+
+    await waitFor(() => {
+      expect(screen.getByText('注册服务暂时不可用，请稍后重试')).toBeInTheDocument();
+      expect(screen.queryByText('Request failed with status code 500')).not.toBeInTheDocument();
     });
   });
 });

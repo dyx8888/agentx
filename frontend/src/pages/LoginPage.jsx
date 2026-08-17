@@ -59,11 +59,35 @@ function AuthForm() {
     password: '',
   });
 
-  const resolveErrorMessage = (err) => {
+  const resolveErrorMessage = (err, action = 'login') => {
+    const status = err?.response?.status;
     const detail = err?.response?.data?.detail;
-    if (detail === 'Incorrect username or password') return '用户名或密码错误';
+    if (status === 401 || detail === 'Incorrect username or password') {
+      return '用户名或密码错误，请检查后重试';
+    }
+    if (detail === 'Username already registered') {
+      return '用户名已被注册，请更换用户名或直接登录';
+    }
+    if (status === 422) {
+      return action === 'register'
+        ? '注册信息格式不正确，请检查后重试'
+        : '登录信息格式不正确，请检查后重试';
+    }
+    if (status >= 500) {
+      return action === 'register'
+        ? '注册服务暂时不可用，请稍后重试'
+        : '登录服务暂时不可用，请稍后重试';
+    }
+    if (err?.code === 'ERR_NETWORK') {
+      return '网络连接失败，请检查本地服务后重试';
+    }
+    if (typeof err?.userMessage === 'string' && err.userMessage) {
+      return err.userMessage;
+    }
     if (typeof detail === 'string' && detail) return detail;
-    return err?.message || '登录失败，请稍后重试';
+    return action === 'register'
+      ? '注册失败，请稍后重试'
+      : '登录失败，请稍后重试';
   };
 
   const performLogin = async (username, password, redirectTo = '/') => {
@@ -78,7 +102,7 @@ function AuthForm() {
       await authLogin(data.access_token, data.refresh_token);
       navigate(redirectTo);
     } catch (err) {
-      setError(resolveErrorMessage(err));
+      setError(resolveErrorMessage(err, 'login'));
     } finally {
       setLoading(false);
     }
@@ -131,12 +155,7 @@ function AuthForm() {
       });
       await performLogin(username, password, '/settings');
     } catch (err) {
-      const detail = err?.response?.data?.detail;
-      if (typeof detail === 'string' && detail) {
-        setError(detail);
-      } else {
-        setError(err?.message || '注册失败，请稍后重试');
-      }
+      setError(resolveErrorMessage(err, 'register'));
       setLoading(false);
     }
   };
