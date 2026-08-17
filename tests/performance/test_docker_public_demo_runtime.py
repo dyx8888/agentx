@@ -318,6 +318,8 @@ def test_public_demo_frontend_lightweight_compose_is_image_only_frontend():
     assert "AGENTX_FRONTEND_LIGHTWEIGHT_IMAGE" in frontend_lightweight
     assert "agentx-lightweight-backend" in frontend_lightweight
     assert "localhost inside the frontend container" in frontend_lightweight
+    assert "http://127.0.0.1:80/health" in frontend_lightweight
+    assert "http://localhost:80/health" not in frontend_lightweight
 
     for forbidden_service in [
         "backend",
@@ -350,6 +352,8 @@ def test_public_demo_frontend_dockerfile_supports_lightweight_nginx_conf():
     assert "COPY ${NGINX_CONF} /etc/nginx/conf.d/default.conf" in dockerfile
     assert "COPY nginx.conf /etc/nginx/conf.d/default.conf" not in dockerfile
     assert "agentx-main:8000" in default_nginx
+    assert "location = /api/health" in lightweight_nginx
+    assert "proxy_pass http://agentx-lightweight-backend:8000/health;" in lightweight_nginx
     assert "agentx-lightweight-backend:8000/api/" in lightweight_nginx
     assert "agentx-lightweight-backend:8000/ws/" in lightweight_nginx
     assert "agentx-main" not in lightweight_nginx
