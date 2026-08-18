@@ -190,6 +190,10 @@ def generate_strategy_suggestion(platform: str, category: str) -> str:
         model_gateway = get_model_gateway()
         llm = model_gateway.get_llm("deepseek")
 
+        trending_formats_text = "\n".join(
+            [f"• {fmt}" for fmt in category_data["trending_formats"]]
+        )
+
         strategy_data = f"""
 🎯 {platform}平台 {category}品类策略建议
 
@@ -203,7 +207,7 @@ def generate_strategy_suggestion(platform: str, category: str) -> str:
 • 平均互动率: {category_data['avg_engagement']}%
 
 🔥 热门内容形式
-{'\n'.join([f"• {format}" for format in category_data['trending_formats']])}
+{trending_formats_text}
 
 """
         prompt = f"""
