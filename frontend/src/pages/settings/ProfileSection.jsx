@@ -70,7 +70,6 @@ function ProfileForm({ user, onSave }) {
     setError('');
     try {
       await updateUserProfile({
-        username: form.username,
         company_name: form.company,
         brand_name: form.brand,
         category: form.category,
@@ -163,13 +162,13 @@ function ProfileForm({ user, onSave }) {
       <p className="text-xs text-muted-foreground">头像仅本地预览；保存资料不会外发或上传图片。</p>
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <Field label="用户名">
+        <Field label="用户名" hint="账号标识，不可在资料页修改">
           <input
             type="text"
             value={form.username}
-            onChange={(e) => setForm({ ...form, username: e.target.value })}
+            readOnly
             placeholder="未设置"
-            className="input-base h-10"
+            className="input-base h-10 cursor-not-allowed opacity-70"
           />
         </Field>
         <Field label="邮箱" hint="不可修改">

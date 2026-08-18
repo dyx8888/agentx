@@ -566,7 +566,7 @@ async def register_user(user_data: UserCreate):
 # API 接口：更新当前用户资料
 # ==========================================
 # PUT /api/auth/users/me
-# 更新当前登录用户的资料（用户名、公司信息、个人简介）；邮箱不允许修改
+# 更新当前登录用户的资料（公司信息、个人简介）；用户名/邮箱属于账号标识，不在资料页修改
 class UserProfileUpdateRequest(BaseModel):
     username: str | None = None
     company_name: str | None = None
@@ -584,9 +584,9 @@ async def update_current_user_profile(
     """更新当前用户资料
 
     字段分流（参照 database/models.py 中的表结构）：
-    - username, bio → users 表
+    - bio → users 表
     - company_name(→name), brand_name, category → companies 表（通过 company_id 关联）
-    - email 不在请求体中，不允许修改
+    - username / email 不允许在资料页修改
     """
     from sqlalchemy import inspect, text
 
@@ -596,6 +596,13 @@ async def update_current_user_profile(
     updates = {k: v for k, v in request.dict().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="没有需要更新的字段")
+
+    if "username" in updates:
+        requested_username = updates.pop("username")
+        if requested_username != current_user.username:
+            raise HTTPException(status_code=400, detail="用户名暂不支持在资料页修改")
+        if not updates:
+            return {"success": True, "message": "资料已保存"}
 
     # 公司字段名映射：请求体字段 → companies 表列名
     company_key_map = {
@@ -623,30 +630,14 @@ async def update_current_user_profile(
                     logger.warning("add_bio_column_failed", error=str(e))
                     session.rollback()
 
-            # 1) 用户名 → users 表（唯一约束校验）
-            if "username" in updates:
-                existing = (
-                    session.query(ORMUser)
-                    .filter(
-                        ORMUser.username == updates["username"],
-                        ORMUser.id != current_user.id,
-                    )
-                    .first()
-                )
-                if existing:
-                    raise HTTPException(status_code=409, detail="该用户名已被占用")
-                session.query(ORMUser).filter(ORMUser.id == current_user.id).update(
-                    {ORMUser.username: updates["username"]}, synchronize_session=False
-                )
-
-            # 2) bio → users 表（原生 SQL，因为 ORM 模型未声明 bio 字段）
+            # 1) bio → users 表（原生 SQL，因为 ORM 模型未声明 bio 字段）
             if "bio" in updates:
                 session.execute(
                     text("UPDATE users SET bio = :bio WHERE id = :uid"),
                     {"bio": updates["bio"], "uid": current_user.id},
                 )
 
-            # 3) 公司相关字段 → companies 表
+            # 2) 公司相关字段 → companies 表
             company_updates = {
                 company_key_map[k]: updates[k] for k in updates if k in company_key_map
             }

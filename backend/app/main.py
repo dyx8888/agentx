@@ -334,6 +334,24 @@ async def root():
 async def http_exception_handler(request: Request, exc: HTTPException):
     # HTTPException 是业务逻辑主动抛出的已知异常（如 404、401），需要区分于未知 Exception 做不同处理
     """Handle HTTP exceptions with structured logging"""
+    if exc.status_code < 500:
+        logger.info(
+            "http_exception",
+            request_method=request.method,
+            request_url=str(request.url),
+            status_code=exc.status_code,
+            detail=exc.detail,
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": True,
+                "message": exc.detail,
+                "status_code": exc.status_code,
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            },
+        )
+
     log_error(
         exc,
         context={

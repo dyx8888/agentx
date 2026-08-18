@@ -361,3 +361,60 @@ def test_lifespan_session_store_close_failure_does_not_crash(monkeypatch):
 
     assert "session_init" in events
     assert "session_close" in events
+
+
+def test_http_exception_handler_logs_4xx_without_traceback(monkeypatch):
+    import app.main as main
+    from fastapi import HTTPException
+
+    logged = []
+
+    def fail_log_error(*_args, **_kwargs):
+        raise AssertionError("4xx HTTPException should not use traceback logging")
+
+    monkeypatch.setattr(main, "log_error", fail_log_error)
+    monkeypatch.setattr(main.logger, "info", lambda event, **kwargs: logged.append((event, kwargs)))
+
+    request = types.SimpleNamespace(method="GET", url="http://testserver/api/auth/users/me")
+    response = asyncio.run(
+        main.http_exception_handler(
+            request,
+            HTTPException(status_code=401, detail="Could not validate credentials"),
+        )
+    )
+
+    assert response.status_code == 401
+    assert logged == [
+        (
+            "http_exception",
+            {
+                "request_method": "GET",
+                "request_url": "http://testserver/api/auth/users/me",
+                "status_code": 401,
+                "detail": "Could not validate credentials",
+            },
+        )
+    ]
+
+
+def test_general_exception_handler_still_uses_traceback_logging(monkeypatch):
+    import app.main as main
+
+    logged = []
+    monkeypatch.setattr(main, "log_error", lambda exc, context: logged.append((exc, context)))
+
+    request = types.SimpleNamespace(method="GET", url="http://testserver/broken")
+    error = RuntimeError("boom")
+    response = asyncio.run(main.general_exception_handler(request, error))
+
+    assert response.status_code == 500
+    assert logged == [
+        (
+            error,
+            {
+                "request_method": "GET",
+                "request_url": "http://testserver/broken",
+                "exception_type": "RuntimeError",
+            },
+        )
+    ]
