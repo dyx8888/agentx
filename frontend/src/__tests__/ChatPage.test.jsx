@@ -55,7 +55,7 @@ vi.mock('@/components/Sidebar', () => ({
 }));
 
 vi.mock('@/components/ChatArea', () => ({
-  default: ({ messages, isStreaming, conversationTitle }) => {
+  default: ({ messages, isStreaming, conversationTitle, onDraftMessage }) => {
     const lastMessage = messages?.[messages.length - 1] || {};
     return (
       <div data-testid="chat-area">
@@ -65,18 +65,25 @@ vi.mock('@/components/ChatArea', () => ({
         <span data-testid="last-content">{lastMessage.content || ''}</span>
         <span data-testid="warning-count">{lastMessage.warnings?.length || 0}</span>
         <span data-testid="warning-text">{lastMessage.warnings?.[0]?.message || ''}</span>
+        <button
+          data-testid="suggestion-card"
+          onClick={() => onDraftMessage('draft suggestion prompt')}
+        >
+          suggestion
+        </button>
       </div>
     );
   },
 }));
 
 vi.mock('@/components/ChatInput', () => ({
-  default: ({ onSend, isStreaming, onStop }) => (
+  default: ({ onSend, isStreaming, onStop, draftText = '' }) => (
     <div data-testid="chat-input">
       <span data-testid="streaming-input">{isStreaming ? 'streaming' : 'idle'}</span>
+      <span data-testid="draft-text">{draftText}</span>
       <button
         data-testid="send-btn"
-        onClick={() => onSend('Hello, AI!')}
+        onClick={() => onSend(draftText || 'Hello, AI!')}
       >
         发送
       </button>
@@ -236,6 +243,22 @@ describe('ChatPage', () => {
     expect(mockStreamChat.mock.calls[0][0]).not.toHaveProperty('company_id');
   });
 
+  it('drafts a suggestion card prompt without sending chat', async () => {
+    renderChatPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-input')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('suggestion-card'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('draft-text')).toHaveTextContent('draft suggestion prompt');
+    });
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+    expect(mockStreamChat).not.toHaveBeenCalled();
+    expect(screen.getByTestId('message-count')).toHaveTextContent('0');
+  });
   it('stores visible warning events from streamChat on the assistant message', async () => {
     mockStreamChat.mockImplementation((_params, callbacks) => {
       callbacks.onWarning?.({

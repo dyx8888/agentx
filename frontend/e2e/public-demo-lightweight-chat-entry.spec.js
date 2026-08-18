@@ -31,6 +31,12 @@ function isChatPost(request) {
   return request.method() === 'POST' && url.pathname.replace(/\/+$/, '') === '/api/chat';
 }
 
+function isConversationCreatePost(request) {
+  const url = parseRequestUrl(request);
+  if (!url) return false;
+  return request.method() === 'POST' && url.pathname.replace(/\/+$/, '') === '/api/conversations';
+}
+
 function isExecutionServiceRequest(request) {
   const url = parseRequestUrl(request);
   if (!url) return false;
@@ -78,6 +84,10 @@ async function loginThroughFrontend(page, { username, password }) {
 
 test('public-demo lightweight chat entry initializes without sending chat or external requests', async ({ page, request }) => {
   const seenRequests = [];
+  const blockedChatRequests = [];
+  const blockedConversationCreates = [];
+  const blockedExecutionRequests = [];
+  const blockedExternalRequests = [];
   const consoleErrors = [];
   const pageErrors = [];
   let collectPageErrors = false;
@@ -91,6 +101,31 @@ test('public-demo lightweight chat entry initializes without sending chat or ext
     if (collectPageErrors) {
       pageErrors.push(error.message);
     }
+  });
+
+  await page.route('**/*', async (route) => {
+    const browserRequest = route.request();
+    if (!isLocalBrowserRequest(browserRequest)) {
+      blockedExternalRequests.push(browserRequest);
+      await route.abort('blockedbyclient');
+      return;
+    }
+    if (isChatPost(browserRequest)) {
+      blockedChatRequests.push(browserRequest);
+      await route.abort('blockedbyclient');
+      return;
+    }
+    if (isConversationCreatePost(browserRequest)) {
+      blockedConversationCreates.push(browserRequest);
+      await route.abort('blockedbyclient');
+      return;
+    }
+    if (isExecutionServiceRequest(browserRequest)) {
+      blockedExecutionRequests.push(browserRequest);
+      await route.abort('blockedbyclient');
+      return;
+    }
+    await route.continue();
   });
 
   const suffix = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
@@ -130,9 +165,19 @@ test('public-demo lightweight chat entry initializes without sending chat or ext
   await expect(sendButton).toBeVisible();
   await expect(sendButton).toBeDisabled();
 
+  const suggestionCard = page.getByRole('button', { name: /达人搜索与邀约草稿/ });
+  await suggestionCard.click();
+  await expect(input).toHaveValue('只基于我的达人库搜索护肤类小红书达人，并生成待审核邀约草稿');
+  await expect(sendButton).toBeEnabled();
+
   await page.waitForTimeout(1000);
 
+  expect(blockedChatRequests.map(requestSummary)).toEqual([]);
+  expect(blockedConversationCreates.map(requestSummary)).toEqual([]);
+  expect(blockedExecutionRequests.map(requestSummary)).toEqual([]);
+  expect(blockedExternalRequests.map(requestSummary)).toEqual([]);
   expect(seenRequests.filter(isChatPost).map(requestSummary)).toEqual([]);
+  expect(seenRequests.filter(isConversationCreatePost).map(requestSummary)).toEqual([]);
   expect(seenRequests.filter((req) => !isLocalBrowserRequest(req)).map(requestSummary)).toEqual([]);
   expect(seenRequests.filter(isExecutionServiceRequest).map(requestSummary)).toEqual([]);
   expect(consoleErrors).toEqual([]);

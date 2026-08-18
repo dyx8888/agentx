@@ -87,6 +87,7 @@ export default function ChatPage() {
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [draftMessage, setDraftMessage] = useState('');
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -382,6 +383,10 @@ export default function ChatPage() {
     }));
   }, [updateLastAssistant]);
 
+  const handleDraftMessage = useCallback((text) => {
+    setDraftMessage(text);
+  }, []);
+
   // 鈹€鈹€ 瀹℃牳閫氳繃 鈹€鈹€
   const handleApprove = useCallback(async (toolResultId) => {
     try {
@@ -485,7 +490,7 @@ export default function ChatPage() {
             conversationTitle={conversationTitle}
             onApprove={handleApprove}
             onReject={handleReject}
-            onSendMessage={(text) => handleSend(text)}
+            onDraftMessage={handleDraftMessage}
             onFileClick={handlePreviewFile}
             onUserFileClick={handlePreviewFile}
           />
@@ -496,6 +501,8 @@ export default function ChatPage() {
           onSend={handleSend}
           isStreaming={isStreaming}
           onStop={handleStop}
+          draftText={draftMessage}
+          onDraftApplied={() => setDraftMessage('')}
         />
       </div>
 

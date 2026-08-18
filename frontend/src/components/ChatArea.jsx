@@ -94,7 +94,7 @@ function Welcome({ onPick }) {
 /* ═══════════════════════════════════════════════════════════════
    ChatArea (default export)
    Props: { messages, isStreaming, conversationTitle, onApprove,
-            onReject, onSendMessage }
+            onReject, onDraftMessage }
    ═══════════════════════════════════════════════════════════════ */
 
 export default function ChatArea({
@@ -103,7 +103,7 @@ export default function ChatArea({
   conversationTitle,
   onApprove,
   onReject,
-  onSendMessage,
+  onDraftMessage,
   onFileClick,
   onUserFileClick,
 }) {
@@ -118,7 +118,7 @@ export default function ChatArea({
   }, [messages, lastContentLength, isStreaming]);
 
   const handlePick = (prompt) => {
-    onSendMessage?.(prompt);
+    onDraftMessage?.(prompt);
   };
 
   return (

@@ -24,6 +24,8 @@ export default function ChatInput({
   onSend,
   isStreaming = false,
   onStop,
+  draftText = '',
+  onDraftApplied,
 }) {
   const [text, setText] = useState('');
   const [files, setFiles] = useState([]);
@@ -32,6 +34,13 @@ export default function ChatInput({
 
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!draftText) return;
+    setText(draftText);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+    onDraftApplied?.();
+  }, [draftText, onDraftApplied]);
 
   // T4.12: 从后端动态获取快捷指令
   useEffect(() => {
