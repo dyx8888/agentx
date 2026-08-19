@@ -10,6 +10,7 @@ logged but not streamed to the browser or persisted in conversation history.
 """
 
 import json
+import os
 import re
 from typing import Any
 
@@ -29,6 +30,7 @@ router = APIRouter(tags=["chat"])
 
 _perception_pipeline: PerceptionPipeline | None = None
 _master_router = None
+_SMOKE_TRUE_VALUES = {"1", "true", "yes"}
 
 
 def _get_perception_pipeline() -> PerceptionPipeline:
@@ -49,6 +51,13 @@ def _get_master_router():
         except Exception as e:
             logger.error("master_router_init_failed", error=str(e))
     return _master_router
+
+
+def _smoke_rag_preretrieval_disabled() -> bool:
+    return (
+        os.getenv("AGENTX_SMOKE_DISABLE_RAG_PRERETRIEVAL", "").strip().lower()
+        in _SMOKE_TRUE_VALUES
+    )
 
 
 def _json_loads(raw: str | None, default: Any = None) -> Any:
@@ -650,11 +659,15 @@ async def chat_stream(
 
             pipeline = _get_perception_pipeline()
             thread_id = request.session_id or (str(conversation_id) if conversation_id else None)
+            skip_rag_preretrieval = _smoke_rag_preretrieval_disabled()
+            if skip_rag_preretrieval:
+                logger.info("smoke_rag_preretrieval_skipped")
             context_package = await pipeline.build_context_package(
                 raw_input=request.message,
                 company_id=request.company_id or "",
                 thread_id=thread_id,
                 agent_name="master",
+                skip_rag=skip_rag_preretrieval,
             )
 
             rag_refs = context_package.rag_chunks if context_package.rag_chunks else []
