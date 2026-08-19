@@ -1432,6 +1432,18 @@ class MasterAgentRouter:
             )
             return True, "Exact reply request passed deterministic validation"
 
+        if os.getenv("AGENTX_SMOKE_DISABLE_LLM_REVIEW", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }:
+            logger.info(
+                "master_review_skipped_smoke_env",
+                path=path.value,
+                intent_type=context.intent_type,
+            )
+            return True, "Smoke LLM review disabled by test env"
+
         llm_result = await self._llm_review(query, final_result_text)
         if llm_result is None:
             # LLM 不可用，降级到结构化格式校验（已通过）
