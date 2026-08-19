@@ -629,17 +629,22 @@ def list_documents(
                 continue
             seen[filename] = True
 
-            doc_id = doc["id"]
+            metadata = doc.get("metadata") or {}
+            doc_id = str(
+                metadata.get("document_id")
+                or metadata.get("doc_id")
+                or doc.get("id", "")
+            )
             doc_status = status_mgr.get(doc_id)
 
             if category and doc.get("category") != category:
                 continue
 
             seen[filename] = DocumentListItem(
-                id=doc["id"],
+                id=doc_id,
                 filename=filename,
                 category=doc.get("category", ""),
-                chunks=doc.get("total_chunks", 1),
+                chunks=int(doc.get("total_chunks", 1) or 1),
                 source=doc.get("source", ""),
                 text_status=doc_status.text_state.value if doc_status else "ready",
                 multimodal_status=doc_status.multimodal_state.value if doc_status else "ready",
@@ -760,7 +765,10 @@ def get_document_status(
         if not doc_status:
             retriever = get_hybrid_retriever(effective_company_id)
             doc_exists = any(
-                str(doc.get("id", "")) == str(doc_id) for doc in retriever.list_documents()
+                str(doc.get("id", "")) == str(doc_id)
+                or str((doc.get("metadata") or {}).get("document_id", "")) == str(doc_id)
+                or str((doc.get("metadata") or {}).get("doc_id", "")) == str(doc_id)
+                for doc in retriever.list_documents()
             )
             if doc_exists:
                 return DocumentStatusResponse(

@@ -87,6 +87,7 @@ class EmbeddingMode(StrEnum):
     """
 
     LOCAL = "local"
+    HASH = "hash"
     API_SILICONFLOW = "api_siliconflow"
     API_DEEPSEEK = "api_deepseek"
     API_OPENAI = "api_openai"
@@ -460,12 +461,12 @@ class EmbeddingService:
         self._degraded_to_local = False
         self._api_failure_count = 0
         # 初始化 API 后端（若 mode != LOCAL）
-        if mode != EmbeddingMode.LOCAL:
+        if mode not in {EmbeddingMode.LOCAL, EmbeddingMode.HASH}:
             self._init_api_backend()
 
     def _init_api_backend(self) -> None:
         """根据当前 mode 和参数初始化 API 后端。"""
-        if self.mode == EmbeddingMode.LOCAL:
+        if self.mode in {EmbeddingMode.LOCAL, EmbeddingMode.HASH}:
             self._api_backend = None
             return
         preset = EMBEDDING_API_PRESETS.get(self.mode, {})
@@ -558,6 +559,8 @@ class EmbeddingService:
 
     @property
     def dimension(self) -> int:
+        if self.mode == EmbeddingMode.HASH:
+            return 512
         # API 模式且未降级：根据模型名推断维度
         if self.mode != EmbeddingMode.LOCAL and self._api_backend and not self._degraded_to_local:
             preset = EMBEDDING_API_PRESETS.get(self.mode, {})
@@ -592,6 +595,9 @@ class EmbeddingService:
         if not texts:
             return np.array([])
 
+        if self.mode == EmbeddingMode.HASH:
+            return self._encode_hash(texts)
+
         # LOCAL 模式 或 已降级到本地：走原逻辑
         if self.mode == EmbeddingMode.LOCAL or self._degraded_to_local:
             return self._encode_local(texts)
@@ -618,6 +624,9 @@ class EmbeddingService:
         """
         if not texts:
             return np.array([])
+
+        if self.mode == EmbeddingMode.HASH:
+            return self._encode_hash(texts)
 
         if self.mode == EmbeddingMode.LOCAL or self._degraded_to_local:
             return self._encode_local(texts)
@@ -665,6 +674,11 @@ class EmbeddingService:
         cached.sort(key=lambda x: x[0])
         result = np.array([emb for _, emb in cached])
         return result
+
+    def _encode_hash(self, texts: list[str]) -> np.ndarray:
+        """Deterministic smoke/test embedding path that never loads ML models."""
+        encoded = [self._fallback_embedding(t) for t in texts]
+        return np.array(encoded, dtype=np.float32)
 
     def _degrade_and_encode(self, texts: list[str]) -> np.ndarray:
         """降级到本地编码。若本地模型也未加载，返回空向量（不抛异常）。"""
@@ -745,6 +759,12 @@ _embedding_service_lock = threading.Lock()  # 保护 get_embedding_service 的 c
 
 
 def _embedding_mode_from_env() -> EmbeddingMode:
+    smoke_mode = os.getenv("AGENTX_SMOKE_EMBEDDING_MODE", "").strip().lower()
+    if smoke_mode:
+        if smoke_mode == EmbeddingMode.HASH.value:
+            return EmbeddingMode.HASH
+        logger.warning("smoke_embedding_mode_invalid_ignored", invalid_mode=smoke_mode)
+
     mode_str = os.getenv("EMBEDDING_MODE", "local").strip().lower()
     try:
         return EmbeddingMode(mode_str)

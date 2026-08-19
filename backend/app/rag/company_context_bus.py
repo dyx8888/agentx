@@ -240,50 +240,64 @@ class CompanyContextBus:  # 企业上下文总线，三层架构的中央调度�
         import uuid  # 延迟导入
 
         from .document_parser import DocumentParser  # 延迟导入文档解析器
+        from .doc_status import get_doc_status_manager
         from .text_splitter import TextChunker  # 延迟导入文本切片器
 
-        text = DocumentParser.parse(filename, content)  # 第一步：解析文档为纯文本
-        metadata = metadata or {}  # 避免 None
-        metadata["original_filename"] = filename  # 保留原始文件名，用于溯源
-        metadata["company_id"] = self.company_id  # 强制注入公司 ID
-        metadata["layer"] = "knowledge"  # 标记为知识库层
+        doc_id = uuid.uuid4().hex[:12]  # 文档级 ID，供上传响应、列表和状态接口一致使用
+        status = get_doc_status_manager().get_or_create(doc_id, filename)
+        status.start_text_processing()
 
-        chunker = TextChunker(
-            chunk_size=512, chunk_overlap=64
-        )  # 第二步：创建切片器，512 是中文 Embedding 模型的最佳窗口
-        chunks = chunker.chunk(
-            text, source_file=filename, metadata=metadata
-        )  # 执行切片，保留源文件信息
+        try:
+            text = DocumentParser.parse(filename, content)  # 第一步：解析文档为纯文本
+            metadata = metadata or {}  # 避免 None
+            metadata["original_filename"] = filename  # 保留原始文件名，用于溯源
+            metadata["company_id"] = self.company_id  # 强制注入公司 ID
+            metadata["layer"] = "knowledge"  # 标记为知识库层
+            metadata["document_id"] = doc_id  # 文档级 ID，区别于 chunk_id
 
-        from .hybrid_retriever import get_hybrid_retriever  # 延迟导入
+            chunker = TextChunker(
+                chunk_size=512, chunk_overlap=64
+            )  # 第二步：创建切片器，512 是中文 Embedding 模型的最佳窗口
+            chunks = chunker.chunk(
+                text, source_file=filename, metadata=metadata
+            )  # 执行切片，保留源文件信息
 
-        retriever = get_hybrid_retriever(self.company_id)  # 获取公司检索器
+            from .hybrid_retriever import get_hybrid_retriever  # 延迟导入
 
-        documents = []  # 构建批量索引文档列表
-        for chunk in chunks:  # 第三步：将切片转为索引格式
-            chunk_metadata = dict(metadata)  # 复制元数据，避免共享引用
-            chunk_metadata["chunk_index"] = chunk.chunk_index  # 记录切片序号
-            chunk_metadata["total_chunks"] = chunk.total_chunks  # 记录总切片数
-            chunk_metadata["source_file"] = chunk.source_file  # 记录源文件
-            documents.append(
-                {
-                    "id": chunk.chunk_id,  # 使用 MD5 生成的唯一 ID
-                    "content": chunk.content,  # 切片文本
-                    "metadata": chunk_metadata,  # 完整元数据
-                }
+            retriever = get_hybrid_retriever(self.company_id)  # 获取公司检索器
+
+            documents = []  # 构建批量索引文档列表
+            for chunk in chunks:  # 第三步：将切片转为索引格式
+                chunk_metadata = dict(metadata)  # 复制元数据，避免共享引用
+                chunk_metadata["chunk_index"] = chunk.chunk_index  # 记录切片序号
+                chunk_metadata["total_chunks"] = chunk.total_chunks  # 记录总切片数
+                chunk_metadata["source_file"] = chunk.source_file  # 记录源文件
+                documents.append(
+                    {
+                        "id": chunk.chunk_id,  # 使用 MD5 生成的唯一 chunk ID
+                        "content": chunk.content,  # 切片文本
+                        "metadata": chunk_metadata,  # 完整元数据
+                    }
+                )
+
+            retriever.index_documents(documents)  # 第四步：批量索引到 BM25 和 Milvus
+            status.complete_text_processing(chunk_count=len(chunks))
+            status.start_multimodal_processing()
+            status.complete_multimodal_processing(count=0)
+            logger.info(
+                "document_ingested",
+                company_id=self.company_id,
+                doc_id=doc_id,
+                filename=filename,  # 记录入库结果
+                chunks=len(chunks),
+                text_length=len(text),
             )
-
-        retriever.index_documents(documents)  # 第四步：批量索引到 BM25 和 Milvus
-        logger.info(
-            "document_ingested",
-            company_id=self.company_id,
-            filename=filename,  # 记录入库结果
-            chunks=len(chunks),
-            text_length=len(text),
-        )
+        except Exception as exc:
+            status.fail_text_processing(str(exc))
+            raise
 
         return {  # 返回入库摘要信息
-            "doc_id": uuid.uuid4().hex[:12],  # 生成文档级别 ID
+            "doc_id": doc_id,
             "filename": filename,
             "chunks": len(chunks),  # 切片数量
             "text_length": len(text),  # 文本总长度
