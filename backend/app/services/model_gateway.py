@@ -114,6 +114,9 @@ EVAL_PROXY_MODEL_KEY = "eval_proxy"
 EVAL_PROXY_BASE_URL_ENV_KEYS = ("AGENT_EVAL_BASE_URL", "EVAL_PROXY_BASE_URL")
 EVAL_PROXY_API_KEY_ENV_KEYS = ("AGENT_EVAL_API_KEY", "EVAL_PROXY_API_KEY")
 EVAL_PROXY_MODEL_NAME_ENV_KEYS = ("AGENT_EVAL_MODEL_NAME", "EVAL_PROXY_MODEL_NAME")
+SMOKE_MODEL_MAX_RETRIES_ENV = "AGENTX_SMOKE_MODEL_MAX_RETRIES"
+SMOKE_DISABLE_MODEL_RETRY_ENV = "AGENTX_SMOKE_DISABLE_MODEL_RETRY"
+SMOKE_ENV_TRUE_VALUES = {"1", "true", "yes", "on"}
 
 API_KEY_ENV_MAP: dict[str, tuple[str, ...]] = {
     "deepseek": ("DEEPSEEK_API_KEY",),
@@ -122,6 +125,30 @@ API_KEY_ENV_MAP: dict[str, tuple[str, ...]] = {
     "tokenrhythm": ("TOKENRHYTHM_API_KEY",),
     EVAL_PROXY_MODEL_KEY: EVAL_PROXY_API_KEY_ENV_KEYS,
 }
+
+
+def _smoke_model_max_retries(model_key: str, provider: str) -> int | None:
+    if model_key != EVAL_PROXY_MODEL_KEY and provider != EVAL_PROXY_MODEL_KEY:
+        return None
+
+    if os.getenv(SMOKE_DISABLE_MODEL_RETRY_ENV, "").strip().lower() in SMOKE_ENV_TRUE_VALUES:
+        return 0
+
+    raw_value = os.getenv(SMOKE_MODEL_MAX_RETRIES_ENV)
+    if raw_value is None or not raw_value.strip():
+        return None
+
+    try:
+        max_retries = int(raw_value.strip())
+    except ValueError:
+        logger.warning("smoke_model_max_retries_invalid")
+        return None
+
+    if max_retries < 0:
+        logger.warning("smoke_model_max_retries_invalid")
+        return None
+
+    return max_retries
 
 # 模型健康度阈值：连续失败次数 >= 此值时暂时跳过该模型
 MODEL_HEALTH_FAIL_THRESHOLD = 3
@@ -2573,6 +2600,9 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
             params["max_tokens"] = cfg["max_tokens"]
         if cfg.get("top_p"):
             params["model_kwargs"] = {"top_p": cfg["top_p"]}
+        smoke_max_retries = _smoke_model_max_retries(model_key, provider)
+        if smoke_max_retries is not None:
+            params["max_retries"] = smoke_max_retries
 
         return ChatOpenAI(**params)
     def get_llm(
