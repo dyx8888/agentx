@@ -57,6 +57,94 @@ def test_rag_retriever_separates_compact_references_and_richer_evidence(monkeypa
     assert len(result.evidence_chunks[0]["content"]) <= 800
 
 
+def test_rag_evidence_preserves_late_fact_marker_line_beyond_evidence_window(monkeypatch):
+    fact_line = (
+        "fact_id=F_UPDATE_003 | marker=QPACK_UPDATE_003 | 实体=库存更新 | "
+        "数值=组合装A保守可售库存调整为390套 | 限制条件=优先于库存快照。"
+    )
+    content = "\n".join(
+        [
+            "标题: 更新公告",
+            "段落: 库存更新",
+            "A" * 850,
+            "上一行说明: 以下为更新后库存口径。",
+            fact_line,
+            "下一行说明: 本公告优先于库存快照。",
+        ]
+    )
+
+    import app.rag.agentic_rag as agentic_rag
+
+    monkeypatch.setattr(RagRetriever, "_external_backend_available", staticmethod(lambda: True))
+    monkeypatch.setattr(agentic_rag, "get_agentic_rag", lambda _company_id: _FakeRag(content))
+
+    result = RagRetriever().retrieve(
+        query="inventory question",
+        company_id="65",
+        agent_name="master",
+        intent_type="knowledge",
+    )
+
+    compact_content = result.references[0]["content"]
+    evidence_content = result.evidence_chunks[0]["content"]
+    assert len(compact_content) == 200
+    assert "F_UPDATE_003" not in compact_content
+    assert fact_line in evidence_content
+    assert "上一行说明" in evidence_content
+    assert "下一行说明" in evidence_content
+    assert len(evidence_content) <= 800
+
+
+def test_rag_evidence_preserves_multiple_late_fact_marker_lines(monkeypatch):
+    promo_fact = (
+        "fact_id=F_PROMO_006 | marker=QPACK_PROMO_818_006 | 实体=直播目标 | "
+        "数值=组合装A目标销量350套 | 限制条件=需华东仓库存支持。"
+    )
+    update_fact = (
+        "fact_id=F_UPDATE_003 | marker=QPACK_UPDATE_003 | 实体=库存更新 | "
+        "数值=组合装A保守可售库存调整为390套 | 限制条件=优先于库存快照。"
+    )
+    content = "\n".join(
+        [
+            "标题: 多文件综合证据",
+            "B" * 860,
+            promo_fact,
+            "中间说明: 需要比较目标和更新库存。",
+            update_fact,
+        ]
+    )
+
+    import app.rag.agentic_rag as agentic_rag
+
+    monkeypatch.setattr(RagRetriever, "_external_backend_available", staticmethod(lambda: True))
+    monkeypatch.setattr(agentic_rag, "get_agentic_rag", lambda _company_id: _FakeRag(content))
+
+    result = RagRetriever().retrieve(
+        query="multi file synthesis",
+        company_id="65",
+        agent_name="master",
+        intent_type="knowledge",
+    )
+
+    evidence_content = result.evidence_chunks[0]["content"]
+    assert "F_PROMO_006" in evidence_content
+    assert "QPACK_PROMO_818_006" in evidence_content
+    assert "F_UPDATE_003" in evidence_content
+    assert "QPACK_UPDATE_003" in evidence_content
+    assert "目标销量350套" in evidence_content
+    assert "保守可售库存调整为390套" in evidence_content
+    assert len(evidence_content) <= 800
+
+
+def test_rag_evidence_without_fact_or_marker_uses_plain_truncation():
+    content = "plain evidence " * 100
+
+    evidence = RagRetriever._build_evidence_chunk({"content": content})["content"]
+
+    assert evidence == content[:800]
+    assert len(evidence) == 800
+
+
 class _IntentType:
     value = "knowledge"
 

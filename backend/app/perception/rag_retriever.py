@@ -5,6 +5,7 @@
 # 委托设计将 RAG 实现细节封装在 agentic_rag 模块中，感知管线只关心"检索到上下文"这个结果
 
 import os
+import re
 import socket
 from dataclasses import dataclass, field  # dataclass 承载多字段检索结果
 
@@ -14,6 +15,11 @@ logger = get_logger(__name__)
 
 REFERENCE_CONTENT_MAX_CHARS = 200
 EVIDENCE_CONTENT_MAX_CHARS = 800
+FACT_MARKER_LINE_RE = re.compile(r"\b(?:fact_id|marker)\s*=", re.IGNORECASE)
+EVIDENCE_CONTEXT_HEADER_RE = re.compile(
+    r"^\s*(?:#|标题|段落|section|title|document|文件|文档)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -52,6 +58,76 @@ class RagRetriever:
         }
 
     @staticmethod
+    def _joined_line_length(lines_by_index: dict[int, str]) -> int:
+        if not lines_by_index:
+            return 0
+        ordered = [lines_by_index[idx] for idx in sorted(lines_by_index)]
+        return len("\n".join(ordered))
+
+    @staticmethod
+    def _add_evidence_line(
+        selected: dict[int, str],
+        index: int,
+        line: str,
+        max_chars: int,
+    ) -> bool:
+        cleaned = line.strip()
+        if not cleaned or index in selected:
+            return False
+        trial = dict(selected)
+        trial[index] = cleaned
+        if RagRetriever._joined_line_length(trial) <= max_chars:
+            selected[index] = cleaned
+            return True
+        return False
+
+    @staticmethod
+    def _format_evidence_content(
+        content: str,
+        max_chars: int = EVIDENCE_CONTENT_MAX_CHARS,
+    ) -> str:
+        """Preserve fact/marker lines for model evidence while keeping a size cap."""
+        text = str(content or "")
+        if len(text) <= max_chars:
+            return text
+
+        lines = text.splitlines()
+        fact_line_indexes = [
+            idx for idx, line in enumerate(lines) if FACT_MARKER_LINE_RE.search(line or "")
+        ]
+        if not fact_line_indexes:
+            return text[:max_chars]
+
+        selected: dict[int, str] = {}
+        for idx in fact_line_indexes:
+            line = lines[idx].strip()
+            if len(line) > max_chars:
+                line = line[: max(0, max_chars - 3)] + "..."
+            RagRetriever._add_evidence_line(selected, idx, line, max_chars)
+
+        if not selected:
+            return text[:max_chars]
+
+        header_candidates: list[int] = []
+        first_fact_idx = min(fact_line_indexes)
+        for idx, line in enumerate(lines[:first_fact_idx]):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if idx < 3 or EVIDENCE_CONTEXT_HEADER_RE.search(stripped):
+                header_candidates.append(idx)
+
+        context_candidates: list[int] = []
+        for idx in sorted(selected):
+            context_candidates.extend([idx - 1, idx + 1])
+
+        for idx in [*header_candidates, *context_candidates]:
+            if 0 <= idx < len(lines):
+                RagRetriever._add_evidence_line(selected, idx, lines[idx], max_chars)
+
+        return "\n".join(selected[idx] for idx in sorted(selected))
+
+    @staticmethod
     def _build_evidence_chunk(result: dict) -> dict:
         """Build richer evidence for model prompts without sending it to the UI."""
         return {
@@ -61,7 +137,7 @@ class RagRetriever:
             "source": result.get("source", ""),
             "chunk_index": result.get("chunk_index", 0),
             "metadata": result.get("metadata", {}),
-            "content": (result.get("content", "") or "")[:EVIDENCE_CONTENT_MAX_CHARS],
+            "content": RagRetriever._format_evidence_content(result.get("content", "") or ""),
         }
 
     @staticmethod
