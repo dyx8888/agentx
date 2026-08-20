@@ -8,6 +8,7 @@ CompanyContextBus - 企业上下文总线  # "总线" 设计模式：统一的�
 
 import json  # 用于序列化 metadata 中的 tags 等复杂字段到 Milvus
 import os
+import hashlib
 import threading  # get_company_context_bus 单例锁,保护 check-then-act 免遭竞态
 from dataclasses import dataclass, field  # dataclass 减少样板代码，field 用于可变默认值避免共享引用
 from datetime import datetime  # 记录知识添加和经验记录的时间戳，用于后续的时间衰减排序
@@ -17,6 +18,26 @@ import numpy as np  # 用于睡眠巩固中的向量相似度计算和去重
 from app.core.logging import get_logger  # 结构化日志，追踪数据注入和检索的完整链路
 
 logger = get_logger(__name__)  # 模块级 logger，按 company_id 区分日志上下文
+
+RAG_CHUNKER_MODE_RECURSIVE = "recursive"
+RAG_CHUNKER_MODE_SMART = "smart"
+RAG_CHUNKER_ALLOWED_MODES = {RAG_CHUNKER_MODE_RECURSIVE, RAG_CHUNKER_MODE_SMART}
+
+
+def _resolve_rag_chunker_mode() -> str:
+    """Resolve ingestion chunker mode with recursive as the safe fallback."""
+    from app.core import config
+
+    mode = str(getattr(config, "RAG_CHUNKER_MODE", RAG_CHUNKER_MODE_RECURSIVE) or "").strip().lower()
+    if mode in RAG_CHUNKER_ALLOWED_MODES:
+        return mode
+    logger.warning("rag_chunker_mode_invalid_fallback", fallback_mode=RAG_CHUNKER_MODE_RECURSIVE)
+    return RAG_CHUNKER_MODE_RECURSIVE
+
+
+def _build_chunk_id(source_file: str, chunk_index: int, content: str) -> str:
+    seed = f"{source_file}:{chunk_index}:{content[:80]}"
+    return hashlib.md5(seed.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 @dataclass  # 使用 dataclass 而非普通类，因为 CompanyProfile 本质是数据容器，不需要复杂行为
@@ -255,27 +276,46 @@ class CompanyContextBus:  # 企业上下文总线，三层架构的中央调度�
             metadata["layer"] = "knowledge"  # 标记为知识库层
             metadata["document_id"] = doc_id  # 文档级 ID，区别于 chunk_id
 
-            chunker = TextChunker(
-                chunk_size=512, chunk_overlap=64
-            )  # 第二步：创建切片器，512 是中文 Embedding 模型的最佳窗口
-            chunks = chunker.chunk(
-                text, source_file=filename, metadata=metadata
-            )  # 执行切片，保留源文件信息
+            chunker_mode = _resolve_rag_chunker_mode()
+            if chunker_mode == RAG_CHUNKER_MODE_SMART:
+                from .smart_chunker import SmartChunker  # 延迟导入，默认 recursive 路径不加载
+
+                chunker = SmartChunker()
+                chunks = chunker.chunk(
+                    text, source_file=filename, metadata=metadata
+                )  # SmartChunker 返回 dict，后续适配为统一索引格式
+            else:
+                chunker = TextChunker(
+                    chunk_size=512, chunk_overlap=64
+                )  # 第二步：创建切片器，512 是中文 Embedding 模型的最佳窗口
+                chunks = chunker.chunk(
+                    text, source_file=filename, metadata=metadata
+                )  # 执行切片，保留源文件信息
 
             from .hybrid_retriever import get_hybrid_retriever  # 延迟导入
 
             retriever = get_hybrid_retriever(self.company_id)  # 获取公司检索器
 
             documents = []  # 构建批量索引文档列表
-            for chunk in chunks:  # 第三步：将切片转为索引格式
-                chunk_metadata = dict(metadata)  # 复制元数据，避免共享引用
-                chunk_metadata["chunk_index"] = chunk.chunk_index  # 记录切片序号
-                chunk_metadata["total_chunks"] = chunk.total_chunks  # 记录总切片数
-                chunk_metadata["source_file"] = chunk.source_file  # 记录源文件
+            total_chunks = len(chunks)
+            for chunk_index, chunk in enumerate(chunks):  # 第三步：将切片转为索引格式
+                if isinstance(chunk, dict):
+                    chunk_content = str(chunk.get("content") or "")
+                    chunk_metadata = dict(chunk.get("metadata") or {})
+                    chunk_id = _build_chunk_id(filename, chunk_index, chunk_content)
+                else:
+                    chunk_content = chunk.content
+                    chunk_metadata = {}
+                    chunk_id = chunk.chunk_id
+
+                chunk_metadata.update(metadata)  # 系统字段优先，避免 SmartChunker 覆盖租户/文档归属
+                chunk_metadata["chunk_index"] = chunk_index  # 记录最终切片序号
+                chunk_metadata["total_chunks"] = total_chunks  # 记录最终总切片数
+                chunk_metadata["source_file"] = filename  # 记录源文件
                 documents.append(
                     {
-                        "id": chunk.chunk_id,  # 使用 MD5 生成的唯一 chunk ID
-                        "content": chunk.content,  # 切片文本
+                        "id": chunk_id,  # 使用稳定 MD5 生成的唯一 chunk ID
+                        "content": chunk_content,  # 切片文本
                         "metadata": chunk_metadata,  # 完整元数据
                     }
                 )
@@ -291,6 +331,7 @@ class CompanyContextBus:  # 企业上下文总线，三层架构的中央调度�
                 filename=filename,  # 记录入库结果
                 chunks=len(chunks),
                 text_length=len(text),
+                chunker_mode=chunker_mode,
             )
         except Exception as exc:
             status.fail_text_processing(str(exc))

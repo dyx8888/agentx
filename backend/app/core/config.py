@@ -64,6 +64,11 @@ EMBEDDING_API_KEY: str | None = _env("EMBEDDING_API_KEY")
 # 读取点：上层通过 get_retriever_by_framework() 工厂按此值选择后端
 RAG_FRAMEWORK: str = _env("RAG_FRAMEWORK", "hybrid") or "hybrid"
 
+# 文档切片策略：
+#   recursive —— 现有 TextChunker 递归字符切分，生产默认行为
+#   smart     —— SmartChunker 语义切分，仅在显式开启时用于新上传文档
+RAG_CHUNKER_MODE: str = (_env("RAG_CHUNKER_MODE", "recursive") or "recursive").strip().lower()
+
 
 # ── 向量数据库配置 ─────────────────────────────────────────────
 # VECTOR_DB: 向量后端类型，生产默认 milvus
