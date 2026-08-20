@@ -12,6 +12,9 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+REFERENCE_CONTENT_MAX_CHARS = 200
+EVIDENCE_CONTENT_MAX_CHARS = 800
+
 
 @dataclass
 class RagResult:  # 独立的 dataclass 而非嵌套在 Retriever 中，便于其他模块直接引用类型
@@ -19,6 +22,9 @@ class RagResult:  # 独立的 dataclass 而非嵌套在 Retriever 中，便于�
 
     context: str = ""  # 拼接后的上下文字符串，直接注入给 LLM
     references: list[dict] = field(default_factory=list)  # 引用列表用于前端展示来源
+    evidence_chunks: list[dict] = field(
+        default_factory=list
+    )  # 给模型 prompt 使用的较完整证据片段
     knowledge_results: list[dict] = field(
         default_factory=list
     )  # 原始知识库结果，保留用于后续精确引用
@@ -34,6 +40,29 @@ class RagRetriever:
 
     def __init__(self):
         self._available = True
+
+    @staticmethod
+    def _build_reference(result: dict) -> dict:
+        """Build compact reference for UI sources and persistence."""
+        return {
+            "source_file": result.get("source_file", ""),
+            "source_page": result.get("source_page", 0),
+            "score": result.get("score", 0),
+            "content": (result.get("content", "") or "")[:REFERENCE_CONTENT_MAX_CHARS],
+        }
+
+    @staticmethod
+    def _build_evidence_chunk(result: dict) -> dict:
+        """Build richer evidence for model prompts without sending it to the UI."""
+        return {
+            "source_file": result.get("source_file", ""),
+            "source_page": result.get("source_page", 0),
+            "score": result.get("score", 0),
+            "source": result.get("source", ""),
+            "chunk_index": result.get("chunk_index", 0),
+            "metadata": result.get("metadata", {}),
+            "content": (result.get("content", "") or "")[:EVIDENCE_CONTENT_MAX_CHARS],
+        }
 
     @staticmethod
     def _external_backend_available() -> bool:
@@ -92,17 +121,13 @@ class RagRetriever:
                 query=query, agent_name=agent_name, top_k=top_k
             )  # 结构化结果用于生成引用
 
-            refs = [  # 构建引用列表，每个引用截取前 200 字符避免过大
-                {
-                    "source_file": r.get("source_file", ""),  # 文件来源用于展示和追溯
-                    "source_page": r.get("source_page", 0),  # 页码帮助用户定位原文
-                    "score": r.get("score", 0),  # 相似度分数，可用于前端展示置信度
-                    "content": (r.get("content", "") or "")[:200],  # 截断内容防止引用数据膨胀
-                }
-                for r in structured.get(
-                    "knowledge_results", []
-                )  # 只从知识结果中提取引用，经验结果通常不展示来源
-            ]
+            knowledge_results = structured.get("knowledge_results", []) or []
+            refs = [
+                self._build_reference(r) for r in knowledge_results
+            ]  # 短引用仅用于前端展示和持久化
+            evidence_chunks = [
+                self._build_evidence_chunk(r) for r in knowledge_results
+            ]  # 较完整证据用于模型 prompt
 
             logger.info(
                 "rag_retrieved",
@@ -116,9 +141,8 @@ class RagRetriever:
             return RagResult(
                 context=rag_context,
                 references=refs,
-                knowledge_results=structured.get(
-                    "knowledge_results", []
-                ),  # 保留原始数据方便下游做更多处理
+                evidence_chunks=evidence_chunks,
+                knowledge_results=knowledge_results,  # 保留原始数据方便下游做更多处理
                 experience_results=structured.get("experience_results", []),
                 query=query,
                 intent_type=intent_type,

@@ -239,6 +239,8 @@ class PerceptionPipeline:
 
         # Step 3: RagRetriever — 知识库检索（缓存未命中才执行）
         rag_chunks: list[dict] = []
+        rag_references: list[dict] = []
+        rag_evidence_chunks: list[dict] = []
         if not skip_rag and company_id:
             query_for_rag = base_ctx.rewritten_query or base_ctx.filtered_input
             rag_result = self._rag_retriever.retrieve(
@@ -247,11 +249,27 @@ class PerceptionPipeline:
                 agent_name=agent_name,
                 intent_type=base_ctx.intent.intent_type.value,
             )
-            # 将 RAG 结果转为 dict 列表，供下游统一消费
-            rag_chunks = rag_result.references if rag_result.references else []
-            if not rag_chunks and rag_result.context:
-                # 无结构化引用时，用 context 文本兜底
-                rag_chunks = [{"content": rag_result.context, "source": "rag_context"}]
+            raw_references = getattr(rag_result, "references", []) or []
+            raw_evidence_chunks = getattr(rag_result, "evidence_chunks", []) or []
+            rag_references = raw_references if isinstance(raw_references, list) else []
+            rag_evidence_chunks = (
+                raw_evidence_chunks if isinstance(raw_evidence_chunks, list) else []
+            )
+            # 兼容字段暂时保持为短引用，避免前端/持久化收到长证据。
+            rag_chunks = rag_references
+            if rag_result.context:
+                if not rag_references:
+                    rag_references = [
+                        {
+                            "content": rag_result.context[:200],
+                            "source": "rag_context",
+                        }
+                    ]
+                    rag_chunks = rag_references
+                if not rag_evidence_chunks:
+                    rag_evidence_chunks = [
+                        {"content": rag_result.context[:800], "source": "rag_context"}
+                    ]
 
         # Step 4: SkillMatcher — 语义匹配技能
         matched_skills = self._run_skill_matcher(
@@ -269,6 +287,8 @@ class PerceptionPipeline:
             intent_type=base_ctx.intent.intent_type.value,
             intent_entities=base_ctx.intent.entities,
             rag_chunks=rag_chunks,
+            rag_evidence_chunks=rag_evidence_chunks,
+            rag_references=rag_references,
             memory_context=memory_result.memory_context,
             similar_answers=memory_result.similar_answers,
             matched_skills=matched_skills,
@@ -283,6 +303,8 @@ class PerceptionPipeline:
             "context_package_built",
             intent_type=package.intent_type,
             rag_count=len(package.rag_chunks),
+            rag_evidence_count=len(package.rag_evidence_chunks),
+            rag_reference_count=len(package.rag_references),
             memory_count=len(package.memory_context),
             similar_count=len(package.similar_answers),
             skill_count=len(package.matched_skills),

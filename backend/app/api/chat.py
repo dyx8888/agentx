@@ -670,8 +670,14 @@ async def chat_stream(
                 skip_rag=skip_rag_preretrieval,
             )
 
-            rag_refs = context_package.rag_chunks if context_package.rag_chunks else []
-            if not rag_refs and _is_knowledge_only_request(request.message):
+            rag_refs = (
+                context_package.rag_references
+                if context_package.rag_references
+                else context_package.rag_chunks
+            )
+            rag_evidence = getattr(context_package, "rag_evidence_chunks", []) or []
+            has_rag_context = bool(rag_refs or rag_evidence)
+            if not has_rag_context and _is_knowledge_only_request(request.message):
                 context_package.cache_hit = True
                 context_package.direct_return = (
                     "当前知识库没有找到可引用的匹配内容。"

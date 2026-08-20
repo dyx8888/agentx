@@ -48,7 +48,13 @@ class ContextPackage:
     intent_entities: dict = field(default_factory=dict)  # 意图实体（product_name, date_range 等）
 
     # === 检索结果 ===
-    rag_chunks: list[dict] = field(default_factory=list)  # RAG 检索片段
+    rag_chunks: list[dict] = field(default_factory=list)  # RAG 检索片段（兼容字段）
+    rag_evidence_chunks: list[dict] = field(
+        default_factory=list
+    )  # 给模型 prompt 使用的较完整 RAG 证据片段
+    rag_references: list[dict] = field(
+        default_factory=list
+    )  # 给前端展示/持久化使用的短引用摘要
 
     # === 预检索层产出 ===
     memory_context: list[dict] = field(default_factory=list)  # 三层记忆片段（增强上下文）
@@ -79,6 +85,8 @@ class ContextPackage:
             "intent_type": self.intent_type,
             "intent_entities": self.intent_entities,
             "rag_chunks_count": len(self.rag_chunks),
+            "rag_evidence_chunks_count": len(self.rag_evidence_chunks),
+            "rag_references_count": len(self.rag_references),
             "memory_context_count": len(self.memory_context),
             "similar_answers_count": len(self.similar_answers),
             "matched_skills": [s.name for s in self.matched_skills],

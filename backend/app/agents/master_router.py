@@ -671,7 +671,8 @@ class MasterAgentRouter:
             yield {"type": "result", "data": exact_reply}
             return
 
-        if context.rag_chunks:
+        rag_answer_chunks = self._get_rag_answer_chunks(context)
+        if rag_answer_chunks:
             yield {"type": "action", "data": f"RAG answer from knowledge base: {query[:50]}..."}
             try:
                 result = await self._answer_from_rag(query, context)
@@ -684,7 +685,7 @@ class MasterAgentRouter:
                 yield {"type": "result", "data": result.get("answer", query)}
             except Exception as e:
                 logger.warning("rag_answer_failed", error=str(e))
-                fallback = self._format_rag_fallback(context.rag_chunks)
+                fallback = self._format_rag_fallback(rag_answer_chunks)
                 yield {"type": "observation", "data": "RAG answer fallback used"}
                 yield {"type": "result", "data": fallback or query}
             return
@@ -779,14 +780,23 @@ class MasterAgentRouter:
             "env_keys": payload.get("env_keys", []),
         }
 
+    @staticmethod
+    def _get_rag_answer_chunks(context: ContextPackage) -> list[dict]:
+        """Return model-facing RAG evidence, falling back to legacy rag_chunks."""
+        evidence_chunks = getattr(context, "rag_evidence_chunks", None) or []
+        if evidence_chunks:
+            return evidence_chunks
+        return getattr(context, "rag_chunks", None) or []
+
     async def _answer_from_rag(self, query: str, context: ContextPackage) -> dict:
         """Answer directly from retrieved RAG chunks before generic agent routing."""
         from langchain_core.messages import HumanMessage, SystemMessage
 
+        rag_answer_chunks = self._get_rag_answer_chunks(context)
         mg = self._get_model_gateway()
         if mg is None:
             return {
-                "answer": self._format_rag_fallback(context.rag_chunks),
+                "answer": self._format_rag_fallback(rag_answer_chunks),
                 "intermediate": "model gateway unavailable; returned retrieved RAG content",
             }
 
@@ -796,7 +806,7 @@ class MasterAgentRouter:
         except (TypeError, ValueError):
             company_id_int = None
         llm = mg.get_llm(company_id=company_id_int)
-        references = self._format_rag_references(context.rag_chunks)
+        references = self._format_rag_references(rag_answer_chunks)
         prompt = (
             "User question:\n"
             f"{query}\n\n"
@@ -821,8 +831,8 @@ class MasterAgentRouter:
         answer = response.content if hasattr(response, "content") else str(response)
         model_fallback = self._extract_model_fallback_metadata(response)
         return {
-            "answer": answer.strip() or self._format_rag_fallback(context.rag_chunks),
-            "intermediate": f"answered from {len(context.rag_chunks)} RAG reference(s)",
+            "answer": answer.strip() or self._format_rag_fallback(rag_answer_chunks),
+            "intermediate": f"answered from {len(rag_answer_chunks)} RAG reference(s)",
             "model_fallback": model_fallback,
         }
 
@@ -1408,17 +1418,18 @@ class MasterAgentRouter:
         if issues:
             return False, "; ".join(issues)
 
+        rag_answer_chunks = self._get_rag_answer_chunks(context)
         if (
             os.getenv("MASTER_REVIEW_SKIP_RAG_DIRECT", "true").strip().lower()
             in {"1", "true", "yes", "on"}
-            and getattr(context, "rag_chunks", None)
+            and rag_answer_chunks
             and final_result_text.strip()
         ):
             logger.info(
                 "master_review_skipped_rag_direct",
                 path=path.value,
                 intent_type=context.intent_type,
-                reference_count=len(getattr(context, "rag_chunks", []) or []),
+                reference_count=len(rag_answer_chunks),
             )
             return True, "RAG direct answer passed structural validation"
 
