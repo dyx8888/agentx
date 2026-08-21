@@ -150,6 +150,21 @@ METADATA_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
     "promo": ("promo", "818", "活动", "促销", "qpack_promo", "qpack_04", "04_"),
     "rule": ("rule", "rules", "platform", "合规", "规则", "qpack_rule", "qpack_06", "06_"),
 }
+STRUCTURED_CONTENT_DOMAIN_HINTS = (
+    "content",
+    "script",
+    "copy",
+    "内容",
+    "内容规范",
+    "内容素材",
+    "口播",
+    "脚本",
+    "素材",
+    "短视频",
+    "qpack_content",
+    "qpack_07",
+    "07_",
+)
 
 
 def _env_flag(name: str, default: str = "false") -> bool:
@@ -252,13 +267,38 @@ def _result_chunk_type(result: "SearchResult") -> str:
 def _is_fact_line_for_domain(result: "SearchResult", domain: str) -> bool:
     if _result_chunk_type(result) != "fact_line":
         return False
+    if domain == "content":
+        return _has_structured_domain_metadata(result, domain)
     evidence_text = _evidence_search_text(result)
     return any(hint.casefold() in evidence_text for hint in METADATA_DOMAIN_HINTS[domain])
+
+
+def _has_structured_content_domain_metadata(result: "SearchResult") -> bool:
+    metadata = _metadata_for(result)
+    fact_ids = [item.casefold() for item in _as_string_list(metadata.get("fact_ids"))]
+    markers = [item.casefold() for item in _as_string_list(metadata.get("markers"))]
+    if any(fact_id.startswith("f_content") for fact_id in fact_ids):
+        return True
+    if any(marker.startswith("qpack_content") for marker in markers):
+        return True
+
+    structured_values: list[str] = [
+        _result_source_file(result),
+        str(metadata.get("filename") or ""),
+        str(metadata.get("original_filename") or ""),
+        str(metadata.get("section_title") or ""),
+        str(metadata.get("category") or ""),
+        str(metadata.get("scenario") or ""),
+    ]
+    structured_text = " ".join(structured_values).casefold()
+    return any(hint.casefold() in structured_text for hint in STRUCTURED_CONTENT_DOMAIN_HINTS)
 
 
 def _has_structured_domain_metadata(result: "SearchResult", domain: str) -> bool:
     if _result_chunk_type(result) != "fact_line":
         return False
+    if domain == "content":
+        return _has_structured_content_domain_metadata(result)
     metadata = _metadata_for(result)
     structured_values: list[str] = [
         _result_source_file(result),

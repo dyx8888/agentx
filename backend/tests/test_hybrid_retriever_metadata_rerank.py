@@ -6,6 +6,7 @@ sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 from app.rag.hybrid_retriever import (
     HybridRetriever,
     SearchResult,
+    _is_fact_line_for_domain,
     _metadata_boost_score,
 )
 
@@ -157,6 +158,21 @@ def test_service_and_content_risk_terms_map_to_expected_domains():
     ) > _metadata_boost_score("评论回复是否要先局部试用并查看成分表？", inventory)
 
 
+def test_rule_fact_with_medical_text_is_not_content_domain_coverage():
+    rule = _result(
+        "fact_id=F_RULE_002 | marker=QPACK_RULE_002 | 平台规则提到不得给医疗建议",
+        score=0.01,
+        source_file="qpack_06_platform_rules.txt",
+        chunk_type="fact_line",
+        fact_ids=["F_RULE_002"],
+        markers=["QPACK_RULE_002"],
+        section_title="平台合规规则",
+    )
+
+    assert _is_fact_line_for_domain(rule, "rule")
+    assert not _is_fact_line_for_domain(rule, "content")
+
+
 def test_fallback_chunk_is_not_unconditionally_penalized():
     fallback = _result(
         "fact_id=F_SERVICE_008 | marker=QPACK_SERVICE_008 | 禁用客服话术",
@@ -268,7 +284,7 @@ def test_medical_candidate_supplement_uses_structured_content_metadata_fallback(
     }
     query = "资料里是否允许客服诊断用户皮肤疾病？"
     candidates = [
-        _result("platform allowed expression", score=0.0167, source_file="qpack_06_platform_rules.txt", chunk_type="fact_line", fact_ids=["F_RULE_002"], markers=["QPACK_RULE_002"]),
+        _result("fact_id=F_RULE_002 | marker=QPACK_RULE_002 | 平台规则提到不得给医疗建议", score=0.0167, source_file="qpack_06_platform_rules.txt", chunk_type="fact_line", fact_ids=["F_RULE_002"], markers=["QPACK_RULE_002"]),
         _result("fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病", score=0.0150, source_file="qpack_05_after_sales_sop.txt", chunk_type="fact_line", fact_ids=["F_SERVICE_002"], markers=["QPACK_SERVICE_002"]),
     ]
 
@@ -285,6 +301,11 @@ def test_medical_candidate_supplement_uses_structured_content_metadata_fallback(
     assert "F_SERVICE_002" in joined
     assert "F_CONTENT_META" in fact_ids
     assert any(result.source == "metadata_supplement" for result in supplemented)
+    assert not any(
+        _is_fact_line_for_domain(result, "content")
+        for result in candidates
+        if "F_RULE_002" in (result.metadata or {}).get("fact_ids", [])
+    )
 
 
 def test_medical_candidate_supplement_does_not_run_for_inventory_query():
