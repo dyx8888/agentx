@@ -30,24 +30,6 @@ METADATA_DOMAIN_MATCH_BOOST = 0.0020
 METADATA_ABSENCE_DISCLAIMER_BOOST = 0.0018
 METADATA_SYNTHETIC_PARAGRAPH_PENALTY = 0.0010
 METADATA_SOURCE_REPEAT_PENALTY = 0.0010
-METADATA_CONTENT_RISK_MATCH_BOOST = 0.0024
-METADATA_SERVICE_RISK_MATCH_BOOST = 0.0010
-METADATA_EVIDENCE_SNIPPET_CHARS = 320
-
-MEDICAL_RISK_QUERY_HINTS = (
-    "诊断",
-    "疾病",
-    "皮肤疾病",
-    "客服诊断",
-    "医疗建议",
-    "过敏",
-    "成分表",
-    "局部试用",
-    "绝对不过敏",
-)
-CONTENT_RISK_EVIDENCE_HINTS = ("医疗建议", "过敏", "局部试用", "成分表", "评论区")
-SERVICE_RISK_EVIDENCE_HINTS = ("过敏反馈", "暂停使用", "批号", "照片", "不得诊断")
-CONTENT_RECALL_EXPANSION_TERMS = ("医疗建议", "过敏", "局部试用", "成分表", "评论区")
 
 ABSENCE_QUERY_HINTS = (
     "真实",
@@ -186,29 +168,14 @@ def _query_domains(query: str) -> set[str]:
     }
 
 
-def _contains_any(text: str, hints: tuple[str, ...]) -> bool:
-    folded = str(text or "").casefold()
-    return any(hint.casefold() in folded for hint in hints)
-
-
 def _is_absence_query(query: str) -> bool:
-    return _contains_any(query, ABSENCE_QUERY_HINTS)
-
-
-def _is_medical_risk_query(query: str) -> bool:
-    return _contains_any(query, MEDICAL_RISK_QUERY_HINTS)
-
-
-def _expand_query_for_recall(query: str) -> str:
-    if not _is_medical_risk_query(query):
-        return str(query or "")
-    text = str(query or "")
-    additions = [term for term in CONTENT_RECALL_EXPANSION_TERMS if term not in text]
-    return " ".join([text, *additions]).strip()
+    text = str(query or "").casefold()
+    return any(hint.casefold() in text for hint in ABSENCE_QUERY_HINTS)
 
 
 def _is_synthetic_disclaimer(result: "SearchResult") -> bool:
-    return _contains_any(getattr(result, "content", "") or "", SYNTHETIC_DISCLAIMER_HINTS)
+    text = str(getattr(result, "content", "") or "").casefold()
+    return any(hint.casefold() in text for hint in SYNTHETIC_DISCLAIMER_HINTS)
 
 
 def _metadata_search_text(result: "SearchResult") -> str:
@@ -223,16 +190,6 @@ def _metadata_search_text(result: "SearchResult") -> str:
     values.extend(_as_string_list(metadata.get("fact_ids")))
     values.extend(_as_string_list(metadata.get("markers")))
     return " ".join(values).casefold()
-
-
-def _evidence_search_text(result: "SearchResult") -> str:
-    content = str(getattr(result, "content", "") or "")[:METADATA_EVIDENCE_SNIPPET_CHARS]
-    return f"{_metadata_search_text(result)} {content}".casefold()
-
-
-def _evidence_matches_domain(result: "SearchResult", domain: str) -> bool:
-    evidence_text = _evidence_search_text(result)
-    return any(hint.casefold() in evidence_text for hint in METADATA_DOMAIN_HINTS[domain])
 
 
 def _metadata_boost_score(query: str, result: "SearchResult") -> float:
@@ -256,17 +213,6 @@ def _metadata_boost_score(query: str, result: "SearchResult") -> float:
     for domain in _query_domains(query):
         if any(hint.casefold() in metadata_text for hint in METADATA_DOMAIN_HINTS[domain]):
             boost += METADATA_DOMAIN_MATCH_BOOST
-
-    if chunk_type == "fact_line" and _is_medical_risk_query(query):
-        evidence_text = _evidence_search_text(result)
-        if _evidence_matches_domain(result, "content") and _contains_any(
-            evidence_text, CONTENT_RISK_EVIDENCE_HINTS
-        ):
-            boost += METADATA_CONTENT_RISK_MATCH_BOOST
-        if _evidence_matches_domain(result, "service") and _contains_any(
-            evidence_text, SERVICE_RISK_EVIDENCE_HINTS
-        ):
-            boost += METADATA_SERVICE_RISK_MATCH_BOOST
 
     if synthetic_disclaimer and absence_query:
         boost += METADATA_ABSENCE_DISCLAIMER_BOOST
@@ -889,8 +835,7 @@ class HybridRetriever:
         emb_service = self._get_embedding_service()
         query_vector = emb_service.encode_single(query)
 
-        recall_query = _expand_query_for_recall(query)
-        bm25_results = self.bm25.search(recall_query, top_k=top_k * 2)
+        bm25_results = self.bm25.search(query, top_k=top_k * 2)
         vector_results = self.vector.search(query_vector, top_k=top_k * 2)
 
         fused = self._rrf_fuse(bm25_results, vector_results, bm25_weight, vector_weight)
