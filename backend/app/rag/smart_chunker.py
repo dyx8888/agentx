@@ -22,6 +22,10 @@ HEADING_RE = re.compile(
 NUMBERED_RULE_RE = re.compile(r"^\s*(?:\(?\d+\)?[、.．)]|第[一二三四五六七八九十\d]+条)")
 FAQ_Q_RE = re.compile(r"^\s*(?:Q[:：]|问[:：]|问题[:：])", re.IGNORECASE)
 FAQ_A_RE = re.compile(r"^\s*(?:A[:：]|答[:：]|答案[:：])", re.IGNORECASE)
+METADATA_LINE_RE = re.compile(
+    r"^\s*(?:文件名|文档|document|filename|段落|section|title)\s*[:：]",
+    re.IGNORECASE,
+)
 POLICY_KEYWORDS = (
     "适用条件",
     "不适用条件",
@@ -122,7 +126,7 @@ class SmartChunker:
                 self._append_chunks(chunks, group, "table_like", current_section, source_metadata)
                 continue
 
-            if self._is_update_notice(stripped):
+            if not self._is_metadata_line(stripped) and self._is_update_notice(stripped):
                 flush_paragraph()
                 group, i = self._collect_special_block(lines, i, self._is_update_notice)
                 self._append_chunks(
@@ -134,7 +138,7 @@ class SmartChunker:
                 )
                 continue
 
-            if self._is_policy_or_rule(stripped):
+            if not self._is_metadata_line(stripped) and self._is_policy_or_rule(stripped):
                 flush_paragraph()
                 group, i = self._collect_special_block(lines, i, self._is_policy_or_rule)
                 self._append_chunks(
@@ -286,6 +290,8 @@ class SmartChunker:
             stripped = lines[i].text.strip()
             if not stripped or SmartChunker._is_heading(stripped):
                 break
+            if SmartChunker._is_fact_line(stripped):
+                break
             if predicate(stripped):
                 group.append(lines[i])
                 i += 1
@@ -312,6 +318,10 @@ class SmartChunker:
     @staticmethod
     def _is_fact_line(text: str) -> bool:
         return bool(FACT_ID_RE.search(text) or MARKER_RE.search(text))
+
+    @staticmethod
+    def _is_metadata_line(text: str) -> bool:
+        return bool(METADATA_LINE_RE.search(text))
 
     @staticmethod
     def _is_table_like(text: str) -> bool:

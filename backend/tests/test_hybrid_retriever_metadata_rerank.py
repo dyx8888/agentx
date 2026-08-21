@@ -130,6 +130,33 @@ def test_fact_line_and_update_notice_receive_small_structural_boosts():
     assert _metadata_boost_score(query, fact_line) > _metadata_boost_score(query, paragraph)
 
 
+def test_service_and_content_risk_terms_map_to_expected_domains():
+    service = _result(
+        "fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈提供批号和照片",
+        score=0.01,
+        source_file="qpack_05_after_sales_sop.txt",
+        chunk_type="fact_line",
+        fact_ids=["F_SERVICE_002"],
+        markers=["QPACK_SERVICE_002"],
+    )
+    content = _result(
+        "fact_id=F_CONTENT_007 | marker=QPACK_CONTENT_007 | 先局部试用并查看成分表",
+        score=0.01,
+        source_file="qpack_07_content_script_rules.txt",
+        chunk_type="fact_line",
+        fact_ids=["F_CONTENT_007"],
+        markers=["QPACK_CONTENT_007"],
+    )
+    inventory = _result("inventory fallback", score=0.01, chunk_type="fact_line")
+
+    assert _metadata_boost_score(
+        "过敏反馈需要批号照片并暂停使用吗？", service
+    ) > _metadata_boost_score("过敏反馈需要批号照片并暂停使用吗？", inventory)
+    assert _metadata_boost_score(
+        "评论回复是否要先局部试用并查看成分表？", content
+    ) > _metadata_boost_score("评论回复是否要先局部试用并查看成分表？", inventory)
+
+
 def test_fallback_chunk_is_not_unconditionally_penalized():
     fallback = _result(
         "fact_id=F_SERVICE_008 | marker=QPACK_SERVICE_008 | 禁用客服话术",

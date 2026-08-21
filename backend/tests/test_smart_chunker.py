@@ -110,6 +110,41 @@ fact_id=F_UPDATE_003 | marker=QPACK_UPDATE_003 | 实体=库存更新 | 数值=�
     assert fact["metadata"]["markers"] == ["QPACK_UPDATE_003"]
 
 
+def test_sop_metadata_lines_do_not_merge_fact_lines_into_fallback():
+    text = """本文件为 public-demo synthetic 测试资料，不对应任何真实商家或个人。
+文件名: 05_售后与客服SOP.txt
+段落: 售后SOP
+fact_id=F_SERVICE_001 | marker=QPACK_SERVICE_001 | 实体=七天无理由 | 数值=未拆封不影响二次销售支持7天无理由 | 时间范围=长期 | 限制条件=赠品需一并退回。
+fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 实体=过敏反馈 | 数值=建议暂停使用并引导提供批号和照片 | 时间范围=长期 | 限制条件=不得诊断疾病。
+fact_id=F_SERVICE_003 | marker=QPACK_SERVICE_003 | 实体=破损补发 | 数值=签收后48小时内反馈可补发 | 时间范围=长期 | 限制条件=需上传外箱照片。
+fact_id=F_SERVICE_004 | marker=QPACK_SERVICE_004 | 实体=退款路径 | 数值=引导用户通过订单售后入口提交 | 时间范围=长期 | 限制条件=不得私下转账。
+fact_id=F_SERVICE_005 | marker=QPACK_SERVICE_005 | 实体=客服响应 | 数值=工作日2小时内首次响应 | 时间范围=长期 | 限制条件=高峰期可延长至4小时。
+fact_id=F_SERVICE_006 | marker=QPACK_SERVICE_006 | 实体=赠品缺失 | 数值=优先补发洁面小样 | 时间范围=长期 | 限制条件=需核对订单活动资格。
+fact_id=F_SERVICE_007 | marker=QPACK_SERVICE_007 | 实体=预售延迟 | 数值=超承诺发货24小时主动告知并补偿10元券 | 时间范围=预售期 | 限制条件=需用户未申请退款。
+"""
+    chunks = SmartChunker(max_chunk_chars=260).split_text(text)
+
+    service_002 = [
+        chunk for chunk in chunks if "F_SERVICE_002" in chunk["metadata"].get("fact_ids", [])
+    ]
+    service_006 = [
+        chunk for chunk in chunks if "F_SERVICE_006" in chunk["metadata"].get("fact_ids", [])
+    ]
+
+    assert len(service_002) == 1
+    assert service_002[0]["metadata"]["chunk_type"] == "fact_line"
+    assert service_002[0]["metadata"]["markers"] == ["QPACK_SERVICE_002"]
+    assert len(service_006) == 1
+    assert service_006[0]["metadata"]["chunk_type"] == "fact_line"
+    assert service_006[0]["metadata"]["markers"] == ["QPACK_SERVICE_006"]
+    assert not any(
+        chunk["metadata"]["chunk_type"] == "fallback"
+        and "F_SERVICE_001" in chunk["content"]
+        and "F_SERVICE_007" in chunk["content"]
+        for chunk in chunks
+    )
+
+
 def test_unstructured_long_text_falls_back_to_recursive_chunks():
     text = "这是一段没有标题和结构的长文本。" * 80
     chunks = SmartChunker(max_chunk_chars=180, fallback_chunk_overlap=20).split_text(text)
