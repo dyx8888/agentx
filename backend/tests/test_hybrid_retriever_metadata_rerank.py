@@ -6,6 +6,7 @@ sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 from app.rag.hybrid_retriever import (
     HybridRetriever,
     SearchResult,
+    _expand_query_for_recall,
     _metadata_boost_score,
 )
 
@@ -155,6 +156,57 @@ def test_service_and_content_risk_terms_map_to_expected_domains():
     assert _metadata_boost_score(
         "评论回复是否要先局部试用并查看成分表？", content
     ) > _metadata_boost_score("评论回复是否要先局部试用并查看成分表？", inventory)
+
+
+def test_diagnosis_query_expands_bm25_recall_terms_for_content_evidence():
+    expanded = _expand_query_for_recall("资料里是否允许客服诊断用户皮肤疾病？")
+
+    assert "医疗建议" in expanded
+    assert "局部试用" in expanded
+    assert "成分表" in expanded
+    assert _expand_query_for_recall("资料里是否给出了真实达人账号链接？") == "资料里是否给出了真实达人账号链接？"
+
+
+def test_medical_risk_query_promotes_content_fact_line_without_losing_service():
+    query = "资料里是否允许客服诊断用户皮肤疾病？"
+    candidates = [
+        _result("fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病，建议暂停使用并提供批号照片", score=0.0160, source_file="qpack_05_after_sales_sop.txt", chunk_type="fact_line", fact_ids=["F_SERVICE_002"], markers=["QPACK_SERVICE_002"]),
+        _result("fact_id=F_RULE_002 | marker=QPACK_RULE_002 | 可说帮助维持肌肤屏障", score=0.0159, source_file="qpack_06_platform_rules.txt", chunk_type="fact_line", fact_ids=["F_RULE_002"], markers=["QPACK_RULE_002"]),
+        _result("fact_id=F_INV_006 | marker=QPACK_INV_EAST_006 | 缺货替代需客服确认", score=0.0158, source_file="qpack_02_inventory_fulfillment.txt", chunk_type="fact_line", fact_ids=["F_INV_006"], markers=["QPACK_INV_EAST_006"]),
+        _result("fact_id=F_REPORT_007 | marker=QPACK_REPORT_007 | 客服问题Top1", score=0.0157, source_file="qpack_08_ops_weekly_report.txt", chunk_type="fact_line", fact_ids=["F_REPORT_007"], markers=["QPACK_REPORT_007"]),
+        _result("fact_id=F_PROMO_008 | marker=QPACK_PROMO_818_008 | 破损包裹48小时内补发", score=0.0156, source_file="qpack_04_promo_818.txt", chunk_type="fact_line", fact_ids=["F_PROMO_008"], markers=["QPACK_PROMO_818_008"]),
+        _result("fact_id=F_CONTENT_007 | marker=QPACK_CONTENT_007 | 评论区问过敏时回复先局部试用并查看成分表，不得给医疗建议", score=0.0130, source_file="qpack_07_content_script_rules.txt", chunk_type="fact_line", fact_ids=["F_CONTENT_007"], markers=["QPACK_CONTENT_007"]),
+    ]
+
+    reranked = HybridRetriever._apply_metadata_boost(query, candidates, top_k=5)
+    joined = "\n".join(result.content for result in reranked)
+
+    assert "F_SERVICE_002" in joined
+    assert "F_CONTENT_007" in joined
+    assert joined.index("F_CONTENT_007") < joined.index("F_INV_006")
+
+
+def test_medical_risk_content_boost_uses_short_content_snippet():
+    content = _result(
+        "fact_id=F_CONTENT_007 | marker=QPACK_CONTENT_007 | 评论区问过敏时回复先局部试用并查看成分表，不得给医疗建议",
+        score=0.01,
+        source_file="neutral_name.txt",
+        chunk_type="fact_line",
+        fact_ids=["F_CONTENT_007"],
+        markers=["QPACK_CONTENT_007"],
+    )
+    inventory = _result(
+        "fact_id=F_INV_006 | marker=QPACK_INV_EAST_006 | 缺货替代需客服确认",
+        score=0.01,
+        source_file="qpack_02_inventory_fulfillment.txt",
+        chunk_type="fact_line",
+        fact_ids=["F_INV_006"],
+        markers=["QPACK_INV_EAST_006"],
+    )
+
+    assert _metadata_boost_score("客服诊断皮肤疾病是否允许？", content) > _metadata_boost_score(
+        "客服诊断皮肤疾病是否允许？", inventory
+    )
 
 
 def test_fallback_chunk_is_not_unconditionally_penalized():
