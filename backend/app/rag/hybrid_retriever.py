@@ -256,6 +256,24 @@ def _is_fact_line_for_domain(result: "SearchResult", domain: str) -> bool:
     return any(hint.casefold() in evidence_text for hint in METADATA_DOMAIN_HINTS[domain])
 
 
+def _has_structured_domain_metadata(result: "SearchResult", domain: str) -> bool:
+    if _result_chunk_type(result) != "fact_line":
+        return False
+    metadata = _metadata_for(result)
+    structured_values: list[str] = [
+        _result_source_file(result),
+        str(metadata.get("filename") or ""),
+        str(metadata.get("original_filename") or ""),
+        str(metadata.get("section_title") or ""),
+        str(metadata.get("category") or ""),
+        str(metadata.get("scenario") or ""),
+    ]
+    structured_values.extend(_as_string_list(metadata.get("fact_ids")))
+    structured_values.extend(_as_string_list(metadata.get("markers")))
+    structured_text = " ".join(structured_values).casefold()
+    return any(hint.casefold() in structured_text for hint in METADATA_DOMAIN_HINTS[domain])
+
+
 def _metadata_boost_score(query: str, result: "SearchResult") -> float:
     metadata = _metadata_for(result)
     chunk_type = _result_chunk_type(result)
@@ -968,7 +986,11 @@ class HybridRetriever:
                     continue
 
                 evidence_text = _evidence_search_text(result)
-                if not _contains_any(evidence_text, MEDICAL_SOURCE_RECALL_HINTS):
+                has_medical_hint = _contains_any(evidence_text, MEDICAL_SOURCE_RECALL_HINTS)
+                has_structured_content_fallback = (
+                    domain == "content" and _has_structured_domain_metadata(result, "content")
+                )
+                if not has_medical_hint and not has_structured_content_fallback:
                     continue
 
                 score = _metadata_boost_score(query, result)

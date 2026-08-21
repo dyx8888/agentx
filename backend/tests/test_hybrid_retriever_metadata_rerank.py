@@ -251,6 +251,42 @@ def test_medical_candidate_supplement_adds_content_fact_from_indexed_docs():
     assert any(result.source == "metadata_supplement" for result in supplemented)
 
 
+def test_medical_candidate_supplement_uses_structured_content_metadata_fallback():
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._documents = {
+        "content-metadata-fallback": {
+            "content": "garbled payload without readable medical source hints",
+            "metadata": {
+                "source_file": "qpack_07_content_script_rules.txt",
+                "chunk_type": "fact_line",
+                "fact_ids": ["F_CONTENT_META"],
+                "markers": ["QPACK_CONTENT_META"],
+                "section_title": "script compliance",
+                "chunk_index": 9,
+            },
+        }
+    }
+    query = "资料里是否允许客服诊断用户皮肤疾病？"
+    candidates = [
+        _result("platform allowed expression", score=0.0167, source_file="qpack_06_platform_rules.txt", chunk_type="fact_line", fact_ids=["F_RULE_002"], markers=["QPACK_RULE_002"]),
+        _result("fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病", score=0.0150, source_file="qpack_05_after_sales_sop.txt", chunk_type="fact_line", fact_ids=["F_SERVICE_002"], markers=["QPACK_SERVICE_002"]),
+    ]
+
+    supplemented = retriever._supplement_medical_source_candidates(
+        query, candidates, top_k=3
+    )
+    joined = "\n".join(result.content for result in supplemented)
+    fact_ids = {
+        fact_id
+        for result in supplemented
+        for fact_id in (result.metadata or {}).get("fact_ids", [])
+    }
+
+    assert "F_SERVICE_002" in joined
+    assert "F_CONTENT_META" in fact_ids
+    assert any(result.source == "metadata_supplement" for result in supplemented)
+
+
 def test_medical_candidate_supplement_does_not_run_for_inventory_query():
     retriever = HybridRetriever(company_id="test-company")
     retriever._documents = {
