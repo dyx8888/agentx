@@ -43,6 +43,14 @@ MEDICAL_RISK_QUERY_HINTS = (
     "局部试用",
     "绝对不过敏",
 )
+MEDICAL_SOURCE_RECALL_HINTS = (
+    "医疗建议",
+    "过敏",
+    "局部试用",
+    "成分表",
+    "评论区",
+    "不得给医疗建议",
+)
 
 ABSENCE_QUERY_HINTS = (
     "真实",
@@ -169,6 +177,25 @@ def _result_source_file(result: "SearchResult") -> str:
         or metadata.get("original_filename")
         or metadata.get("filename")
         or ""
+    )
+
+
+def _result_dedupe_key(result: "SearchResult") -> tuple[str, str, str, str, str]:
+    metadata = _metadata_for(result)
+    fact_ids = "|".join(_as_string_list(metadata.get("fact_ids")))
+    markers = "|".join(_as_string_list(metadata.get("markers")))
+    chunk_index = str(
+        getattr(result, "chunk_index", "")
+        or metadata.get("chunk_index")
+        or metadata.get("source_page")
+        or ""
+    )
+    return (
+        _result_source_file(result),
+        chunk_index,
+        fact_ids,
+        markers,
+        str(getattr(result, "content", "") or "")[:160],
     )
 
 
@@ -881,6 +908,11 @@ class HybridRetriever:
             list(fused.values()),
             top_k=top_k * 2,
         )
+        candidates = self._supplement_medical_source_candidates(
+            query,
+            candidates,
+            top_k=top_k * 2,
+        )
 
         if use_reranker and candidates:
             contents = [result.content for result in candidates]
@@ -893,6 +925,74 @@ class HybridRetriever:
             return self._apply_source_coverage_guard(query, final, candidates, top_k)
 
         return candidates[:top_k]
+
+    def _supplement_medical_source_candidates(
+        self,
+        query: str,
+        candidates: list[SearchResult],
+        top_k: int,
+    ) -> list[SearchResult]:
+        """Add bounded local service/content evidence for medical-risk queries."""
+        if top_k <= 0 or not candidates or not _is_medical_risk_query(query):
+            return candidates[:top_k]
+
+        has_domain = {
+            domain: any(_is_fact_line_for_domain(result, domain) for result in candidates)
+            for domain in ("service", "content")
+        }
+        missing_domains = [domain for domain, present in has_domain.items() if not present]
+        if not missing_domains:
+            return candidates[:top_k]
+
+        seen_keys = {_result_dedupe_key(result) for result in candidates}
+        supplements: list[SearchResult] = []
+
+        for domain in missing_domains:
+            best: tuple[float, int, SearchResult] | None = None
+            for order, row in enumerate(self._documents.values()):
+                metadata = row.get("metadata") or {}
+                if not isinstance(metadata, dict):
+                    continue
+                result = SearchResult(
+                    content=str(row.get("content") or ""),
+                    metadata=metadata,
+                    rrf_score=0.0,
+                    source="metadata_supplement",
+                    source_file=metadata.get("source_file") or metadata.get("filename", ""),
+                    chunk_index=int(metadata.get("chunk_index", 0) or 0),
+                    source_page=int(metadata.get("source_page", 0) or 0),
+                )
+                if _result_dedupe_key(result) in seen_keys:
+                    continue
+                if not _is_fact_line_for_domain(result, domain):
+                    continue
+
+                evidence_text = _evidence_search_text(result)
+                if not _contains_any(evidence_text, MEDICAL_SOURCE_RECALL_HINTS):
+                    continue
+
+                score = _metadata_boost_score(query, result)
+                score += sum(
+                    0.0002
+                    for hint in MEDICAL_SOURCE_RECALL_HINTS
+                    if hint.casefold() in evidence_text
+                )
+                if domain == "content":
+                    score += 0.0004
+
+                ranked = (score, -order, result)
+                if best is None or ranked > best:
+                    best = ranked
+
+            if best is not None:
+                supplement = best[2]
+                supplements.append(supplement)
+                seen_keys.add(_result_dedupe_key(supplement))
+
+        if not supplements:
+            return candidates[:top_k]
+
+        return self._apply_metadata_boost(query, candidates + supplements, top_k=top_k)
 
     @staticmethod
     def _apply_metadata_boost(

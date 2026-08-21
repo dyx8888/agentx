@@ -217,3 +217,111 @@ def test_inventory_query_does_not_trigger_medical_source_guard():
 
     assert "F_INV_003" in joined
     assert "F_CONTENT_OTHER" not in joined
+
+
+def test_medical_candidate_supplement_adds_content_fact_from_indexed_docs():
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._documents = {
+        "content-medical": {
+            "content": "fact_id=F_CONTENT_007 | marker=QPACK_CONTENT_007 | 评论区不得给医疗建议，过敏用户先查看成分表并局部试用。",
+            "metadata": {
+                "source_file": "qpack_07_content_script_rules.txt",
+                "chunk_type": "fact_line",
+                "fact_ids": ["F_CONTENT_007"],
+                "markers": ["QPACK_CONTENT_007"],
+                "section_title": "评论区合规",
+                "chunk_index": 7,
+            },
+        }
+    }
+    query = "资料里是否允许客服诊断用户皮肤疾病？"
+    candidates = [
+        _result("inventory replacement", score=0.0168, source_file="qpack_02_inventory_fulfillment.txt", chunk_type="fact_line", fact_ids=["F_INV_006"], markers=["QPACK_INV_EAST_006"]),
+        _result("platform allowed expression", score=0.0167, source_file="qpack_06_platform_rules.txt", chunk_type="fact_line", fact_ids=["F_RULE_002"], markers=["QPACK_RULE_002"]),
+        _result("fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病", score=0.0150, source_file="qpack_05_after_sales_sop.txt", chunk_type="fact_line", fact_ids=["F_SERVICE_002"], markers=["QPACK_SERVICE_002"]),
+    ]
+
+    supplemented = retriever._supplement_medical_source_candidates(
+        query, candidates, top_k=3
+    )
+    joined = "\n".join(result.content for result in supplemented)
+
+    assert "F_SERVICE_002" in joined
+    assert "F_CONTENT_007" in joined
+    assert any(result.source == "metadata_supplement" for result in supplemented)
+
+
+def test_medical_candidate_supplement_does_not_run_for_inventory_query():
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._documents = {
+        "content-medical": {
+            "content": "fact_id=F_CONTENT_007 | marker=QPACK_CONTENT_007 | 评论区不得给医疗建议，过敏用户先查看成分表并局部试用。",
+            "metadata": {
+                "source_file": "qpack_07_content_script_rules.txt",
+                "chunk_type": "fact_line",
+                "fact_ids": ["F_CONTENT_007"],
+                "markers": ["QPACK_CONTENT_007"],
+            },
+        }
+    }
+    candidates = [
+        _result("fact_id=F_INV_003 | marker=QPACK_INV_EAST_003 | 安全库存30ml低于180瓶触发补货预警", score=0.0196, source_file="qpack_02_inventory_fulfillment.txt", chunk_type="fact_line", fact_ids=["F_INV_003"], markers=["QPACK_INV_EAST_003"]),
+        _result("fact_id=F_PRODUCT_001 | marker=QPACK_PRODUCT_SERUM_001 | 30ml建议零售价", score=0.0195, source_file="qpack_01_product_manual.txt", chunk_type="fact_line", fact_ids=["F_PRODUCT_001"], markers=["QPACK_PRODUCT_SERUM_001"]),
+    ]
+
+    supplemented = retriever._supplement_medical_source_candidates(
+        "30ml低于多少瓶触发补货预警？", candidates, top_k=2
+    )
+
+    assert supplemented == candidates
+
+
+def test_medical_candidate_supplement_preserves_absence_disclaimer():
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._documents = {
+        "content-medical": {
+            "content": "fact_id=F_CONTENT_007 | marker=QPACK_CONTENT_007 | 评论区不得给医疗建议，过敏用户先查看成分表并局部试用。",
+            "metadata": {
+                "source_file": "qpack_07_content_script_rules.txt",
+                "chunk_type": "fact_line",
+                "fact_ids": ["F_CONTENT_007"],
+                "markers": ["QPACK_CONTENT_007"],
+            },
+        }
+    }
+    disclaimer = _result(
+        "本文件为 public-demo synthetic 测试资料，不对应任何真实商家或个人。",
+        score=0.015,
+        source_file="qpack_03_kol_matrix.txt",
+        chunk_type="paragraph",
+    )
+
+    supplemented = retriever._supplement_medical_source_candidates(
+        "资料里是否给出了真实达人账号链接？", [disclaimer], top_k=1
+    )
+
+    assert supplemented == [disclaimer]
+
+
+def test_medical_candidate_supplement_handles_missing_metadata():
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._documents = {
+        "bad-metadata": {
+            "content": "评论区不得给医疗建议，过敏用户先查看成分表并局部试用。",
+            "metadata": None,
+        }
+    }
+    service = _result(
+        "fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病",
+        score=0.0150,
+        source_file="qpack_05_after_sales_sop.txt",
+        chunk_type="fact_line",
+        fact_ids=["F_SERVICE_002"],
+        markers=["QPACK_SERVICE_002"],
+    )
+
+    supplemented = retriever._supplement_medical_source_candidates(
+        "客服诊断皮肤疾病是否允许？", [service], top_k=1
+    )
+
+    assert supplemented == [service]
