@@ -23,9 +23,163 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+METADATA_STRUCTURED_EVIDENCE_BOOST = 0.0008
+METADATA_FACT_LINE_BOOST = 0.0012
+METADATA_UPDATE_NOTICE_BOOST = 0.0015
+METADATA_DOMAIN_MATCH_BOOST = 0.0020
+METADATA_ABSENCE_DISCLAIMER_BOOST = 0.0018
+METADATA_SYNTHETIC_PARAGRAPH_PENALTY = 0.0010
+METADATA_SOURCE_REPEAT_PENALTY = 0.0010
+
+ABSENCE_QUERY_HINTS = (
+    "真实",
+    "真实资料",
+    "真实链接",
+    "真实账号",
+    "真实客户",
+    "真实达人",
+    "手机号",
+    "订单号",
+    "账号链接",
+    "是否包含真实",
+)
+SYNTHETIC_DISCLAIMER_HINTS = (
+    "synthetic",
+    "测试资料",
+    "不对应任何真实商家或个人",
+    "不对应真实商家",
+    "不包含真实",
+    "不含真实",
+    "虚构",
+)
+QUERY_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
+    "service": ("客服", "售后", "过敏", "诊断", "补偿", "疾病", "敏感肌", "补发", "退款", "承诺"),
+    "content": (
+        "内容",
+        "口播",
+        "评论",
+        "脚本",
+        "屏障",
+        "医学级",
+        "医疗建议",
+        "素材",
+        "短视频",
+        "敏感肌",
+        "过敏",
+    ),
+    "update": ("更新", "优先", "调整", "公告"),
+    "inventory": ("库存", "发货", "补货", "仓", "履约"),
+    "kol": ("达人", "kol", "乔桥", "米默", "林雅", "林芽"),
+    "promo": ("活动", "价格", "满赠", "818", "促销", "券后价"),
+    "rule": ("规则", "平台", "合规", "禁用", "允许", "医学级", "医疗建议", "虚假"),
+}
+METADATA_DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
+    "service": ("service", "sop", "after_sales", "售后", "客服", "qpack_service", "qpack_05", "05_"),
+    "content": ("content", "script", "copy", "内容", "口播", "qpack_content", "qpack_07", "07_"),
+    "update": ("update", "notice", "更新", "公告", "qpack_update", "qpack_09", "09_"),
+    "inventory": ("inventory", "fulfillment", "库存", "履约", "qpack_inv", "qpack_02", "02_"),
+    "kol": ("kol", "达人", "qpack_kol", "qpack_03", "03_"),
+    "promo": ("promo", "818", "活动", "促销", "qpack_promo", "qpack_04", "04_"),
+    "rule": ("rule", "rules", "platform", "合规", "规则", "qpack_rule", "qpack_06", "06_"),
+}
+
 
 def _env_flag(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _as_string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item) for item in value if item not in (None, "")]
+    return [str(value)] if value != "" else []
+
+
+def _metadata_for(result: "SearchResult") -> dict[str, Any]:
+    metadata = getattr(result, "metadata", {}) or {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _result_source_file(result: "SearchResult") -> str:
+    metadata = _metadata_for(result)
+    return str(
+        getattr(result, "source_file", "")
+        or metadata.get("source_file")
+        or metadata.get("original_filename")
+        or metadata.get("filename")
+        or ""
+    )
+
+
+def _query_domains(query: str) -> set[str]:
+    text = str(query or "").casefold()
+    return {
+        domain
+        for domain, hints in QUERY_DOMAIN_HINTS.items()
+        if any(hint.casefold() in text for hint in hints)
+    }
+
+
+def _is_absence_query(query: str) -> bool:
+    text = str(query or "").casefold()
+    return any(hint.casefold() in text for hint in ABSENCE_QUERY_HINTS)
+
+
+def _is_synthetic_disclaimer(result: "SearchResult") -> bool:
+    text = str(getattr(result, "content", "") or "").casefold()
+    return any(hint.casefold() in text for hint in SYNTHETIC_DISCLAIMER_HINTS)
+
+
+def _metadata_search_text(result: "SearchResult") -> str:
+    metadata = _metadata_for(result)
+    values: list[str] = [
+        _result_source_file(result),
+        str(metadata.get("section_title") or ""),
+        str(metadata.get("chunk_type") or ""),
+        str(metadata.get("category") or ""),
+        str(metadata.get("scenario") or ""),
+    ]
+    values.extend(_as_string_list(metadata.get("fact_ids")))
+    values.extend(_as_string_list(metadata.get("markers")))
+    return " ".join(values).casefold()
+
+
+def _metadata_boost_score(query: str, result: "SearchResult") -> float:
+    metadata = _metadata_for(result)
+    chunk_type = str(metadata.get("chunk_type") or "").strip().lower()
+    fact_ids = _as_string_list(metadata.get("fact_ids"))
+    markers = _as_string_list(metadata.get("markers"))
+    absence_query = _is_absence_query(query)
+    synthetic_disclaimer = _is_synthetic_disclaimer(result)
+
+    boost = 0.0
+    if chunk_type == "fact_line":
+        boost += METADATA_FACT_LINE_BOOST
+    elif chunk_type == "update_notice":
+        boost += METADATA_UPDATE_NOTICE_BOOST
+
+    if fact_ids or markers:
+        boost += METADATA_STRUCTURED_EVIDENCE_BOOST
+
+    metadata_text = _metadata_search_text(result)
+    for domain in _query_domains(query):
+        if any(hint.casefold() in metadata_text for hint in METADATA_DOMAIN_HINTS[domain]):
+            boost += METADATA_DOMAIN_MATCH_BOOST
+
+    if synthetic_disclaimer and absence_query:
+        boost += METADATA_ABSENCE_DISCLAIMER_BOOST
+    elif synthetic_disclaimer and chunk_type == "paragraph":
+        boost -= METADATA_SYNTHETIC_PARAGRAPH_PENALTY
+
+    return boost
+
+
+def _base_rank_score(result: "SearchResult") -> float:
+    rerank_score = getattr(result, "rerank_score", None)
+    if rerank_score is not None:
+        return float(rerank_score or 0.0)
+    return float(getattr(result, "rrf_score", 0.0) or 0.0)
 
 
 try:
@@ -638,9 +792,11 @@ class HybridRetriever:
         vector_results = self.vector.search(query_vector, top_k=top_k * 2)
 
         fused = self._rrf_fuse(bm25_results, vector_results, bm25_weight, vector_weight)
-        candidates = sorted(fused.values(), key=lambda item: item.rrf_score, reverse=True)[
-            : top_k * 2
-        ]
+        candidates = self._apply_metadata_boost(
+            query,
+            list(fused.values()),
+            top_k=top_k * 2,
+        )
 
         if use_reranker and candidates:
             contents = [result.content for result in candidates]
@@ -653,6 +809,50 @@ class HybridRetriever:
             return final
 
         return candidates[:top_k]
+
+    @staticmethod
+    def _apply_metadata_boost(
+        query: str,
+        candidates: list[SearchResult],
+        top_k: int,
+    ) -> list[SearchResult]:
+        """Lightly reorder candidates using existing metadata without changing scores."""
+        if top_k <= 0 or not candidates:
+            return []
+
+        scored = [
+            (
+                index,
+                result,
+                _base_rank_score(result) + _metadata_boost_score(query, result),
+            )
+            for index, result in enumerate(candidates)
+        ]
+        remaining = sorted(scored, key=lambda item: (-item[2], item[0]))
+        selected: list[tuple[int, SearchResult, float]] = []
+        source_counts: dict[str, int] = {}
+
+        while remaining and len(selected) < top_k:
+            best_position = 0
+            best_key: tuple[float, float, int] | None = None
+            for position, (index, result, adjusted_score) in enumerate(remaining):
+                source_file = _result_source_file(result)
+                repeat_count = source_counts.get(source_file, 0) if source_file else 0
+                effective_score = adjusted_score - (
+                    repeat_count * METADATA_SOURCE_REPEAT_PENALTY
+                )
+                key = (effective_score, adjusted_score, -index)
+                if best_key is None or key > best_key:
+                    best_position = position
+                    best_key = key
+
+            chosen = remaining.pop(best_position)
+            selected.append(chosen)
+            source_file = _result_source_file(chosen[1])
+            if source_file:
+                source_counts[source_file] = source_counts.get(source_file, 0) + 1
+
+        return [result for _, result, _ in selected]
 
     def _rrf_fuse(
         self,
