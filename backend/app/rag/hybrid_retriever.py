@@ -30,6 +30,19 @@ METADATA_DOMAIN_MATCH_BOOST = 0.0020
 METADATA_ABSENCE_DISCLAIMER_BOOST = 0.0018
 METADATA_SYNTHETIC_PARAGRAPH_PENALTY = 0.0010
 METADATA_SOURCE_REPEAT_PENALTY = 0.0010
+METADATA_EVIDENCE_SNIPPET_CHARS = 320
+
+MEDICAL_RISK_QUERY_HINTS = (
+    "诊断",
+    "疾病",
+    "皮肤疾病",
+    "客服诊断",
+    "医疗建议",
+    "过敏",
+    "成分表",
+    "局部试用",
+    "绝对不过敏",
+)
 
 ABSENCE_QUERY_HINTS = (
     "真实",
@@ -168,14 +181,21 @@ def _query_domains(query: str) -> set[str]:
     }
 
 
+def _contains_any(text: str, hints: tuple[str, ...]) -> bool:
+    folded = str(text or "").casefold()
+    return any(hint.casefold() in folded for hint in hints)
+
+
 def _is_absence_query(query: str) -> bool:
-    text = str(query or "").casefold()
-    return any(hint.casefold() in text for hint in ABSENCE_QUERY_HINTS)
+    return _contains_any(query, ABSENCE_QUERY_HINTS)
+
+
+def _is_medical_risk_query(query: str) -> bool:
+    return _contains_any(query, MEDICAL_RISK_QUERY_HINTS)
 
 
 def _is_synthetic_disclaimer(result: "SearchResult") -> bool:
-    text = str(getattr(result, "content", "") or "").casefold()
-    return any(hint.casefold() in text for hint in SYNTHETIC_DISCLAIMER_HINTS)
+    return _contains_any(getattr(result, "content", "") or "", SYNTHETIC_DISCLAIMER_HINTS)
 
 
 def _metadata_search_text(result: "SearchResult") -> str:
@@ -192,9 +212,26 @@ def _metadata_search_text(result: "SearchResult") -> str:
     return " ".join(values).casefold()
 
 
+def _evidence_search_text(result: "SearchResult") -> str:
+    content = str(getattr(result, "content", "") or "")[:METADATA_EVIDENCE_SNIPPET_CHARS]
+    return f"{_metadata_search_text(result)} {content}".casefold()
+
+
+def _result_chunk_type(result: "SearchResult") -> str:
+    metadata = _metadata_for(result)
+    return str(metadata.get("chunk_type") or "").strip().lower()
+
+
+def _is_fact_line_for_domain(result: "SearchResult", domain: str) -> bool:
+    if _result_chunk_type(result) != "fact_line":
+        return False
+    evidence_text = _evidence_search_text(result)
+    return any(hint.casefold() in evidence_text for hint in METADATA_DOMAIN_HINTS[domain])
+
+
 def _metadata_boost_score(query: str, result: "SearchResult") -> float:
     metadata = _metadata_for(result)
-    chunk_type = str(metadata.get("chunk_type") or "").strip().lower()
+    chunk_type = _result_chunk_type(result)
     fact_ids = _as_string_list(metadata.get("fact_ids"))
     markers = _as_string_list(metadata.get("markers"))
     absence_query = _is_absence_query(query)
@@ -853,7 +890,7 @@ class HybridRetriever:
                 if idx < len(candidates):
                     candidates[idx].rerank_score = float(score)
                     final.append(candidates[idx])
-            return final
+            return self._apply_source_coverage_guard(query, final, candidates, top_k)
 
         return candidates[:top_k]
 
@@ -899,7 +936,83 @@ class HybridRetriever:
             if source_file:
                 source_counts[source_file] = source_counts.get(source_file, 0) + 1
 
-        return [result for _, result, _ in selected]
+        return HybridRetriever._apply_source_coverage_guard(
+            query,
+            [result for _, result, _ in selected],
+            candidates,
+            top_k,
+        )
+
+    @staticmethod
+    def _apply_source_coverage_guard(
+        query: str,
+        selected: list[SearchResult],
+        candidates: list[SearchResult],
+        top_k: int,
+    ) -> list[SearchResult]:
+        if top_k <= 1 or not selected or not _is_medical_risk_query(query):
+            return selected[:top_k]
+
+        guarded = list(selected[:top_k])
+        candidate_domains = {
+            domain: [
+                result
+                for result in candidates
+                if _is_fact_line_for_domain(result, domain)
+            ]
+            for domain in ("service", "content")
+        }
+        if not all(candidate_domains.values()):
+            return guarded
+
+        selected_ids = {id(result) for result in guarded}
+
+        def has_domain(domain: str) -> bool:
+            return any(_is_fact_line_for_domain(result, domain) for result in guarded)
+
+        def is_guarded_domain(result: SearchResult) -> bool:
+            return any(
+                _is_fact_line_for_domain(result, domain)
+                for domain in ("service", "content")
+            )
+
+        def best_candidate(domain: str) -> SearchResult | None:
+            available = [
+                result
+                for result in candidate_domains[domain]
+                if id(result) not in selected_ids
+            ]
+            if not available:
+                return None
+            return max(
+                available,
+                key=lambda result: (
+                    _base_rank_score(result) + _metadata_boost_score(query, result),
+                    -candidates.index(result),
+                ),
+            )
+
+        for domain in ("service", "content"):
+            if has_domain(domain):
+                continue
+            replacement = best_candidate(domain)
+            if replacement is None:
+                continue
+            replace_at = next(
+                (
+                    index
+                    for index in range(len(guarded) - 1, -1, -1)
+                    if not is_guarded_domain(guarded[index])
+                ),
+                None,
+            )
+            if replace_at is None:
+                continue
+            selected_ids.discard(id(guarded[replace_at]))
+            guarded[replace_at] = replacement
+            selected_ids.add(id(replacement))
+
+        return guarded[:top_k]
 
     def _rrf_fuse(
         self,

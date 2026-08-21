@@ -168,3 +168,52 @@ def test_fallback_chunk_is_not_unconditionally_penalized():
     )
 
     assert _metadata_boost_score("客服售后话术", fallback) > 0
+
+
+def test_medical_risk_guard_preserves_service_and_generic_content_fact_lines():
+    query = "资料里是否允许客服诊断用户皮肤疾病？"
+    candidates = [
+        _result("inventory replacement", score=0.0168, source_file="qpack_02_inventory_fulfillment.txt", chunk_type="fact_line", fact_ids=["F_INV_006"], markers=["QPACK_INV_EAST_006"]),
+        _result("platform allowed expression", score=0.0167, source_file="qpack_06_platform_rules.txt", chunk_type="fact_line", fact_ids=["F_RULE_002"], markers=["QPACK_RULE_002"]),
+        _result("fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病", score=0.0150, source_file="qpack_05_after_sales_sop.txt", chunk_type="fact_line", fact_ids=["F_SERVICE_002"], markers=["QPACK_SERVICE_002"]),
+        _result("fact_id=F_CONTENT_OTHER | marker=QPACK_CONTENT_OTHER | 评论区回复先局部试用并查看成分表，不给医疗建议", score=0.0140, source_file="qpack_07_content_script_rules.txt", chunk_type="fact_line", fact_ids=["F_CONTENT_OTHER"], markers=["QPACK_CONTENT_OTHER"]),
+    ]
+
+    reranked = HybridRetriever._apply_metadata_boost(query, candidates, top_k=3)
+    joined = "\n".join(result.content for result in reranked)
+
+    assert "F_SERVICE_002" in joined
+    assert "F_CONTENT_OTHER" in joined
+
+
+def test_medical_risk_guard_does_not_let_content_displace_service():
+    query = "客服诊断皮肤疾病是否允许？"
+    candidates = [
+        _result("fact_id=F_CONTENT_OTHER | marker=QPACK_CONTENT_OTHER | 评论区回复先局部试用并查看成分表", score=0.0168, source_file="qpack_07_content_script_rules.txt", chunk_type="fact_line", fact_ids=["F_CONTENT_OTHER"], markers=["QPACK_CONTENT_OTHER"]),
+        _result("high scoring rule noise", score=0.0167, source_file="qpack_06_platform_rules.txt", chunk_type="fact_line", fact_ids=["F_RULE_002"], markers=["QPACK_RULE_002"]),
+        _result("fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病", score=0.0140, source_file="qpack_05_after_sales_sop.txt", chunk_type="fact_line", fact_ids=["F_SERVICE_002"], markers=["QPACK_SERVICE_002"]),
+    ]
+
+    reranked = HybridRetriever._apply_metadata_boost(query, candidates, top_k=2)
+    joined = "\n".join(result.content for result in reranked)
+
+    assert "F_CONTENT_OTHER" in joined
+    assert "F_SERVICE_002" in joined
+
+
+def test_inventory_query_does_not_trigger_medical_source_guard():
+    query = "30ml低于多少瓶触发补货预警？"
+    candidates = [
+        _result("fact_id=F_PRODUCT_006 | marker=QPACK_PRODUCT_SERUM_006 | 组合装A", score=0.0200, source_file="qpack_01_product_manual.txt", chunk_type="fact_line", fact_ids=["F_PRODUCT_006"], markers=["QPACK_PRODUCT_SERUM_006"]),
+        _result("fact_id=F_PRODUCT_001 | marker=QPACK_PRODUCT_SERUM_001 | 30ml建议零售价", score=0.0199, source_file="qpack_01_product_manual.txt", chunk_type="fact_line", fact_ids=["F_PRODUCT_001"], markers=["QPACK_PRODUCT_SERUM_001"]),
+        _result("fact_id=F_PRODUCT_002 | marker=QPACK_PRODUCT_SERUM_002 | 15ml建议零售价", score=0.0198, source_file="qpack_01_product_manual.txt", chunk_type="fact_line", fact_ids=["F_PRODUCT_002"], markers=["QPACK_PRODUCT_SERUM_002"]),
+        _result("fact_id=F_INV_001 | marker=QPACK_INV_EAST_001 | 30ml华东仓可售库存", score=0.0197, source_file="qpack_02_inventory_fulfillment.txt", chunk_type="fact_line", fact_ids=["F_INV_001"], markers=["QPACK_INV_EAST_001"]),
+        _result("fact_id=F_INV_003 | marker=QPACK_INV_EAST_003 | 安全库存30ml低于180瓶触发补货预警", score=0.0196, source_file="qpack_02_inventory_fulfillment.txt", chunk_type="fact_line", fact_ids=["F_INV_003"], markers=["QPACK_INV_EAST_003"]),
+        _result("fact_id=F_CONTENT_OTHER | marker=QPACK_CONTENT_OTHER | 评论区医疗建议", score=0.0100, source_file="qpack_07_content_script_rules.txt", chunk_type="fact_line", fact_ids=["F_CONTENT_OTHER"], markers=["QPACK_CONTENT_OTHER"]),
+    ]
+
+    reranked = HybridRetriever._apply_metadata_boost(query, candidates, top_k=5)
+    joined = "\n".join(result.content for result in reranked)
+
+    assert "F_INV_003" in joined
+    assert "F_CONTENT_OTHER" not in joined
