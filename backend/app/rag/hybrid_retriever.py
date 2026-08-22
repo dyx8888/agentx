@@ -53,6 +53,23 @@ MEDICAL_SOURCE_RECALL_HINTS = (
     "评论区",
     "不得给医疗建议",
 )
+MEDICAL_EVIDENCE_CONTENT_HINTS = (
+    "医疗建议",
+    "过敏",
+    "局部试用",
+    "成分表",
+    "评论区",
+    "不得给医疗建议",
+    "不保证绝对不过敏",
+    "绝对不过敏",
+    "敏感肌",
+    "医学级",
+    "医疗效果",
+    "内容规范",
+    "合规",
+    "口播规范",
+    "脚本规范",
+)
 
 ABSENCE_QUERY_HINTS = (
     "真实",
@@ -273,6 +290,12 @@ def _is_fact_line_for_domain(result: "SearchResult", domain: str) -> bool:
         return _has_structured_domain_metadata(result, domain)
     evidence_text = _evidence_search_text(result)
     return any(hint.casefold() in evidence_text for hint in METADATA_DOMAIN_HINTS[domain])
+
+
+def _is_medical_evidence_content_fact_line(result: "SearchResult") -> bool:
+    if not _is_fact_line_for_domain(result, "content"):
+        return False
+    return _contains_any(_evidence_search_text(result), MEDICAL_EVIDENCE_CONTENT_HINTS)
 
 
 def _has_structured_content_domain_metadata(result: "SearchResult") -> bool:
@@ -981,11 +1004,21 @@ class HybridRetriever:
             debug_counters["reranker_candidate_content_domain_present"] = any(
                 _is_fact_line_for_domain(result, "content") for result in candidates
             )
+            debug_counters[
+                "reranker_candidate_medical_evidence_content_present"
+            ] = any(
+                _is_medical_evidence_content_fact_line(result) for result in candidates
+            )
             debug_counters["reranker_candidate_service_domain_present"] = any(
                 _is_fact_line_for_domain(result, "service") for result in candidates
             )
             debug_counters["guard_candidate_content_domain_present"] = debug_counters[
                 "reranker_candidate_content_domain_present"
+            ]
+            debug_counters[
+                "guard_candidate_medical_evidence_content_present"
+            ] = debug_counters[
+                "reranker_candidate_medical_evidence_content_present"
             ]
             debug_counters["guard_candidate_service_domain_present"] = debug_counters[
                 "reranker_candidate_service_domain_present"
@@ -1035,6 +1068,9 @@ class HybridRetriever:
             domain: any(_is_fact_line_for_domain(result, domain) for result in candidates)
             for domain in ("service", "content")
         }
+        has_medical_evidence_content = any(
+            _is_medical_evidence_content_fact_line(result) for result in candidates
+        )
         local_pool = self._medical_supplement_candidates_from_rows(
             self._documents.values()
         )
@@ -1048,9 +1084,16 @@ class HybridRetriever:
         debug_counters["local_content_fact_count"] = self._domain_fact_count(
             local_pool, "content"
         )
+        debug_counters[
+            "local_medical_evidence_content_fact_count"
+        ] = self._medical_evidence_content_fact_count(local_pool)
         debug_counters["local_service_fact_count"] = self._domain_fact_count(
             local_pool, "service"
         )
+        debug_counters["content_domain_present"] = has_domain["content"]
+        debug_counters[
+            "medical_evidence_content_present"
+        ] = has_medical_evidence_content
         debug_counters["supplement_seen_content_domain"] = bool(
             has_domain["content"]
         ) or int(debug_counters["local_content_fact_count"]) > 0
@@ -1058,7 +1101,11 @@ class HybridRetriever:
             has_domain["service"]
         ) or int(debug_counters["local_service_fact_count"]) > 0
         self._last_medical_supplement_debug = debug_counters
-        missing_domains = [domain for domain, present in has_domain.items() if not present]
+        missing_domains: list[str] = []
+        if not has_domain["service"]:
+            missing_domains.append("service")
+        if not has_medical_evidence_content:
+            missing_domains.append("content")
         if not missing_domains:
             debug_counters["supplement_skipped"] = True
             debug_counters["supplement_skip_reason_code"] = "no_domain_gap"
@@ -1083,11 +1130,10 @@ class HybridRetriever:
                     continue
 
                 evidence_text = _evidence_search_text(result)
-                has_medical_hint = _contains_any(evidence_text, MEDICAL_SOURCE_RECALL_HINTS)
-                has_structured_content_fallback = (
-                    domain == "content" and _has_structured_domain_metadata(result, "content")
-                )
-                if not has_medical_hint and not has_structured_content_fallback:
+                if domain == "content":
+                    if not _is_medical_evidence_content_fact_line(result):
+                        continue
+                elif not _contains_any(evidence_text, MEDICAL_SOURCE_RECALL_HINTS):
                     continue
 
                 score = _metadata_boost_score(query, result)
@@ -1123,6 +1169,17 @@ class HybridRetriever:
                         int(debug_counters["supplement_added_content_count"]) + 1
                     )
                     debug_counters["supplement_seen_content_domain"] = True
+                    if _is_medical_evidence_content_fact_line(supplement):
+                        debug_counters[
+                            "supplement_added_medical_evidence_content_count"
+                        ] = (
+                            int(
+                                debug_counters[
+                                    "supplement_added_medical_evidence_content_count"
+                                ]
+                            )
+                            + 1
+                        )
                 if _is_fact_line_for_domain(supplement, "service"):
                     debug_counters["supplement_added_service_count"] = (
                         int(debug_counters["supplement_added_service_count"]) + 1
@@ -1168,26 +1225,40 @@ class HybridRetriever:
             "vector_list_documents_missing": False,
             "vector_listed_doc_count": 0,
             "local_content_fact_count": 0,
+            "local_medical_evidence_content_fact_count": 0,
             "local_service_fact_count": 0,
             "vector_content_fact_count": 0,
+            "vector_medical_evidence_content_count": 0,
             "vector_service_fact_count": 0,
+            "content_domain_present": False,
+            "medical_evidence_content_present": False,
             "supplement_seen_content_domain": False,
             "supplement_seen_service_domain": False,
             "supplement_added_count": 0,
             "supplement_added_content_count": 0,
+            "supplement_added_medical_evidence_content_count": 0,
             "supplement_added_service_count": 0,
             "post_supplement_candidate_count": max(0, min(candidate_count, top_k)),
             "reranker_candidate_content_domain_present": False,
+            "reranker_candidate_medical_evidence_content_present": False,
             "reranker_candidate_service_domain_present": False,
             "guard_candidate_content_domain_present": False,
+            "guard_candidate_medical_evidence_content_present": False,
             "guard_candidate_service_domain_present": False,
             "final_content_domain_present": False,
+            "final_medical_evidence_content_present": False,
             "final_service_domain_present": False,
         }
 
     @staticmethod
     def _domain_fact_count(results: list[SearchResult], domain: str) -> int:
         return sum(1 for result in results if _is_fact_line_for_domain(result, domain))
+
+    @staticmethod
+    def _medical_evidence_content_fact_count(results: list[SearchResult]) -> int:
+        return sum(
+            1 for result in results if _is_medical_evidence_content_fact_line(result)
+        )
 
     @staticmethod
     def _metadata_int(metadata: dict[str, Any], key: str) -> int:
@@ -1265,11 +1336,14 @@ class HybridRetriever:
             debug_counters["vector_content_fact_count"] = self._domain_fact_count(
                 results, "content"
             )
+            debug_counters[
+                "vector_medical_evidence_content_count"
+            ] = self._medical_evidence_content_fact_count(results)
             debug_counters["vector_service_fact_count"] = self._domain_fact_count(
                 results, "service"
             )
             debug_counters["supplement_seen_content_domain"] = bool(
-                debug_counters["supplement_seen_content_domain"]
+            debug_counters["supplement_seen_content_domain"]
             ) or debug_counters["vector_content_fact_count"] > 0
             debug_counters["supplement_seen_service_domain"] = bool(
                 debug_counters["supplement_seen_service_domain"]
@@ -1282,6 +1356,9 @@ class HybridRetriever:
             return
         counters["final_content_domain_present"] = any(
             _is_fact_line_for_domain(result, "content") for result in final
+        )
+        counters["final_medical_evidence_content_present"] = any(
+            _is_medical_evidence_content_fact_line(result) for result in final
         )
         counters["final_service_domain_present"] = any(
             _is_fact_line_for_domain(result, "service") for result in final
@@ -1353,7 +1430,11 @@ class HybridRetriever:
             domain: [
                 result
                 for result in candidates
-                if _is_fact_line_for_domain(result, domain)
+                if (
+                    _is_medical_evidence_content_fact_line(result)
+                    if domain == "content"
+                    else _is_fact_line_for_domain(result, domain)
+                )
             ]
             for domain in ("service", "content")
         }
@@ -1363,13 +1444,19 @@ class HybridRetriever:
         selected_ids = {id(result) for result in guarded}
 
         def has_domain(domain: str) -> bool:
-            return any(_is_fact_line_for_domain(result, domain) for result in guarded)
+            return any(
+                (
+                    _is_medical_evidence_content_fact_line(result)
+                    if domain == "content"
+                    else _is_fact_line_for_domain(result, domain)
+                )
+                for result in guarded
+            )
 
         def is_guarded_domain(result: SearchResult) -> bool:
-            return any(
-                _is_fact_line_for_domain(result, domain)
-                for domain in ("service", "content")
-            )
+            return _is_fact_line_for_domain(
+                result, "service"
+            ) or _is_medical_evidence_content_fact_line(result)
 
         def best_candidate(domain: str) -> SearchResult | None:
             available = [

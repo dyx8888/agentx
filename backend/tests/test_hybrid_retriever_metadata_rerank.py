@@ -8,6 +8,7 @@ from app.rag.hybrid_retriever import (
     HybridRetriever,
     SearchResult,
     _is_fact_line_for_domain,
+    _is_medical_evidence_content_fact_line,
     _metadata_boost_score,
 )
 
@@ -299,7 +300,7 @@ def test_medical_candidate_supplement_uses_structured_content_metadata_fallback(
                 "chunk_type": "fact_line",
                 "fact_ids": ["F_CONTENT_META"],
                 "markers": ["QPACK_CONTENT_META"],
-                "section_title": "script compliance",
+                "section_title": "评论区合规",
                 "chunk_index": 9,
             },
         }
@@ -375,6 +376,67 @@ def test_medical_candidate_supplement_falls_back_to_vector_documents():
     assert counters["supplement_added_content_count"] == 1
 
 
+def test_medical_candidate_supplement_does_not_skip_for_generic_content_gap():
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._documents = {}
+    retriever.vector = _VectorDocs(
+        [
+            {
+                "id": "vector-content-meta",
+                "content": "fact_id=F_CONTENT_META | marker=QPACK_CONTENT_META | 评论区不得给医疗建议，过敏用户先查看成分表并局部试用。",
+                "metadata": {
+                    "source_file": "qpack_07_content_script_rules.txt",
+                    "chunk_type": "fact_line",
+                    "fact_ids": ["F_CONTENT_META"],
+                    "markers": ["QPACK_CONTENT_META"],
+                    "section_title": "评论区合规",
+                    "chunk_index": 9,
+                },
+            }
+        ]
+    )
+    generic_content = _result(
+        "fact_id=F_CONTENT_GENERIC | marker=QPACK_CONTENT_GENERIC | 普通内容素材",
+        score=0.0160,
+        source_file="qpack_07_content_script_rules.txt",
+        chunk_type="fact_line",
+        fact_ids=["F_CONTENT_GENERIC"],
+        markers=["QPACK_CONTENT_GENERIC"],
+        section_title="普通内容",
+    )
+    service = _result(
+        "fact_id=F_SERVICE_META | marker=QPACK_SERVICE_META | 过敏反馈不得诊断疾病",
+        score=0.0150,
+        source_file="qpack_05_after_sales_sop.txt",
+        chunk_type="fact_line",
+        fact_ids=["F_SERVICE_META"],
+        markers=["QPACK_SERVICE_META"],
+    )
+
+    supplemented = retriever._supplement_medical_source_candidates(
+        "资料里是否允许客服诊断用户皮肤疾病？",
+        [generic_content, service],
+        top_k=3,
+    )
+    fact_ids = {
+        fact_id
+        for result in supplemented
+        for fact_id in (result.metadata or {}).get("fact_ids", [])
+    }
+    counters = retriever._last_medical_supplement_debug
+
+    assert _is_fact_line_for_domain(generic_content, "content")
+    assert not _is_medical_evidence_content_fact_line(generic_content)
+    assert retriever.vector.calls == 1
+    assert "F_CONTENT_META" in fact_ids
+    assert counters is not None
+    assert counters["content_domain_present"] is True
+    assert counters["medical_evidence_content_present"] is False
+    assert counters["supplement_skip_reason_code"] == "emitted"
+    assert counters["vector_medical_evidence_content_count"] == 1
+    assert counters["supplement_added_medical_evidence_content_count"] == 1
+
+
 def test_medical_candidate_supplement_debug_counters_are_non_sensitive():
     retriever = HybridRetriever(company_id="test-company")
     retriever._documents = {}
@@ -434,20 +496,28 @@ def test_medical_candidate_supplement_logs_final_debug_counters(monkeypatch):
         "vector_list_documents_missing": False,
         "vector_listed_doc_count": 1,
         "local_content_fact_count": 0,
+        "local_medical_evidence_content_fact_count": 0,
         "local_service_fact_count": 0,
         "vector_content_fact_count": 1,
+        "vector_medical_evidence_content_count": 1,
         "vector_service_fact_count": 0,
+        "content_domain_present": True,
+        "medical_evidence_content_present": True,
         "supplement_seen_content_domain": True,
         "supplement_seen_service_domain": True,
         "supplement_added_count": 1,
         "supplement_added_content_count": 1,
+        "supplement_added_medical_evidence_content_count": 1,
         "supplement_added_service_count": 0,
         "post_supplement_candidate_count": 3,
         "reranker_candidate_content_domain_present": True,
+        "reranker_candidate_medical_evidence_content_present": True,
         "reranker_candidate_service_domain_present": True,
         "guard_candidate_content_domain_present": True,
+        "guard_candidate_medical_evidence_content_present": True,
         "guard_candidate_service_domain_present": True,
         "final_content_domain_present": False,
+        "final_medical_evidence_content_present": False,
         "final_service_domain_present": False,
     }
 
@@ -461,10 +531,14 @@ def test_medical_candidate_supplement_logs_final_debug_counters(monkeypatch):
     ]
     counters = events[0][1]
     assert counters["final_content_domain_present"] is True
+    assert counters["final_medical_evidence_content_present"] is True
     assert counters["final_service_domain_present"] is True
     assert counters["reranker_candidate_content_domain_present"] is True
+    assert counters["reranker_candidate_medical_evidence_content_present"] is True
     assert counters["guard_candidate_content_domain_present"] is True
+    assert counters["guard_candidate_medical_evidence_content_present"] is True
     assert isinstance(counters["final_content_domain_present"], bool)
+    assert isinstance(counters["final_medical_evidence_content_present"], bool)
     assert "final_has_content" not in counters
     assert "reranker_candidate_has_content" not in counters
     assert "guard_candidate_has_content" not in counters
@@ -506,8 +580,10 @@ def test_medical_search_path_logs_debug_counters_when_no_supplement_added(monkey
     assert counters["supplement_skip_reason_code"] == "no_candidates"
     assert counters["logger_emitted"] is True
     assert counters["final_content_domain_present"] is False
+    assert counters["final_medical_evidence_content_present"] is False
     assert counters["final_service_domain_present"] is True
     assert isinstance(counters["final_content_domain_present"], bool)
+    assert isinstance(counters["final_medical_evidence_content_present"], bool)
     assert "final_has_content" not in counters
     assert "reranker_candidate_has_content" not in counters
     assert "guard_candidate_has_content" not in counters
