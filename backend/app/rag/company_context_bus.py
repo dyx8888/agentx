@@ -22,6 +22,33 @@ logger = get_logger(__name__)  # 模块级 logger，按 company_id 区分日志�
 RAG_CHUNKER_MODE_RECURSIVE = "recursive"
 RAG_CHUNKER_MODE_SMART = "smart"
 RAG_CHUNKER_ALLOWED_MODES = {RAG_CHUNKER_MODE_RECURSIVE, RAG_CHUNKER_MODE_SMART}
+STRUCTURED_SUPPLEMENT_SERVICE_HINTS = (
+    "f_service",
+    "qpack_service",
+    "qpack_05",
+    "05_",
+    "service",
+    "after_sales",
+    "sop",
+    "售后",
+    "客服",
+)
+STRUCTURED_SUPPLEMENT_CONTENT_HINTS = (
+    "f_content",
+    "qpack_content",
+    "qpack_07",
+    "07_",
+    "content",
+    "script",
+    "copy",
+    "内容",
+    "内容规范",
+    "内容素材",
+    "口播",
+    "脚本",
+    "素材",
+    "短视频",
+)
 
 
 def _resolve_rag_chunker_mode() -> str:
@@ -238,14 +265,19 @@ class CompanyContextBus:  # 企业上下文总线，三层架构的中央调度�
         vector_score = float(getattr(result, "vector_score", 0.0) or 0.0)
         bm25_score = float(getattr(result, "bm25_score", 0.0) or 0.0)
 
+        if CompanyContextBus._is_structured_metadata_supplement_evidence(result):
+            return True
         if bm25_score >= min_bm25:
             return True
         if vector_score >= min_vector:
             return True
 
+        metadata = getattr(result, "metadata", {}) or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
         logger.info(
             "knowledge_result_filtered_low_relevance",
-            company_id=getattr(result, "metadata", {}).get("company_id", ""),
+            company_id=metadata.get("company_id", ""),
             source=getattr(result, "source", ""),
             vector_score=round(vector_score, 4),
             bm25_score=round(bm25_score, 4),
@@ -253,6 +285,58 @@ class CompanyContextBus:  # 企业上下文总线，三层架构的中央调度�
             min_bm25=min_bm25,
         )
         return False
+
+    @staticmethod
+    def _is_structured_metadata_supplement_evidence(result) -> bool:
+        if getattr(result, "source", "") != "metadata_supplement":
+            return False
+        metadata = getattr(result, "metadata", {}) or {}
+        if not isinstance(metadata, dict):
+            return False
+        if str(metadata.get("chunk_type") or "").strip().lower() != "fact_line":
+            return False
+
+        fact_ids = CompanyContextBus._metadata_string_list(metadata.get("fact_ids"))
+        markers = CompanyContextBus._metadata_string_list(metadata.get("markers"))
+        if CompanyContextBus._has_prefixed_value(fact_ids, "f_service") or CompanyContextBus._has_prefixed_value(
+            markers, "qpack_service"
+        ):
+            return True
+        if CompanyContextBus._has_prefixed_value(fact_ids, "f_content") or CompanyContextBus._has_prefixed_value(
+            markers, "qpack_content"
+        ):
+            return True
+
+        structured_parts = [
+            str(getattr(result, "source_file", "") or ""),
+            str(metadata.get("source_file") or ""),
+            str(metadata.get("filename") or ""),
+            str(metadata.get("original_filename") or ""),
+            str(metadata.get("section_title") or ""),
+            str(metadata.get("category") or ""),
+            str(metadata.get("scenario") or ""),
+        ]
+        structured_text = " ".join(structured_parts).casefold()
+        return any(
+            hint.casefold() in structured_text
+            for hint in (
+                *STRUCTURED_SUPPLEMENT_SERVICE_HINTS,
+                *STRUCTURED_SUPPLEMENT_CONTENT_HINTS,
+            )
+        )
+
+    @staticmethod
+    def _metadata_string_list(value) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [str(item) for item in value if item not in (None, "")]
+        return [str(value)] if value != "" else []
+
+    @staticmethod
+    def _has_prefixed_value(values: list[str], prefix: str) -> bool:
+        prefix = prefix.casefold()
+        return any(value.casefold().startswith(prefix) for value in values)
 
     def ingest_document(
         self, filename: str, content: bytes, metadata: dict = None

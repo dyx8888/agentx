@@ -303,6 +303,35 @@ class TestGraphEntityExtractionMode:
 
 
 class TestKnowledgeResultRelevance:
+    def _result(
+        self,
+        *,
+        source: str,
+        chunk_type: str | None = None,
+        fact_ids: list[str] | None = None,
+        markers: list[str] | None = None,
+        source_file: str = "",
+        bm25_score: float = 0.0,
+        vector_score: float = 0.0,
+        metadata: dict | None = None,
+    ) -> SimpleNamespace:
+        result_metadata = metadata or {}
+        if chunk_type is not None:
+            result_metadata["chunk_type"] = chunk_type
+        if fact_ids is not None:
+            result_metadata["fact_ids"] = fact_ids
+        if markers is not None:
+            result_metadata["markers"] = markers
+        if source_file:
+            result_metadata["source_file"] = source_file
+        return SimpleNamespace(
+            bm25_score=bm25_score,
+            vector_score=vector_score,
+            source=source,
+            source_file=source_file,
+            metadata=result_metadata,
+        )
+
     def test_filters_low_vector_only_match(self, monkeypatch):
         monkeypatch.setenv("RAG_MIN_VECTOR_SCORE", "0.55")
         monkeypatch.setenv("RAG_MIN_BM25_SCORE", "0.05")
@@ -325,6 +354,100 @@ class TestKnowledgeResultRelevance:
         )
 
         assert CompanyContextBus._is_relevant_knowledge_result(result)
+
+    def test_allows_structured_content_metadata_supplement(self, monkeypatch):
+        monkeypatch.setenv("RAG_MIN_VECTOR_SCORE", "0.55")
+        monkeypatch.setenv("RAG_MIN_BM25_SCORE", "0.05")
+        result = self._result(
+            source="metadata_supplement",
+            chunk_type="fact_line",
+            fact_ids=["F_CONTENT_META"],
+            markers=["QPACK_CONTENT_META"],
+        )
+
+        assert CompanyContextBus._is_relevant_knowledge_result(result)
+
+    def test_allows_structured_service_metadata_supplement(self, monkeypatch):
+        monkeypatch.setenv("RAG_MIN_VECTOR_SCORE", "0.55")
+        monkeypatch.setenv("RAG_MIN_BM25_SCORE", "0.05")
+        result = self._result(
+            source="metadata_supplement",
+            chunk_type="fact_line",
+            fact_ids=["F_SERVICE_META"],
+            markers=["QPACK_SERVICE_META"],
+        )
+
+        assert CompanyContextBus._is_relevant_knowledge_result(result)
+
+    def test_metadata_supplement_rule_fact_does_not_bypass_score_gate(self, monkeypatch):
+        monkeypatch.setenv("RAG_MIN_VECTOR_SCORE", "0.55")
+        monkeypatch.setenv("RAG_MIN_BM25_SCORE", "0.05")
+        result = self._result(
+            source="metadata_supplement",
+            chunk_type="fact_line",
+            fact_ids=["F_RULE_META"],
+            markers=["QPACK_RULE_META"],
+            source_file="qpack_06_platform_rules.txt",
+        )
+
+        assert not CompanyContextBus._is_relevant_knowledge_result(result)
+
+    def test_metadata_supplement_inventory_fact_does_not_bypass_score_gate(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv("RAG_MIN_VECTOR_SCORE", "0.55")
+        monkeypatch.setenv("RAG_MIN_BM25_SCORE", "0.05")
+        result = self._result(
+            source="metadata_supplement",
+            chunk_type="fact_line",
+            fact_ids=["F_INV_META"],
+            markers=["QPACK_INV_META"],
+            source_file="qpack_02_inventory_fulfillment.txt",
+        )
+
+        assert not CompanyContextBus._is_relevant_knowledge_result(result)
+
+    def test_metadata_supplement_product_fact_does_not_bypass_score_gate(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv("RAG_MIN_VECTOR_SCORE", "0.55")
+        monkeypatch.setenv("RAG_MIN_BM25_SCORE", "0.05")
+        result = self._result(
+            source="metadata_supplement",
+            chunk_type="fact_line",
+            fact_ids=["F_PRODUCT_META"],
+            markers=["QPACK_PRODUCT_META"],
+            source_file="qpack_01_product_manual.txt",
+        )
+
+        assert not CompanyContextBus._is_relevant_knowledge_result(result)
+
+    def test_low_score_non_supplement_still_filters(self, monkeypatch):
+        monkeypatch.setenv("RAG_MIN_VECTOR_SCORE", "0.55")
+        monkeypatch.setenv("RAG_MIN_BM25_SCORE", "0.05")
+        result = self._result(
+            source="vector",
+            chunk_type="fact_line",
+            fact_ids=["F_CONTENT_META"],
+            markers=["QPACK_CONTENT_META"],
+        )
+
+        assert not CompanyContextBus._is_relevant_knowledge_result(result)
+
+    def test_metadata_supplement_missing_metadata_falls_back_to_score_gate(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv("RAG_MIN_VECTOR_SCORE", "0.55")
+        monkeypatch.setenv("RAG_MIN_BM25_SCORE", "0.05")
+        result = SimpleNamespace(
+            bm25_score=0.0,
+            vector_score=0.0,
+            source="metadata_supplement",
+            source_file="",
+            metadata=None,
+        )
+
+        assert not CompanyContextBus._is_relevant_knowledge_result(result)
 
     def test_keeps_keyword_match(self, monkeypatch):
         monkeypatch.setenv("RAG_MIN_VECTOR_SCORE", "0.55")
