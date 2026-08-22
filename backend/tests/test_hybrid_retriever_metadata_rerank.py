@@ -18,11 +18,19 @@ class _VectorDocs:
         self.exc = exc
         self.calls = 0
 
+    def search(self, query_vector, top_k=10):
+        return []
+
     def list_documents(self):
         self.calls += 1
         if self.exc is not None:
             raise self.exc
         return self.rows
+
+
+class _EmbeddingService:
+    def encode_single(self, query):
+        return [0.0]
 
 
 def _result(
@@ -397,10 +405,13 @@ def test_medical_candidate_supplement_debug_counters_are_non_sensitive():
 
     assert counters is not None
     assert counters["medical_supplement_enabled"] is True
-    assert all(isinstance(value, (bool, int)) for value in counters.values())
+    assert all(isinstance(value, (bool, int, str)) for value in counters.values())
     serialized = str(counters)
     assert "UNSAFE_DOC_CONTENT" not in serialized
     assert "客服诊断皮肤疾病是否允许" not in serialized
+    assert "qpack_07_content_script_rules" not in serialized
+    assert "F_CONTENT_META" not in serialized
+    assert "QPACK_CONTENT_META" not in serialized
 
 
 def test_medical_candidate_supplement_logs_final_debug_counters(monkeypatch):
@@ -450,6 +461,80 @@ def test_medical_candidate_supplement_logs_final_debug_counters(monkeypatch):
     ]
     assert events[0][1]["final_has_content"] is True
     assert events[0][1]["final_has_service"] is True
+
+
+def test_medical_search_path_logs_debug_counters_when_no_supplement_added(monkeypatch):
+    events = []
+
+    def capture(event_name, **kwargs):
+        events.append((event_name, kwargs))
+
+    monkeypatch.setattr(hybrid_module.logger, "info", capture)
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._embedding_service = _EmbeddingService()
+    retriever.vector = _VectorDocs([])
+    retriever._documents = {
+        "service-medical": {
+            "content": "fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 客服诊断皮肤疾病时过敏反馈不得诊断疾病",
+            "metadata": {
+                "source_file": "qpack_05_after_sales_sop.txt",
+                "chunk_type": "fact_line",
+                "fact_ids": ["F_SERVICE_002"],
+                "markers": ["QPACK_SERVICE_002"],
+            },
+        }
+    }
+    retriever._rebuild_bm25()
+
+    results = retriever.search("客服诊断皮肤疾病是否允许？", top_k=1, use_reranker=False)
+
+    assert results
+    event = next(
+        item for item in events if item[0] == "medical_supplement_debug_counters"
+    )
+    counters = event[1]
+    assert counters["medical_query_detected"] is True
+    assert counters["supplement_function_invoked"] is True
+    assert counters["supplement_skipped"] is True
+    assert counters["supplement_skip_reason_code"] == "no_candidates"
+    assert counters["logger_emitted"] is True
+    assert all(isinstance(value, (bool, int, str)) for value in counters.values())
+    serialized = str(counters)
+    assert "客服诊断皮肤疾病是否允许" not in serialized
+    assert "qpack_05_after_sales_sop" not in serialized
+    assert "F_SERVICE_002" not in serialized
+    assert "QPACK_SERVICE_002" not in serialized
+
+
+def test_inventory_search_path_does_not_log_medical_debug_counters(monkeypatch):
+    events = []
+
+    def capture(event_name, **kwargs):
+        events.append((event_name, kwargs))
+
+    monkeypatch.setattr(hybrid_module.logger, "info", capture)
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._embedding_service = _EmbeddingService()
+    retriever.vector = _VectorDocs([])
+    retriever._documents = {
+        "inventory": {
+            "content": "fact_id=F_INV_003 | marker=QPACK_INV_EAST_003 | 30ml低于180瓶触发补货预警",
+            "metadata": {
+                "source_file": "qpack_02_inventory_fulfillment.txt",
+                "chunk_type": "fact_line",
+                "fact_ids": ["F_INV_003"],
+                "markers": ["QPACK_INV_EAST_003"],
+            },
+        }
+    }
+    retriever._rebuild_bm25()
+
+    retriever.search("30ml低于多少瓶触发补货预警？", top_k=1, use_reranker=False)
+
+    assert not any(
+        event_name == "medical_supplement_debug_counters"
+        for event_name, _ in events
+    )
 
 
 def test_medical_candidate_supplement_vector_fallback_deduplicates_chunks():

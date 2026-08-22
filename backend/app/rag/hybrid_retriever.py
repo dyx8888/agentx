@@ -23,6 +23,8 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+MedicalSupplementDebugValue = bool | int | str
+
 METADATA_STRUCTURED_EVIDENCE_BOOST = 0.0008
 METADATA_FACT_LINE_BOOST = 0.0012
 METADATA_UPDATE_NOTICE_BOOST = 0.0015
@@ -863,7 +865,9 @@ class HybridRetriever:
         self._embedding_service = None
         self._documents: dict[str, dict[str, Any]] = {}
         self._indexed = False
-        self._last_medical_supplement_debug: dict[str, bool | int] | None = None
+        self._last_medical_supplement_debug: dict[
+            str, MedicalSupplementDebugValue
+        ] | None = None
 
     @staticmethod
     def _escape_milvus_expr(value: Any) -> str:
@@ -1010,8 +1014,21 @@ class HybridRetriever:
         top_k: int,
     ) -> list[SearchResult]:
         """Add bounded local service/content evidence for medical-risk queries."""
-        if top_k <= 0 or not candidates or not _is_medical_risk_query(query):
+        medical_query_detected = _is_medical_risk_query(query)
+        if not medical_query_detected:
             self._last_medical_supplement_debug = None
+            return candidates[:top_k]
+
+        if top_k <= 0 or not candidates:
+            self._last_medical_supplement_debug = (
+                self._new_medical_supplement_debug_counters(
+                    candidate_count=len(candidates),
+                    top_k=top_k,
+                    supplement_function_invoked=True,
+                    supplement_skipped=True,
+                    supplement_skip_reason_code="no_candidates",
+                )
+            )
             return candidates[:top_k]
 
         has_domain = {
@@ -1021,35 +1038,30 @@ class HybridRetriever:
         local_pool = self._medical_supplement_candidates_from_rows(
             self._documents.values()
         )
-        debug_counters: dict[str, bool | int] = {
-            "medical_supplement_enabled": True,
-            "local_doc_count": len(self._documents),
-            "vector_list_documents_called": False,
-            "vector_list_documents_error": False,
-            "vector_list_documents_missing": False,
-            "vector_listed_doc_count": 0,
-            "local_content_fact_count": self._domain_fact_count(local_pool, "content"),
-            "local_service_fact_count": self._domain_fact_count(local_pool, "service"),
-            "vector_content_fact_count": 0,
-            "vector_service_fact_count": 0,
-            "supplement_seen_content_domain": bool(has_domain["content"])
-            or self._domain_fact_count(local_pool, "content") > 0,
-            "supplement_seen_service_domain": bool(has_domain["service"])
-            or self._domain_fact_count(local_pool, "service") > 0,
-            "supplement_added_count": 0,
-            "supplement_added_content_count": 0,
-            "supplement_added_service_count": 0,
-            "post_supplement_candidate_count": min(len(candidates), top_k),
-            "reranker_candidate_has_content": False,
-            "reranker_candidate_has_service": False,
-            "guard_candidate_has_content": False,
-            "guard_candidate_has_service": False,
-            "final_has_content": False,
-            "final_has_service": False,
-        }
+        debug_counters = self._new_medical_supplement_debug_counters(
+            candidate_count=len(candidates),
+            top_k=top_k,
+            supplement_function_invoked=True,
+            supplement_skipped=False,
+            supplement_skip_reason_code="emitted",
+        )
+        debug_counters["local_content_fact_count"] = self._domain_fact_count(
+            local_pool, "content"
+        )
+        debug_counters["local_service_fact_count"] = self._domain_fact_count(
+            local_pool, "service"
+        )
+        debug_counters["supplement_seen_content_domain"] = bool(
+            has_domain["content"]
+        ) or int(debug_counters["local_content_fact_count"]) > 0
+        debug_counters["supplement_seen_service_domain"] = bool(
+            has_domain["service"]
+        ) or int(debug_counters["local_service_fact_count"]) > 0
         self._last_medical_supplement_debug = debug_counters
         missing_domains = [domain for domain, present in has_domain.items() if not present]
         if not missing_domains:
+            debug_counters["supplement_skipped"] = True
+            debug_counters["supplement_skip_reason_code"] = "no_domain_gap"
             return candidates[:top_k]
 
         seen_keys = {_result_dedupe_key(result) for result in candidates}
@@ -1118,6 +1130,13 @@ class HybridRetriever:
                     debug_counters["supplement_seen_service_domain"] = True
 
         if not supplements:
+            debug_counters["supplement_skipped"] = True
+            if debug_counters["vector_list_documents_error"]:
+                debug_counters["supplement_skip_reason_code"] = "vector_listing_error"
+            elif debug_counters["vector_list_documents_missing"]:
+                debug_counters["supplement_skip_reason_code"] = "no_vector_listing"
+            else:
+                debug_counters["supplement_skip_reason_code"] = "no_candidates"
             return candidates[:top_k]
 
         supplemented = self._apply_metadata_boost(
@@ -1125,6 +1144,46 @@ class HybridRetriever:
         )
         debug_counters["post_supplement_candidate_count"] = len(supplemented)
         return supplemented
+
+    def _new_medical_supplement_debug_counters(
+        self,
+        *,
+        candidate_count: int,
+        top_k: int,
+        supplement_function_invoked: bool,
+        supplement_skipped: bool,
+        supplement_skip_reason_code: str,
+    ) -> dict[str, MedicalSupplementDebugValue]:
+        return {
+            "medical_supplement_enabled": True,
+            "medical_query_detected": True,
+            "supplement_function_invoked": supplement_function_invoked,
+            "supplement_skipped": supplement_skipped,
+            "supplement_skip_reason_code": supplement_skip_reason_code,
+            "logger_emitted": False,
+            "initial_candidate_count": candidate_count,
+            "local_doc_count": len(self._documents),
+            "vector_list_documents_called": False,
+            "vector_list_documents_error": False,
+            "vector_list_documents_missing": False,
+            "vector_listed_doc_count": 0,
+            "local_content_fact_count": 0,
+            "local_service_fact_count": 0,
+            "vector_content_fact_count": 0,
+            "vector_service_fact_count": 0,
+            "supplement_seen_content_domain": False,
+            "supplement_seen_service_domain": False,
+            "supplement_added_count": 0,
+            "supplement_added_content_count": 0,
+            "supplement_added_service_count": 0,
+            "post_supplement_candidate_count": max(0, min(candidate_count, top_k)),
+            "reranker_candidate_has_content": False,
+            "reranker_candidate_has_service": False,
+            "guard_candidate_has_content": False,
+            "guard_candidate_has_service": False,
+            "final_has_content": False,
+            "final_has_service": False,
+        }
 
     @staticmethod
     def _domain_fact_count(results: list[SearchResult], domain: str) -> int:
@@ -1184,7 +1243,7 @@ class HybridRetriever:
 
     def _vector_medical_supplement_candidates(
         self,
-        debug_counters: dict[str, bool | int] | None = None,
+        debug_counters: dict[str, MedicalSupplementDebugValue] | None = None,
     ) -> list[SearchResult]:
         list_documents = getattr(self.vector, "list_documents", None)
         if not callable(list_documents):
@@ -1227,6 +1286,7 @@ class HybridRetriever:
         counters["final_has_service"] = any(
             _is_fact_line_for_domain(result, "service") for result in final
         )
+        counters["logger_emitted"] = True
         logger.info("medical_supplement_debug_counters", **counters)
 
     @staticmethod
