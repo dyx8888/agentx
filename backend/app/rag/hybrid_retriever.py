@@ -1004,25 +1004,23 @@ class HybridRetriever:
 
         seen_keys = {_result_dedupe_key(result) for result in candidates}
         supplements: list[SearchResult] = []
+        local_pool = self._medical_supplement_candidates_from_rows(
+            self._documents.values()
+        )
+        vector_pool: list[SearchResult] | None = None
 
-        for domain in missing_domains:
+        def best_candidate(
+            domain: str,
+            pool: list[SearchResult],
+            order_offset: int = 0,
+        ) -> tuple[float, int, SearchResult] | None:
             best: tuple[float, int, SearchResult] | None = None
-            for order, row in enumerate(self._documents.values()):
-                metadata = row.get("metadata") or {}
-                if not isinstance(metadata, dict):
-                    continue
-                result = SearchResult(
-                    content=str(row.get("content") or ""),
-                    metadata=metadata,
-                    rrf_score=0.0,
-                    source="metadata_supplement",
-                    source_file=metadata.get("source_file") or metadata.get("filename", ""),
-                    chunk_index=int(metadata.get("chunk_index", 0) or 0),
-                    source_page=int(metadata.get("source_page", 0) or 0),
-                )
+            for order, result in enumerate(pool, start=order_offset):
                 if _result_dedupe_key(result) in seen_keys:
                     continue
                 if not _is_fact_line_for_domain(result, domain):
+                    continue
+                if not _has_structured_domain_metadata(result, domain):
                     continue
 
                 evidence_text = _evidence_search_text(result)
@@ -1045,6 +1043,14 @@ class HybridRetriever:
                 ranked = (score, -order, result)
                 if best is None or ranked > best:
                     best = ranked
+            return best
+
+        for domain in missing_domains:
+            best = best_candidate(domain, local_pool)
+            if best is None:
+                if vector_pool is None:
+                    vector_pool = self._vector_medical_supplement_candidates()
+                best = best_candidate(domain, vector_pool, order_offset=len(local_pool))
 
             if best is not None:
                 supplement = best[2]
@@ -1055,6 +1061,69 @@ class HybridRetriever:
             return candidates[:top_k]
 
         return self._apply_metadata_boost(query, candidates + supplements, top_k=top_k)
+
+    @staticmethod
+    def _metadata_int(metadata: dict[str, Any], key: str) -> int:
+        try:
+            return int(metadata.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @classmethod
+    def _medical_supplement_result_from_row(
+        cls,
+        row: dict[str, Any],
+    ) -> SearchResult | None:
+        if not isinstance(row, dict):
+            return None
+        metadata = row.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            return None
+        source_file = str(
+            metadata.get("source_file")
+            or metadata.get("filename")
+            or metadata.get("original_filename")
+            or row.get("filename")
+            or ""
+        )
+        return SearchResult(
+            content=str(row.get("content") or ""),
+            metadata=metadata,
+            rrf_score=0.0,
+            source="metadata_supplement",
+            source_file=source_file,
+            chunk_index=cls._metadata_int(metadata, "chunk_index"),
+            source_page=cls._metadata_int(metadata, "source_page"),
+        )
+
+    @classmethod
+    def _medical_supplement_candidates_from_rows(
+        cls,
+        rows: Any,
+    ) -> list[SearchResult]:
+        results: list[SearchResult] = []
+        seen_keys: set[tuple[str, str, str, str, str]] = set()
+        for row in rows or []:
+            result = cls._medical_supplement_result_from_row(row)
+            if result is None:
+                continue
+            key = _result_dedupe_key(result)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            results.append(result)
+        return results
+
+    def _vector_medical_supplement_candidates(self) -> list[SearchResult]:
+        list_documents = getattr(self.vector, "list_documents", None)
+        if not callable(list_documents):
+            return []
+        try:
+            rows = list_documents()
+        except Exception as exc:
+            logger.debug("medical_supplement_vector_list_failed", error=str(exc))
+            return []
+        return self._medical_supplement_candidates_from_rows(rows)
 
     @staticmethod
     def _apply_metadata_boost(

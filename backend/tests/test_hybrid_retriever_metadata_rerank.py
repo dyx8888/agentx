@@ -11,6 +11,19 @@ from app.rag.hybrid_retriever import (
 )
 
 
+class _VectorDocs:
+    def __init__(self, rows=None, exc: Exception | None = None):
+        self.rows = rows or []
+        self.exc = exc
+        self.calls = 0
+
+    def list_documents(self):
+        self.calls += 1
+        if self.exc is not None:
+            raise self.exc
+        return self.rows
+
+
 def _result(
     content: str,
     *,
@@ -306,6 +319,144 @@ def test_medical_candidate_supplement_uses_structured_content_metadata_fallback(
         for result in candidates
         if "F_RULE_002" in (result.metadata or {}).get("fact_ids", [])
     )
+
+
+def test_medical_candidate_supplement_falls_back_to_vector_documents():
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._documents = {}
+    retriever.vector = _VectorDocs(
+        [
+            {
+                "id": "vector-content-meta",
+                "content": "fact_id=F_CONTENT_META | marker=QPACK_CONTENT_META | 评论区不得给医疗建议，先查看成分表并局部试用。",
+                "metadata": {
+                    "source_file": "qpack_07_content_script_rules.txt",
+                    "chunk_type": "fact_line",
+                    "fact_ids": ["F_CONTENT_META"],
+                    "markers": ["QPACK_CONTENT_META"],
+                    "section_title": "评论区合规",
+                    "chunk_index": 9,
+                },
+            }
+        ]
+    )
+    query = "资料里是否允许客服诊断用户皮肤疾病？"
+    candidates = [
+        _result("fact_id=F_RULE_002 | marker=QPACK_RULE_002 | 平台规则提到不得给医疗建议", score=0.0167, source_file="qpack_06_platform_rules.txt", chunk_type="fact_line", fact_ids=["F_RULE_002"], markers=["QPACK_RULE_002"]),
+        _result("fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病", score=0.0150, source_file="qpack_05_after_sales_sop.txt", chunk_type="fact_line", fact_ids=["F_SERVICE_002"], markers=["QPACK_SERVICE_002"]),
+    ]
+
+    supplemented = retriever._supplement_medical_source_candidates(
+        query, candidates, top_k=3
+    )
+    fact_ids = {
+        fact_id
+        for result in supplemented
+        for fact_id in (result.metadata or {}).get("fact_ids", [])
+    }
+
+    assert retriever.vector.calls == 1
+    assert "F_CONTENT_META" in fact_ids
+    assert any(result.source == "metadata_supplement" for result in supplemented)
+
+
+def test_medical_candidate_supplement_vector_fallback_deduplicates_chunks():
+    retriever = HybridRetriever(company_id="test-company")
+    row = {
+        "id": "vector-content-meta",
+        "content": "fact_id=F_CONTENT_META | marker=QPACK_CONTENT_META | 评论区不得给医疗建议，先查看成分表并局部试用。",
+        "metadata": {
+            "source_file": "qpack_07_content_script_rules.txt",
+            "chunk_type": "fact_line",
+            "fact_ids": ["F_CONTENT_META"],
+            "markers": ["QPACK_CONTENT_META"],
+            "chunk_index": 9,
+        },
+    }
+    retriever.vector = _VectorDocs([row, dict(row)])
+    candidates = [
+        _result("fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病", score=0.0150, source_file="qpack_05_after_sales_sop.txt", chunk_type="fact_line", fact_ids=["F_SERVICE_002"], markers=["QPACK_SERVICE_002"]),
+    ]
+
+    supplemented = retriever._supplement_medical_source_candidates(
+        "客服诊断皮肤疾病是否允许？", candidates, top_k=3
+    )
+    content_supplements = [
+        result
+        for result in supplemented
+        if "F_CONTENT_META" in (result.metadata or {}).get("fact_ids", [])
+    ]
+
+    assert len(content_supplements) == 1
+
+
+def test_medical_candidate_supplement_vector_fallback_not_used_for_inventory_query():
+    retriever = HybridRetriever(company_id="test-company")
+    retriever.vector = _VectorDocs(
+        [
+            {
+                "id": "vector-content-meta",
+                "content": "fact_id=F_CONTENT_META | marker=QPACK_CONTENT_META | 评论区不得给医疗建议。",
+                "metadata": {
+                    "source_file": "qpack_07_content_script_rules.txt",
+                    "chunk_type": "fact_line",
+                    "fact_ids": ["F_CONTENT_META"],
+                    "markers": ["QPACK_CONTENT_META"],
+                },
+            }
+        ]
+    )
+    candidates = [
+        _result("fact_id=F_INV_003 | marker=QPACK_INV_EAST_003 | 安全库存30ml低于180瓶触发补货预警", score=0.0196, source_file="qpack_02_inventory_fulfillment.txt", chunk_type="fact_line", fact_ids=["F_INV_003"], markers=["QPACK_INV_EAST_003"]),
+    ]
+
+    supplemented = retriever._supplement_medical_source_candidates(
+        "30ml低于多少瓶触发补货预警？", candidates, top_k=2
+    )
+
+    assert retriever.vector.calls == 0
+    assert supplemented == candidates
+
+
+def test_medical_candidate_supplement_vector_fallback_handles_list_failure():
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._documents = {}
+    retriever.vector = _VectorDocs(exc=RuntimeError("list failed"))
+    service = _result(
+        "fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病",
+        score=0.0150,
+        source_file="qpack_05_after_sales_sop.txt",
+        chunk_type="fact_line",
+        fact_ids=["F_SERVICE_002"],
+        markers=["QPACK_SERVICE_002"],
+    )
+
+    supplemented = retriever._supplement_medical_source_candidates(
+        "客服诊断皮肤疾病是否允许？", [service], top_k=2
+    )
+
+    assert retriever.vector.calls == 1
+    assert supplemented == [service]
+
+
+def test_medical_candidate_supplement_vector_fallback_handles_missing_list_documents():
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._documents = {}
+    retriever.vector = object()
+    service = _result(
+        "fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病",
+        score=0.0150,
+        source_file="qpack_05_after_sales_sop.txt",
+        chunk_type="fact_line",
+        fact_ids=["F_SERVICE_002"],
+        markers=["QPACK_SERVICE_002"],
+    )
+
+    supplemented = retriever._supplement_medical_source_candidates(
+        "客服诊断皮肤疾病是否允许？", [service], top_k=2
+    )
+
+    assert supplemented == [service]
 
 
 def test_medical_candidate_supplement_does_not_run_for_inventory_query():
