@@ -978,17 +978,17 @@ class HybridRetriever:
         )
         debug_counters = self._last_medical_supplement_debug
         if debug_counters is not None:
-            debug_counters["reranker_candidate_has_content"] = any(
+            debug_counters["reranker_candidate_content_domain_present"] = any(
                 _is_fact_line_for_domain(result, "content") for result in candidates
             )
-            debug_counters["reranker_candidate_has_service"] = any(
+            debug_counters["reranker_candidate_service_domain_present"] = any(
                 _is_fact_line_for_domain(result, "service") for result in candidates
             )
-            debug_counters["guard_candidate_has_content"] = debug_counters[
-                "reranker_candidate_has_content"
+            debug_counters["guard_candidate_content_domain_present"] = debug_counters[
+                "reranker_candidate_content_domain_present"
             ]
-            debug_counters["guard_candidate_has_service"] = debug_counters[
-                "reranker_candidate_has_service"
+            debug_counters["guard_candidate_service_domain_present"] = debug_counters[
+                "reranker_candidate_service_domain_present"
             ]
 
         if use_reranker and candidates:
@@ -1177,12 +1177,12 @@ class HybridRetriever:
             "supplement_added_content_count": 0,
             "supplement_added_service_count": 0,
             "post_supplement_candidate_count": max(0, min(candidate_count, top_k)),
-            "reranker_candidate_has_content": False,
-            "reranker_candidate_has_service": False,
-            "guard_candidate_has_content": False,
-            "guard_candidate_has_service": False,
-            "final_has_content": False,
-            "final_has_service": False,
+            "reranker_candidate_content_domain_present": False,
+            "reranker_candidate_service_domain_present": False,
+            "guard_candidate_content_domain_present": False,
+            "guard_candidate_service_domain_present": False,
+            "final_content_domain_present": False,
+            "final_service_domain_present": False,
         }
 
     @staticmethod
@@ -1280,10 +1280,10 @@ class HybridRetriever:
         counters = self._last_medical_supplement_debug
         if counters is None:
             return
-        counters["final_has_content"] = any(
+        counters["final_content_domain_present"] = any(
             _is_fact_line_for_domain(result, "content") for result in final
         )
-        counters["final_has_service"] = any(
+        counters["final_service_domain_present"] = any(
             _is_fact_line_for_domain(result, "service") for result in final
         )
         counters["logger_emitted"] = True

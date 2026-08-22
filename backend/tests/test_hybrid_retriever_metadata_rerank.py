@@ -443,12 +443,12 @@ def test_medical_candidate_supplement_logs_final_debug_counters(monkeypatch):
         "supplement_added_content_count": 1,
         "supplement_added_service_count": 0,
         "post_supplement_candidate_count": 3,
-        "reranker_candidate_has_content": True,
-        "reranker_candidate_has_service": True,
-        "guard_candidate_has_content": True,
-        "guard_candidate_has_service": True,
-        "final_has_content": False,
-        "final_has_service": False,
+        "reranker_candidate_content_domain_present": True,
+        "reranker_candidate_service_domain_present": True,
+        "guard_candidate_content_domain_present": True,
+        "guard_candidate_service_domain_present": True,
+        "final_content_domain_present": False,
+        "final_service_domain_present": False,
     }
 
     retriever._finalize_medical_supplement_debug(final)
@@ -459,8 +459,15 @@ def test_medical_candidate_supplement_logs_final_debug_counters(monkeypatch):
             retriever._last_medical_supplement_debug,
         )
     ]
-    assert events[0][1]["final_has_content"] is True
-    assert events[0][1]["final_has_service"] is True
+    counters = events[0][1]
+    assert counters["final_content_domain_present"] is True
+    assert counters["final_service_domain_present"] is True
+    assert counters["reranker_candidate_content_domain_present"] is True
+    assert counters["guard_candidate_content_domain_present"] is True
+    assert isinstance(counters["final_content_domain_present"], bool)
+    assert "final_has_content" not in counters
+    assert "reranker_candidate_has_content" not in counters
+    assert "guard_candidate_has_content" not in counters
 
 
 def test_medical_search_path_logs_debug_counters_when_no_supplement_added(monkeypatch):
@@ -498,6 +505,12 @@ def test_medical_search_path_logs_debug_counters_when_no_supplement_added(monkey
     assert counters["supplement_skipped"] is True
     assert counters["supplement_skip_reason_code"] == "no_candidates"
     assert counters["logger_emitted"] is True
+    assert counters["final_content_domain_present"] is False
+    assert counters["final_service_domain_present"] is True
+    assert isinstance(counters["final_content_domain_present"], bool)
+    assert "final_has_content" not in counters
+    assert "reranker_candidate_has_content" not in counters
+    assert "guard_candidate_has_content" not in counters
     assert all(isinstance(value, (bool, int, str)) for value in counters.values())
     serialized = str(counters)
     assert "客服诊断皮肤疾病是否允许" not in serialized
