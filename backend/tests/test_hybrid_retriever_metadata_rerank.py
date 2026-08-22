@@ -3,6 +3,7 @@ import sys
 
 sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from app.rag import hybrid_retriever as hybrid_module
 from app.rag.hybrid_retriever import (
     HybridRetriever,
     SearchResult,
@@ -358,6 +359,97 @@ def test_medical_candidate_supplement_falls_back_to_vector_documents():
     assert retriever.vector.calls == 1
     assert "F_CONTENT_META" in fact_ids
     assert any(result.source == "metadata_supplement" for result in supplemented)
+    counters = retriever._last_medical_supplement_debug
+    assert counters is not None
+    assert counters["vector_list_documents_called"] is True
+    assert counters["vector_listed_doc_count"] == 1
+    assert counters["vector_content_fact_count"] == 1
+    assert counters["supplement_added_content_count"] == 1
+
+
+def test_medical_candidate_supplement_debug_counters_are_non_sensitive():
+    retriever = HybridRetriever(company_id="test-company")
+    retriever._documents = {}
+    retriever.vector = _VectorDocs(
+        [
+            {
+                "id": "vector-content-meta",
+                "content": "UNSAFE_DOC_CONTENT should never appear in counters",
+                "metadata": {
+                    "source_file": "qpack_07_content_script_rules.txt",
+                    "chunk_type": "fact_line",
+                    "fact_ids": ["F_CONTENT_META"],
+                    "markers": ["QPACK_CONTENT_META"],
+                    "section_title": "评论区合规",
+                    "chunk_index": 9,
+                },
+            }
+        ]
+    )
+    candidates = [
+        _result("fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病", score=0.0150, source_file="qpack_05_after_sales_sop.txt", chunk_type="fact_line", fact_ids=["F_SERVICE_002"], markers=["QPACK_SERVICE_002"]),
+    ]
+
+    retriever._supplement_medical_source_candidates(
+        "客服诊断皮肤疾病是否允许？", candidates, top_k=3
+    )
+    counters = retriever._last_medical_supplement_debug
+
+    assert counters is not None
+    assert counters["medical_supplement_enabled"] is True
+    assert all(isinstance(value, (bool, int)) for value in counters.values())
+    serialized = str(counters)
+    assert "UNSAFE_DOC_CONTENT" not in serialized
+    assert "客服诊断皮肤疾病是否允许" not in serialized
+
+
+def test_medical_candidate_supplement_logs_final_debug_counters(monkeypatch):
+    events = []
+
+    def capture(event_name, **kwargs):
+        events.append((event_name, kwargs))
+
+    monkeypatch.setattr(hybrid_module.logger, "info", capture)
+    retriever = HybridRetriever(company_id="test-company")
+    final = [
+        _result("fact_id=F_SERVICE_002 | marker=QPACK_SERVICE_002 | 过敏反馈不得诊断疾病", score=0.0150, source_file="qpack_05_after_sales_sop.txt", chunk_type="fact_line", fact_ids=["F_SERVICE_002"], markers=["QPACK_SERVICE_002"]),
+        _result("fact_id=F_CONTENT_META | marker=QPACK_CONTENT_META | 评论区不得给医疗建议", score=0.0140, source_file="qpack_07_content_script_rules.txt", chunk_type="fact_line", fact_ids=["F_CONTENT_META"], markers=["QPACK_CONTENT_META"]),
+    ]
+    retriever._last_medical_supplement_debug = {
+        "medical_supplement_enabled": True,
+        "local_doc_count": 0,
+        "vector_list_documents_called": True,
+        "vector_list_documents_error": False,
+        "vector_list_documents_missing": False,
+        "vector_listed_doc_count": 1,
+        "local_content_fact_count": 0,
+        "local_service_fact_count": 0,
+        "vector_content_fact_count": 1,
+        "vector_service_fact_count": 0,
+        "supplement_seen_content_domain": True,
+        "supplement_seen_service_domain": True,
+        "supplement_added_count": 1,
+        "supplement_added_content_count": 1,
+        "supplement_added_service_count": 0,
+        "post_supplement_candidate_count": 3,
+        "reranker_candidate_has_content": True,
+        "reranker_candidate_has_service": True,
+        "guard_candidate_has_content": True,
+        "guard_candidate_has_service": True,
+        "final_has_content": False,
+        "final_has_service": False,
+    }
+
+    retriever._finalize_medical_supplement_debug(final)
+
+    assert events == [
+        (
+            "medical_supplement_debug_counters",
+            retriever._last_medical_supplement_debug,
+        )
+    ]
+    assert events[0][1]["final_has_content"] is True
+    assert events[0][1]["final_has_service"] is True
 
 
 def test_medical_candidate_supplement_vector_fallback_deduplicates_chunks():
@@ -416,6 +508,7 @@ def test_medical_candidate_supplement_vector_fallback_not_used_for_inventory_que
 
     assert retriever.vector.calls == 0
     assert supplemented == candidates
+    assert retriever._last_medical_supplement_debug is None
 
 
 def test_medical_candidate_supplement_vector_fallback_handles_list_failure():
@@ -437,6 +530,11 @@ def test_medical_candidate_supplement_vector_fallback_handles_list_failure():
 
     assert retriever.vector.calls == 1
     assert supplemented == [service]
+    counters = retriever._last_medical_supplement_debug
+    assert counters is not None
+    assert counters["vector_list_documents_called"] is True
+    assert counters["vector_list_documents_error"] is True
+    assert counters["post_supplement_candidate_count"] == 1
 
 
 def test_medical_candidate_supplement_vector_fallback_handles_missing_list_documents():
