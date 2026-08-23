@@ -25,6 +25,8 @@ import { useAuth } from '@/lib/AuthContext';
 const DEMO_ENABLED = import.meta.env.VITE_DEMO_ENABLED === 'true';
 const DEMO_USERNAME = import.meta.env.VITE_DEMO_USERNAME || '';
 const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || '';
+const PUBLIC_REGISTRATION_ENABLED =
+  import.meta.env.VITE_PUBLIC_REGISTRATION_ENABLED === 'true';
 const LOGIN_PASSWORD_MIN_LENGTH = 6;
 const REGISTER_PASSWORD_MIN_LENGTH = 8;
 
@@ -127,6 +129,11 @@ function AuthForm() {
       return;
     }
 
+    if (!PUBLIC_REGISTRATION_ENABLED) {
+      setError('公开注册暂未开放，请使用已授权的演示账号登录');
+      return;
+    }
+
     const username = registerForm.username.trim();
     const email = registerForm.email.trim();
     const { password } = registerForm;
@@ -171,6 +178,7 @@ function AuthForm() {
 
   const switchMode = (next) => {
     if (loading || next === mode) return;
+    if (next === 'register' && !PUBLIC_REGISTRATION_ENABLED) return;
     setMode(next);
     setShowPassword(false);
     setError('');
@@ -199,15 +207,17 @@ function AuthForm() {
         >
           登录
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'register'}
-          onClick={() => switchMode('register')}
-          className={`tab-trigger ${mode === 'register' ? 'active' : ''}`}
-        >
-          注册
-        </button>
+        {PUBLIC_REGISTRATION_ENABLED && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'register'}
+            onClick={() => switchMode('register')}
+            className={`tab-trigger ${mode === 'register' ? 'active' : ''}`}
+          >
+            注册
+          </button>
+        )}
       </div>
 
       {/* 表单 */}

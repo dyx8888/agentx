@@ -43,6 +43,7 @@ from app.auth import (  # 复用 HS256 算法常量与密钥获取函数
     is_token_revoked,
 )
 from app.core.logging import get_logger
+from app.core.config import is_public_registration_enabled
 
 # token 黑名单单例：logout 时撤销 jti，refresh 时撤销旧 jti
 from app.core.token_blacklist import get_token_blacklist
@@ -484,6 +485,12 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
 @router.post("/users/register", response_model=UserResponse)
 async def register_user(user_data: UserCreate):
     """Register a new user"""
+
+    if not is_public_registration_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration is disabled for this demo",
+        )
 
     # 第一步：检查用户名是否已存在
     existing_user = db.get_user_by_username(user_data.username)

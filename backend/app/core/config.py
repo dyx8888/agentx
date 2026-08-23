@@ -14,6 +14,22 @@ def _env(key: str, default: str | None = None) -> str | None:
     return os.getenv(key, default)
 
 
+def _env_flag(key: str, default: bool = False) -> bool:
+    value = _env(key)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_public_registration_enabled() -> bool:
+    """公开自助注册开关。
+
+    public-demo / production 默认关闭；如需开放注册，必须显式设置
+    PUBLIC_REGISTRATION_ENABLED=true。
+    """
+    return _env_flag("PUBLIC_REGISTRATION_ENABLED", default=False)
+
+
 # 限流相关配置 — T3.1
 # 限流专用 Redis URL，默认与全局 REDIS_URL 相同，多实例部署时共享计数
 RATE_LIMIT_REDIS_URL: str = _env("RATE_LIMIT_REDIS_URL") or _env(
