@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "AgentX Browser Connector MVP",
+  "description": "Read-only connector that captures allowlisted API responses and forwards sanitized data to AgentX.",
+  "version": "0.1.0",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AgentX Connector"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://buyin.jinritemai.com/*",
+        "https://compass.jinritemai.com/*",
+        "https://fxg.jinritemai.com/*",
+        "https://www.douyin.com/*",
+        "https://xqttool.com/*",
+        "https://www.xqttool.com/*",
+        "https://cc.oceanengine.com/*"
+      ],
+      "js": ["src/content-script.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "host_permissions": [
+    "https://agentx-backend.example.com/*"
+  ],
+  "permissions": ["storage"],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/injected.js"],
+      "matches": [
+        "https://buyin.jinritemai.com/*",
+        "https://compass.jinritemai.com/*",
+        "https://fxg.jinritemai.com/*",
+        "https://www.douyin.com/*",
+        "https://xqttool.com/*",
+        "https://www.xqttool.com/*",
+        "https://cc.oceanengine.com/*"
+      ]
+    }
+  ]
+}

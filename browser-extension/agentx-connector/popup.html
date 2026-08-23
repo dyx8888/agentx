@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AgentX Connector</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="panel">
+      <header class="header">
+        <div>
+          <h1>AgentX Connector</h1>
+          <p>Read-only API response capture</p>
+        </div>
+        <span id="statusBadge" class="badge">Loading</span>
+      </header>
+
+      <label class="toggle">
+        <input id="enabled" type="checkbox">
+        <span>Capture allowlisted responses</span>
+      </label>
+
+      <label class="field">
+        <span>AgentX ingest URL</span>
+        <input id="endpoint" type="url" spellcheck="false">
+      </label>
+
+      <button id="save" type="button">Save</button>
+
+      <section class="meta">
+        <div>
+          <span>Queued</span>
+          <strong id="queuedCount">0</strong>
+        </div>
+        <div>
+          <span>Last status</span>
+          <strong id="lastStatus">None</strong>
+        </div>
+      </section>
+
+      <p class="note">
+        No cookies, authorization headers, passwords, captcha, payment data, or request bodies are collected.
+      </p>
+    </main>
+    <script src="src/popup.js"></script>
+  </body>
+</html>
