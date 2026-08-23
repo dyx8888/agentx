@@ -2,6 +2,62 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('antd', async () => {
+  const React = await import('react');
+  const h = React.createElement;
+
+  const Button = ({ htmlType, type, loading, disabled, children, ...props }) =>
+    h('button', { type: htmlType || 'button', disabled: disabled || loading, ...props }, children);
+
+  const Input = ({ prefix, ...props }) =>
+    h('label', null, prefix, h('input', props));
+  Input.Password = ({ prefix, ...props }) =>
+    h('label', null, prefix, h('input', { ...props, type: 'password' }));
+
+  const Form = ({ onFinish, children, ...props }) =>
+    h(
+      'form',
+      {
+        ...props,
+        onSubmit: (event) => {
+          event.preventDefault();
+          const values = Object.fromEntries(new FormData(event.currentTarget));
+          if (!values.username || !values.password) return;
+          onFinish?.(values);
+        },
+      },
+      children,
+    );
+  Form.useForm = () => [{}];
+  Form.Item = ({ name, children }) =>
+    h('div', null, React.isValidElement(children) ? React.cloneElement(children, { name }) : children);
+
+  const Text = ({ children, ...props }) => h('span', props, children);
+  const Title = ({ children, level = 1, ...props }) => h(`h${level}`, props, children);
+
+  return {
+    Button,
+    Input,
+    Checkbox: ({ children, ...props }) => h('label', null, h('input', { type: 'checkbox', ...props }), children),
+    Card: ({ children, ...props }) => h('section', props, children),
+    Form,
+    message: { success: vi.fn(), error: vi.fn() },
+    Typography: { Title, Text },
+  };
+});
+
+vi.mock('@ant-design/icons', async () => {
+  const React = await import('react');
+  const Icon = () => React.createElement('span', { 'data-testid': 'icon' });
+  return {
+    EyeInvisibleOutlined: Icon,
+    EyeOutlined: Icon,
+    UserOutlined: Icon,
+    LockOutlined: Icon,
+    LoadingOutlined: Icon,
+  };
+});
+
 // Use vi.hoisted to avoid hoisting issues
 const { mockLoginApi } = vi.hoisted(() => ({
   mockLoginApi: vi.fn(),
