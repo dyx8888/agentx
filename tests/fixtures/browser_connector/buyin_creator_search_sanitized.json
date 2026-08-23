@@ -1,0 +1,32 @@
+{
+  "meta": {
+    "fixture_name": "buyin_creator_search_sanitized.json",
+    "platform": "douyin",
+    "matched_rule": "buyin-api",
+    "expected_kinds": ["creator_profile"],
+    "description": "Sanitized creator-search shaped payload captured from a Buyin-style author list response."
+  },
+  "payload": {
+    "kind": "json",
+    "value": {
+      "data": {
+        "authors": [
+          {
+            "nickname": "护肤测评小鹿",
+            "author_id": "dy_creator_001",
+            "fans_count": "8.6万",
+            "interaction_rate": "3.8%",
+            "content_category": "美妆护肤",
+            "avg_play_count": "52,000",
+            "avg_likes": "2,100",
+            "avg_comments": 180,
+            "avg_shares": 75,
+            "city": "杭州",
+            "is_verified": "已认证",
+            "token": "[REDACTED]"
+          }
+        ]
+      }
+    }
+  }
+}

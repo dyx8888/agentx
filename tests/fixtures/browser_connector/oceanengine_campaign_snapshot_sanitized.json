@@ -1,0 +1,28 @@
+{
+  "meta": {
+    "fixture_name": "oceanengine_campaign_snapshot_sanitized.json",
+    "platform": "oceanengine",
+    "matched_rule": "oceanengine-api",
+    "expected_kinds": ["campaign_metrics"],
+    "description": "Sanitized campaign snapshot payload with read-only performance metrics."
+  },
+  "payload": {
+    "kind": "json",
+    "value": {
+      "data": {
+        "campaigns": [
+          {
+            "campaignId": "ocpc-20260813-01",
+            "campaignName": "护肤套装七夕投放",
+            "show_count": "120,000",
+            "click_count": 3600,
+            "order_count": 180,
+            "consume": "5400.50",
+            "gmv": "27100",
+            "click_rate": "3.0%"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "meta": {
+    "fixture_name": "unmapped_safe_payload_sanitized.json",
+    "platform": "douyin",
+    "matched_rule": "buyin-api",
+    "expected_kinds": ["unmapped_capture"],
+    "description": "Sanitized but currently unmapped response shape that must be retained for future rule work."
+  },
+  "payload": {
+    "kind": "json",
+    "value": {
+      "safe_unknown_shape": {
+        "rows": [
+          {
+            "label": "暂未映射指标",
+            "value": "只读示例"
+          }
+        ]
+      }
+    }
+  }
+}

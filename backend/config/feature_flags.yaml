@@ -42,3 +42,8 @@ features:
   hierarchical_orchestrator:
     enabled: false
     phase: 8
+  browser_connector:
+    enabled: false
+    phase: 0
+    tenant_allowlist: []
+    user_allowlist: []

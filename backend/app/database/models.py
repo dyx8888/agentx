@@ -960,3 +960,35 @@ class PlatformToken(Base):
 
     def __repr__(self):
         return f"<PlatformToken(id={self.id}, company_id={self.company_id}, platform='{self.platform}')>"
+
+
+class BrowserConnectorEvent(Base):
+    """Sanitized read-only capture events received from the browser connector."""
+
+    __tablename__ = "browser_connector_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    source = Column(String(80), nullable=False)
+    platform = Column(String(50), nullable=False, index=True)
+    matched_rule = Column(String(120), nullable=False, index=True)
+    api_url_hash = Column(String(64), nullable=False)
+    api_method = Column(String(10), nullable=False)
+    status_code = Column(Integer, nullable=True)
+    response_mime = Column(String(120), nullable=True)
+    sanitized_payload_json = Column(Text, nullable=False)
+    payload_hash = Column(String(64), nullable=False)
+    duplicate_of_event_id = Column(Integer, ForeignKey("browser_connector_events.id"), nullable=True)
+    captured_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "payload_hash", name="uq_browser_connector_event_payload"),
+    )
+
+    def __repr__(self):
+        return (
+            f"<BrowserConnectorEvent(id={self.id}, company_id={self.company_id}, "
+            f"platform='{self.platform}', matched_rule='{self.matched_rule}')>"
+        )

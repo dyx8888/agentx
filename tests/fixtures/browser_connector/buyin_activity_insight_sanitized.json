@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "fixture_name": "buyin_activity_insight_sanitized.json",
+    "platform": "douyin",
+    "matched_rule": "buyin-api",
+    "expected_kinds": ["knowledge_observation"],
+    "description": "Sanitized operational insight payload suitable for human-reviewed knowledge ingestion."
+  },
+  "payload": {
+    "kind": "json",
+    "value": {
+      "data": {
+        "insights": [
+          {
+            "title": "样品履约规则摘要",
+            "summary": "样品申请需要在商家后台完成审核，达人履约数据只用于复盘，不自动触发平台操作。",
+            "tags": ["sample", "platform_rule", "readonly"]
+          }
+        ]
+      }
+    }
+  }
+}

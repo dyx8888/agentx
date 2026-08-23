@@ -133,6 +133,7 @@ from app.api.a2a import router as a2a_router
 from app.api.agent_communication import router as agent_communication_router  # agent 间通信路由，支持多 agent 协作消息传递
 from app.api.agents import router as agents_router
 from app.api.auth_router import router as auth_router
+from app.api.browser_connector import router as browser_connector_router
 from app.api.chat import router as chat_router  # 核心聊天接口，所有用户对话的入口
 from app.api.companies import router as companies_router
 from app.api.dashboard import router as dashboard_router  # 仪表盘数据聚合接口
@@ -251,6 +252,7 @@ setup_rate_limiter(app)  # 限流中间件应在所有路由之前注册，确�
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])  # 认证接口放在最前面，是其他所有受保护接口的前置依赖
 app.include_router(chat_router, prefix="/api/chat", tags=["chat"])  # chat 是核心业务路由，前缀与功能名一致便于前端理解
 app.include_router(conversations_router, prefix="/api/conversations", tags=["conversations"])  # 对话管理 CRUD，支持多轮会话的创建、列表、详情和删除
+app.include_router(browser_connector_router, prefix="/api/browser-connector", tags=["browser-connector"])  # 浏览器连接器 MVP：只接收白名单 API 的只读结构化数据
 
 from app.api.kol import router as kol_router  # 达人搜索 API — 多条件筛选、排序、导出
 app.include_router(kol_router, prefix="/api/kol", tags=["kol"])

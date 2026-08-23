@@ -75,6 +75,46 @@ class FeatureFlagManager:
             return False
         return bool(flag.get("enabled", False))
 
+    def is_enabled_for_context(
+        self,
+        feature_name: str,
+        *,
+        tenant_id: int | str | None = None,
+        user_id: int | str | None = None,
+    ) -> bool:
+        """检查特性是否对当前租户或用户开放。
+
+        优先使用全局开关；全局关闭时，可通过 YAML allowlist 或环境变量
+        FEATURE_{NAME}_TENANT_IDS / FEATURE_{NAME}_USER_IDS 开启试点租户。
+        """
+        if self.is_enabled(feature_name):
+            return True
+
+        tenant = _coerce_int(tenant_id)
+        user = _coerce_int(user_id)
+        if tenant is not None and tenant in self._allowlist_ids(
+            feature_name,
+            config_key="tenant_allowlist",
+            env_suffix="TENANT_IDS",
+        ):
+            return True
+        if user is not None and user in self._allowlist_ids(
+            feature_name,
+            config_key="user_allowlist",
+            env_suffix="USER_IDS",
+        ):
+            return True
+        return False
+
+    def _allowlist_ids(self, feature_name: str, *, config_key: str, env_suffix: str) -> set[int]:
+        env_var = f"FEATURE_{feature_name.upper()}_{env_suffix}"
+        env_val = os.getenv(env_var)
+        if env_val is not None:
+            return _parse_id_list(env_val)
+
+        flag = self._flags.get(feature_name) or {}
+        return _parse_id_list(flag.get(config_key, []))
+
     def get_phase(self, feature_name: str) -> int | None:
         """获取特性的上线阶段"""
         flag = self._flags.get(feature_name)
@@ -90,3 +130,30 @@ class FeatureFlagManager:
 def get_feature_flags() -> FeatureFlagManager:
     """获取全局 FeatureFlagManager 单例"""
     return FeatureFlagManager()
+
+
+def _parse_id_list(raw_value: Any) -> set[int]:
+    if raw_value is None:
+        return set()
+    if isinstance(raw_value, str):
+        values = raw_value.split(",")
+    elif isinstance(raw_value, (list, tuple, set)):
+        values = raw_value
+    else:
+        values = [raw_value]
+
+    parsed: set[int] = set()
+    for value in values:
+        coerced = _coerce_int(value)
+        if coerced is not None:
+            parsed.add(coerced)
+    return parsed
+
+
+def _coerce_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
