@@ -100,6 +100,17 @@ Backend schema/model/runtime/readiness/public-demo audit gate:
 python -m pytest backend/tests/test_postgres_migration.py backend/tests/test_model_gateway_tokenrhythm.py backend/tests/test_runtime_eval_mode.py backend/tests/test_public_demo_route_scope.py tests/performance/test_deployment_readiness_check.py tests/performance/test_public_demo_smoke.py tests/performance/test_public_demo_deployment_template_audit.py tests/performance/test_public_demo_cloud_prereq_audit.py tests/performance/test_public_demo_pre_push_audit.py tests/performance/test_public_demo_security_audit.py tests/performance/test_public_demo_completion_audit.py -q
 ```
 
+Browser connector local gate:
+
+```powershell
+python -m pytest tests/api/test_browser_connector.py tests/api/test_browser_connector_storage.py tests/api/test_browser_connector_normalization.py tests/api/test_browser_connector_business_integration.py tests/performance/test_browser_connector_manifest_builder.py tests/performance/test_browser_connector_extension_policy.py tests/performance/test_browser_connector_staging_probe.py tests/performance/test_browser_connector_db_audit.py tests/performance/test_browser_connector_live_evidence_template.py tests/performance/test_browser_connector_pilot_readiness_audit.py tests/performance/test_browser_connector_evidence_bundle.py -q
+```
+
+This gate covers local API, storage, normalization, extension policy, manifest,
+and readiness-tooling unit tests only. It does not run the real staging probe,
+real DB audit, non-dry-run evidence bundle, `--require-pilot-ready`, or the
+Playwright browser-extension e2e.
+
 Frontend gate:
 
 ```powershell
@@ -109,7 +120,14 @@ npm.cmd run test -- --run
 npm.cmd run build
 ```
 
-The same command groups are captured in `.github/workflows/public-demo-quick-gates.yml` for the display branch. That workflow does not run Docker full smoke.
+The same command groups are captured in `.github/workflows/public-demo-quick-gates.yml` for the display branch. That workflow does not run Docker full smoke, real staging checks, real DB audits, or browser connector pilot evidence collection.
+
+Browser connector A/B/C/D are now present in the public-demo branch as backend
+core, Settings UI, MV3 extension/e2e assets, and readiness/evidence tooling.
+The CI quick gates cover local connector regression tests, but `pilot_ready`
+remains pending until staging probe, DB audit, and manual live browser evidence
+are collected and pass. This is still not a public-demo verified deployment;
+deploy and public smoke require separate authorization.
 
 After public URLs exist, run the HTTP smoke checker and attach the JSON output
 to the public smoke record:

@@ -158,6 +158,16 @@ Clean backend verification evidence in `agentdianshang-public-demo`:
   - Result on sanitized snapshot: `39 passed, 85 skipped, 1 warning`
 - `python -m pytest backend/tests/test_postgres_migration.py backend/tests/test_model_gateway_tokenrhythm.py backend/tests/test_runtime_eval_mode.py backend/tests/test_public_demo_route_scope.py tests/performance/test_deployment_readiness_check.py tests/performance/test_public_demo_smoke.py tests/performance/test_public_demo_deployment_template_audit.py tests/performance/test_public_demo_cloud_prereq_audit.py tests/performance/test_public_demo_pre_push_audit.py tests/performance/test_public_demo_security_audit.py tests/performance/test_public_demo_completion_audit.py -q`
   - Result on sanitized snapshot: `52 passed, 5 skipped, 1 warning`
+- Browser connector A/B/C/D are now integrated into the public-demo branch:
+  backend core, Settings UI, MV3 extension/e2e assets, and readiness/evidence
+  tooling.
+- Public Demo Quick Gates should cover the browser connector local gate:
+  `python -m pytest tests/api/test_browser_connector.py tests/api/test_browser_connector_storage.py tests/api/test_browser_connector_normalization.py tests/api/test_browser_connector_business_integration.py tests/performance/test_browser_connector_manifest_builder.py tests/performance/test_browser_connector_extension_policy.py tests/performance/test_browser_connector_staging_probe.py tests/performance/test_browser_connector_db_audit.py tests/performance/test_browser_connector_live_evidence_template.py tests/performance/test_browser_connector_pilot_readiness_audit.py tests/performance/test_browser_connector_evidence_bundle.py -q`
+- The connector CI gate is local-only. It does not run real staging probes, real
+  DB audits, non-dry-run evidence bundles, `--require-pilot-ready`, or the
+  Playwright browser-extension e2e.
+- Browser connector `pilot_ready` remains pending until staging probe, DB audit,
+  and manual live browser evidence are collected, fresh, and pass.
 - `tests/performance/public_demo_completion_audit.py` separates `local_ready`
   from `public_complete`, so public URL, cloud prerequisites, managed Postgres,
   cloud deployment, public smoke, and screenshot/recording evidence remain
@@ -259,6 +269,8 @@ The following remain unverified and must not be described as complete:
 - Real OAuth provider callbacks
 - Real SMTP password reset delivery
 - Real external platform APIs
+- Browser connector staging probe, DB audit, manual live browser evidence, and
+  `pilot_ready`
 - Docker full runtime smoke
 - VHDX / Docker Desktop full environment
 

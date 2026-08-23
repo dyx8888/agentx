@@ -65,6 +65,22 @@ jobs:
         run: |
           python -m pytest backend/tests/test_public_demo_route_scope.py -q
 
+      - name: Browser connector local gates
+        run: |
+          python -m pytest \
+            tests/api/test_browser_connector.py \
+            tests/api/test_browser_connector_storage.py \
+            tests/api/test_browser_connector_normalization.py \
+            tests/api/test_browser_connector_business_integration.py \
+            tests/performance/test_browser_connector_manifest_builder.py \
+            tests/performance/test_browser_connector_extension_policy.py \
+            tests/performance/test_browser_connector_staging_probe.py \
+            tests/performance/test_browser_connector_db_audit.py \
+            tests/performance/test_browser_connector_live_evidence_template.py \
+            tests/performance/test_browser_connector_pilot_readiness_audit.py \
+            tests/performance/test_browser_connector_evidence_bundle.py \
+            -q
+
       - name: Public-demo readiness audit gate
         run: |
           python -m pytest tests/performance/test_deployment_readiness_check.py tests/performance/test_public_demo_smoke.py tests/performance/test_public_demo_deployment_template_audit.py tests/performance/test_public_demo_cloud_prereq_audit.py tests/performance/test_public_demo_pre_push_audit.py tests/performance/test_public_demo_security_audit.py tests/performance/test_public_demo_completion_audit.py -q
