@@ -14,6 +14,13 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { cn } from '@/lib/utils';
+import {
+  getBrowserConnectorStatus,
+  importBrowserConnectorKnowledge,
+  importBrowserConnectorKols,
+  listBrowserConnectorCampaignSnapshots,
+  listBrowserConnectorRecords,
+} from '@/api/browserConnector';
 import PlatformAuthSection from '@/components/SettingsSection/PlatformAuthSection';
 import ProfileSection from './settings/ProfileSection';
 import SecuritySection from './settings/SecuritySection';
@@ -33,8 +40,34 @@ const SECTIONS = [
   { key: 'platformAuth', label: '平台授权', icon: Link2,  desc: '电商平台账号绑定与凭证' },
   { key: 'knowledge', label: '知识库',     icon: Database,desc: '文档 · 嵌入模型 · 系统状态' },
   { key: 'kolData',   label: '达人数据',   icon: Users,   desc: '导入 · 来源 · 搜索验证' },
+  { key: 'browserConnector', label: '浏览器连接器', icon: Link2, desc: '插件连接状态' },
   { key: 'company',   label: '公司资料',   icon: Building2,desc: '品牌信息与 RAG 上下文' },
 ];
+
+const BROWSER_CONNECTOR_STATUS_EVENT = 'agentx-browser-connector-status';
+const BROWSER_CONNECTOR_STATUS_STORAGE_KEY = 'agentx_browser_connector_status';
+
+function readBrowserConnectorStatus() {
+  if (typeof window === 'undefined') {
+    return { connected: false };
+  }
+
+  const hasInjectedMarker = Boolean(
+    window.__AGENTX_CONNECTOR_CONTENT_SCRIPT__ ||
+      window.__AGENTX_CONNECTOR_INJECTED__
+  );
+
+  let storedStatus = null;
+  try {
+    storedStatus = window.localStorage?.getItem(BROWSER_CONNECTOR_STATUS_STORAGE_KEY);
+  } catch (_error) {
+    storedStatus = null;
+  }
+
+  return {
+    connected: hasInjectedMarker || storedStatus === 'connected',
+  };
+}
 
 const SETUP_STEPS = [
   {
@@ -107,6 +140,361 @@ function SetupChecklist({ activeSection, onSelect }) {
             </span>
           </button>
         ))}
+      </div>
+    </section>
+  );
+}
+
+const EMPTY_CONNECTOR_RECORDS = {
+  creators: [],
+  knowledge: [],
+  campaigns: [],
+  unmapped: [],
+};
+
+const DEFAULT_CONNECTOR_ROLLOUT = {
+  enabled: true,
+  reason: 'enabled',
+};
+
+function disabledConnectorMessage(reason) {
+  if (reason === 'tenant_required') {
+    return '当前账号尚未绑定企业，无法使用浏览器连接器试点。';
+  }
+  return '当前租户未开启浏览器连接器试点；请先配置 FEATURE_BROWSER_CONNECTOR_TENANT_IDS 或由管理员开启。';
+}
+
+function resetConnectorRecords(setSummary, setRecords, setSelectedCreatorIds, setSelectedKnowledgeIds) {
+  setSummary({ creators: 0, knowledge: 0, campaigns: 0, unmapped: 0 });
+  setRecords(EMPTY_CONNECTOR_RECORDS);
+  setSelectedCreatorIds([]);
+  setSelectedKnowledgeIds([]);
+}
+
+function getConnectorEventId(record) {
+  const id = Number(record?.source_event_id);
+  return Number.isInteger(id) ? id : null;
+}
+
+function formatConnectorMetric(value, fallback = '0') {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+  return String(value);
+}
+
+function recordTitle(record, fallback) {
+  return record?.record?.name || record?.record?.title || record?.record?.campaign_name || fallback;
+}
+
+function ConnectorRecordList({
+  title,
+  records,
+  selectedIds,
+  onToggle,
+  selectable = false,
+  emptyText,
+  renderMeta,
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-background p-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-xs font-semibold text-foreground">{title}</h3>
+        <span className="text-[11px] text-muted-foreground">最近 {records.length} 条</span>
+      </div>
+      {records.length === 0 ? (
+        <p className="mt-3 text-xs leading-5 text-muted-foreground">{emptyText}</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {records.map((item, index) => {
+            const eventId = getConnectorEventId(item);
+            const checked = eventId !== null && selectedIds.includes(eventId);
+            const titleText = recordTitle(item, `Connector event ${eventId || index + 1}`);
+            return (
+              <label
+                key={`${item.kind || 'record'}-${eventId || index}`}
+                className="flex gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left"
+              >
+                {selectable && (
+                  <input
+                    type="checkbox"
+                    className="mt-1 size-3.5 shrink-0"
+                    checked={checked}
+                    disabled={eventId === null}
+                    onChange={() => eventId !== null && onToggle(eventId)}
+                    aria-label={`选择 ${titleText}`}
+                  />
+                )}
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-medium text-foreground">{titleText}</span>
+                  <span className="mt-0.5 block text-[11px] leading-5 text-muted-foreground">
+                    {renderMeta(item)}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BrowserConnectorSection() {
+  const [connectorStatus, setConnectorStatus] = useState(readBrowserConnectorStatus);
+  const [rolloutStatus, setRolloutStatus] = useState(DEFAULT_CONNECTOR_ROLLOUT);
+  const [summary, setSummary] = useState({ creators: 0, knowledge: 0, campaigns: 0, unmapped: 0 });
+  const [records, setRecords] = useState(EMPTY_CONNECTOR_RECORDS);
+  const [selectedCreatorIds, setSelectedCreatorIds] = useState([]);
+  const [selectedKnowledgeIds, setSelectedKnowledgeIds] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
+
+  useEffect(() => {
+    const refreshStatus = () => setConnectorStatus(readBrowserConnectorStatus());
+
+    refreshStatus();
+    window.addEventListener(BROWSER_CONNECTOR_STATUS_EVENT, refreshStatus);
+    window.addEventListener('storage', refreshStatus);
+    return () => {
+      window.removeEventListener(BROWSER_CONNECTOR_STATUS_EVENT, refreshStatus);
+      window.removeEventListener('storage', refreshStatus);
+    };
+  }, []);
+
+  const loadConnectorSummary = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const backendStatus = await getBrowserConnectorStatus();
+      setRolloutStatus(backendStatus || DEFAULT_CONNECTOR_ROLLOUT);
+      if (backendStatus && backendStatus.enabled === false) {
+        resetConnectorRecords(setSummary, setRecords, setSelectedCreatorIds, setSelectedKnowledgeIds);
+        setError(disabledConnectorMessage(backendStatus.reason));
+        return;
+      }
+
+      const [creators, knowledge, campaigns, unmapped] = await Promise.all([
+        listBrowserConnectorRecords('creator_profile'),
+        listBrowserConnectorRecords('knowledge_observation'),
+        listBrowserConnectorCampaignSnapshots(),
+        listBrowserConnectorRecords('unmapped_capture'),
+      ]);
+      setSummary({
+        creators: creators.total || 0,
+        knowledge: knowledge.total || 0,
+        campaigns: campaigns.total || 0,
+        unmapped: unmapped.total || 0,
+      });
+      const nextRecords = {
+        creators: creators.records || [],
+        knowledge: knowledge.records || [],
+        campaigns: campaigns.records || [],
+        unmapped: unmapped.records || [],
+      };
+      setRecords(nextRecords);
+      setSelectedCreatorIds(nextRecords.creators.map(getConnectorEventId).filter((id) => id !== null));
+      setSelectedKnowledgeIds(nextRecords.knowledge.map(getConnectorEventId).filter((id) => id !== null));
+    } catch (loadError) {
+      if (String(loadError?.userMessage || '').includes('browser_connector_disabled')) {
+        setRolloutStatus({ enabled: false, reason: 'browser_connector_disabled' });
+        resetConnectorRecords(setSummary, setRecords, setSelectedCreatorIds, setSelectedKnowledgeIds);
+        setError(disabledConnectorMessage('browser_connector_disabled'));
+      } else {
+        setError(loadError?.userMessage || '浏览器连接器数据读取失败');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadConnectorSummary();
+  }, []);
+
+  const toggleCreatorSelection = (eventId) => {
+    setSelectedCreatorIds((current) =>
+      current.includes(eventId) ? current.filter((id) => id !== eventId) : [...current, eventId]
+    );
+  };
+
+  const toggleKnowledgeSelection = (eventId) => {
+    setSelectedKnowledgeIds((current) =>
+      current.includes(eventId) ? current.filter((id) => id !== eventId) : [...current, eventId]
+    );
+  };
+
+  const handleImportKols = async () => {
+    setActionMessage('');
+    setError('');
+    try {
+      const result = await importBrowserConnectorKols({
+        dry_run: false,
+        event_ids: selectedCreatorIds,
+      });
+      setActionMessage(`已导入 ${result.imported || 0} 条达人，更新 ${result.updated || 0} 条`);
+      await loadConnectorSummary();
+    } catch (importError) {
+      setError(importError?.userMessage || '达人导入失败');
+    }
+  };
+
+  const handleImportKnowledge = async () => {
+    setActionMessage('');
+    setError('');
+    try {
+      const result = await importBrowserConnectorKnowledge({
+        dry_run: false,
+        event_ids: selectedKnowledgeIds,
+      });
+      setActionMessage(`已写入 ${result.imported || 0} 条知识片段`);
+      await loadConnectorSummary();
+    } catch (importError) {
+      setError(importError?.userMessage || '知识导入失败');
+    }
+  };
+
+  const statusLabel = connectorStatus.connected ? '已连接' : '未连接';
+  const rolloutLabel = rolloutStatus.enabled ? '已开启' : '未开启';
+  const hasSelectedCreators = selectedCreatorIds.length > 0;
+  const hasSelectedKnowledge = selectedKnowledgeIds.length > 0;
+
+  return (
+    <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-foreground">浏览器连接器</h2>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            浏览器连接器采集 / 只读来源
+          </p>
+        </div>
+        <span
+          role="status"
+          aria-live="polite"
+          className={cn(
+            'inline-flex w-fit shrink-0 items-center gap-2 rounded-full px-3 py-1 text-xs font-medium',
+            connectorStatus.connected
+              ? 'bg-macaron-mint text-foreground/80'
+              : 'bg-secondary text-muted-foreground'
+          )}
+        >
+          <span
+            className={cn(
+              'size-2 rounded-full',
+              connectorStatus.connected ? 'bg-emerald-500' : 'bg-muted-foreground'
+            )}
+            aria-hidden="true"
+          />
+          浏览器连接器：{statusLabel}
+        </span>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span
+          role="status"
+          aria-live="polite"
+          className={cn(
+            'inline-flex w-fit items-center gap-2 rounded-full px-3 py-1 text-xs font-medium',
+            rolloutStatus.enabled
+              ? 'bg-macaron-mint text-foreground/80'
+              : 'bg-secondary text-muted-foreground'
+          )}
+        >
+          <span
+            className={cn(
+              'size-2 rounded-full',
+              rolloutStatus.enabled ? 'bg-emerald-500' : 'bg-muted-foreground'
+            )}
+            aria-hidden="true"
+          />
+          后端试点：{rolloutLabel}
+        </span>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-border bg-background p-3">
+          <p className="text-xs text-muted-foreground">达人候选</p>
+          <p className="mt-1 text-lg font-semibold text-foreground">{summary.creators}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-background p-3">
+          <p className="text-xs text-muted-foreground">知识片段</p>
+          <p className="mt-1 text-lg font-semibold text-foreground">{summary.knowledge}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-background p-3">
+          <p className="text-xs text-muted-foreground">投放快照</p>
+          <p className="mt-1 text-lg font-semibold text-foreground">{summary.campaigns}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-background p-3">
+          <p className="text-xs text-muted-foreground">待映射</p>
+          <p className="mt-1 text-lg font-semibold text-foreground">{summary.unmapped}</p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 lg:grid-cols-2">
+        <ConnectorRecordList
+          title="最近达人候选"
+          records={records.creators}
+          selectedIds={selectedCreatorIds}
+          onToggle={toggleCreatorSelection}
+          selectable
+          emptyText="暂无可导入达人候选。"
+          renderMeta={(item) => {
+            const data = item.record || {};
+            return `${data.platform || item.platform || 'unknown'} · 粉丝 ${formatConnectorMetric(data.followers)} · event ${item.source_event_id}`;
+          }}
+        />
+        <ConnectorRecordList
+          title="最近知识片段"
+          records={records.knowledge}
+          selectedIds={selectedKnowledgeIds}
+          onToggle={toggleKnowledgeSelection}
+          selectable
+          emptyText="暂无可写入知识库的片段。"
+          renderMeta={(item) => {
+            const data = item.record || {};
+            const preview = data.content ? String(data.content).slice(0, 36) : '无内容预览';
+            return `${preview} · event ${item.source_event_id}`;
+          }}
+        />
+        <ConnectorRecordList
+          title="投放快照（只读）"
+          records={records.campaigns}
+          selectedIds={[]}
+          emptyText="暂无可分析投放快照。"
+          renderMeta={(item) => {
+            const data = item.record || {};
+            return `ROI ${formatConnectorMetric(data.roi)} · 消耗 ${formatConnectorMetric(data.spend)} · event ${item.source_event_id}`;
+          }}
+        />
+        <ConnectorRecordList
+          title="待映射采集"
+          records={records.unmapped}
+          selectedIds={[]}
+          emptyText="暂无待映射记录。"
+          renderMeta={(item) => {
+            const data = item.record || {};
+            return `${data.reason || 'pending'} · event ${item.source_event_id}`;
+          }}
+        />
+      </div>
+
+      {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+      {actionMessage && <p className="mt-3 text-sm text-emerald-600">{actionMessage}</p>}
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button type="button" className="btn btn-outline h-9 px-3 text-xs" onClick={loadConnectorSummary} disabled={loading}>
+          {loading ? '刷新中' : '刷新记录'}
+        </button>
+        <button type="button" className="btn btn-primary h-9 px-3 text-xs" onClick={handleImportKols} disabled={!rolloutStatus.enabled || !hasSelectedCreators || loading}>
+          确认导入达人
+        </button>
+        <button type="button" className="btn btn-primary h-9 px-3 text-xs" onClick={handleImportKnowledge} disabled={!rolloutStatus.enabled || !hasSelectedKnowledge || loading}>
+          确认写入知识库
+        </button>
+        <span className="self-center text-xs text-muted-foreground">
+          已选 {selectedCreatorIds.length} 位达人 / {selectedKnowledgeIds.length} 条知识
+        </span>
       </div>
     </section>
   );
@@ -266,6 +654,7 @@ export default function SettingsPage() {
             {section === 'platformAuth' && <PlatformAuthSection />}
             {section === 'knowledge' && <KnowledgeSection />}
             {section === 'kolData' && <KolDataSection />}
+            {section === 'browserConnector' && <BrowserConnectorSection />}
             {section === 'company' && <CompanyProfileSection />}
           </div>
         </main>
