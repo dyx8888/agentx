@@ -25,6 +25,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      'antd': path.resolve(__dirname, './src/test/mocks/antd.jsx'),
+      '@ant-design/icons': path.resolve(__dirname, './src/test/mocks/ant-design-icons.jsx'),
     },
   },
 });
