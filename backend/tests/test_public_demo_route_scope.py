@@ -1,5 +1,9 @@
 import ast
 import importlib
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -69,16 +73,68 @@ def test_public_demo_chat_master_router_dependency_is_present():
 
 
 def test_public_demo_settings_backend_routes_are_registered():
-    from app.main import app
+    required_paths = [
+        "/api/platforms",
+        "/api/rag/embedding/config",
+        "/api/rag/company/profile",
+        "/api/conversations/{conversation_id:int}/files",
+        "/api/admin/costs/today",
+    ]
+    code = (
+        "import json, sys; "
+        "sys.path.insert(0, 'backend'); "
+        "from app.main import app; "
+        "import app.main as main_module; "
+        f"required_paths = {required_paths!r}; "
+        "route_paths = {getattr(route, 'path', '') for route in app.routes}; "
+        "summary = {"
+        "'route_count': len(route_paths), "
+        "'api_route_count': sum(1 for path in route_paths if path.startswith('/api/')), "
+        "'required_present': {path: path in route_paths for path in required_paths}, "
+        "'bad_cost_prefix_present': any('/admin/costs/admin/costs' in path for path in route_paths), "
+        "'main_file': getattr(main_module, '__file__', '').replace('\\\\', '/'), "
+        "}; "
+        "print('PUBLIC_DEMO_ROUTE_SCOPE_SUMMARY=' + json.dumps(summary, sort_keys=True)); "
+        "raise SystemExit(0 if all(summary['required_present'].values()) "
+        "and not summary['bad_cost_prefix_present'] else 1)"
+    )
+    env = os.environ.copy()
+    env.setdefault("PYTHONPATH", "backend")
+    env.setdefault("TESTING", "1")
+    env.setdefault("TEST_MODE", "true")
+    env.setdefault("ENVIRONMENT", "ci")
+    env.setdefault("ENV", "test")
+    env["PYTHON_DOTENV_DISABLED"] = "1"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
 
-    route_paths = {getattr(route, "path", "") for route in app.routes}
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    marker = "PUBLIC_DEMO_ROUTE_SCOPE_SUMMARY="
+    summary = None
+    for line in (result.stdout + "\n" + result.stderr).splitlines():
+        if line.startswith(marker):
+            summary = json.loads(line[len(marker) :])
+            break
 
-    assert "/api/platforms" in route_paths
-    assert "/api/rag/embedding/config" in route_paths
-    assert "/api/rag/company/profile" in route_paths
-    assert "/api/conversations/{conversation_id:int}/files" in route_paths
-    assert "/api/admin/costs/today" in route_paths
-    assert not any("/admin/costs/admin/costs" in path for path in route_paths)
+    assert summary is not None, "route scope subprocess did not emit sanitized summary"
+    missing = [
+        path for path, present in summary["required_present"].items() if not present
+    ]
+
+    assert result.returncode == 0 and not missing, (
+        "public-demo runtime route registration missing required paths: "
+        f"missing={missing}; "
+        f"route_count={summary['route_count']}; "
+        f"api_route_count={summary['api_route_count']}; "
+        f"bad_cost_prefix_present={summary['bad_cost_prefix_present']}; "
+        f"main_file={summary['main_file']}"
+    )
 
 
 def test_public_demo_backend_runtime_dependencies_are_present():
