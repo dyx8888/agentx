@@ -3,15 +3,25 @@ import { BrowserRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock the API using vi.hoisted
-const { mockLoginApi, mockRegisterApi, mockAuthLogin } = vi.hoisted(() => ({
+const {
+  mockLoginApi,
+  mockRegisterApi,
+  mockVerifyEmailCode,
+  mockResendEmailCode,
+  mockAuthLogin,
+} = vi.hoisted(() => ({
   mockLoginApi: vi.fn(),
   mockRegisterApi: vi.fn(),
+  mockVerifyEmailCode: vi.fn(),
+  mockResendEmailCode: vi.fn(),
   mockAuthLogin: vi.fn(),
 }));
 
 vi.mock('@/api/auth', () => ({
   login: mockLoginApi,
   register: mockRegisterApi,
+  verifyEmailCode: mockVerifyEmailCode,
+  resendEmailCode: mockResendEmailCode,
 }));
 
 // Mock useAuth
@@ -40,6 +50,7 @@ const renderLoginPage = () => {
 describe('LoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv('VITE_PUBLIC_REGISTRATION_ENABLED', 'false');
     window.history.pushState({}, '', '/login');
   });
 
@@ -253,5 +264,149 @@ describe('LoginPage', () => {
       expect(mockLoginApi).toHaveBeenCalledWith('testuser', 'testpass123');
     });
     expect(mockRegisterApi).not.toHaveBeenCalled();
+  });
+
+  it('shows email code verification after enabled public registration succeeds', async () => {
+    vi.stubEnv('VITE_PUBLIC_REGISTRATION_ENABLED', 'true');
+    mockRegisterApi.mockResolvedValue({
+      email_verification_required: true,
+      masked_email: 'ne***@example.com',
+      message: '验证码已发送，请查收邮箱并完成验证',
+    });
+
+    renderLoginPage();
+
+    fireEvent.click(screen.getByRole('tab', { name: '注册' }));
+    fireEvent.change(screen.getByLabelText('用户名'), {
+      target: { value: 'newuser' },
+    });
+    fireEvent.change(screen.getByLabelText('邮箱'), {
+      target: { value: 'new@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText(passwordLabel), {
+      target: { value: 'password123' },
+    });
+    fireEvent.submit(screen.getByLabelText('邮箱').closest('form'));
+
+    await waitFor(() => {
+      expect(mockRegisterApi).toHaveBeenCalledWith({
+        username: 'newuser',
+        password: 'password123',
+        email: 'new@example.com',
+        company_name: 'newuser 的工作区',
+        brand_name: 'newuser',
+        category: '其他',
+      });
+    });
+    expect(await screen.findByLabelText('邮箱验证码')).toBeInTheDocument();
+    expect(screen.getByText(/ne\*\*\*@example\.com/)).toBeInTheDocument();
+    expect(mockLoginApi).not.toHaveBeenCalled();
+    expect(mockAuthLogin).not.toHaveBeenCalled();
+  });
+
+  it('verifies email code and returns to login without auto-login', async () => {
+    vi.stubEnv('VITE_PUBLIC_REGISTRATION_ENABLED', 'true');
+    mockRegisterApi.mockResolvedValue({
+      email_verification_required: true,
+      masked_email: 'ne***@example.com',
+      message: '验证码已发送，请查收邮箱并完成验证',
+    });
+    mockVerifyEmailCode.mockResolvedValue({ success: true, message: '邮箱已验证' });
+
+    renderLoginPage();
+
+    fireEvent.click(screen.getByRole('tab', { name: '注册' }));
+    fireEvent.change(screen.getByLabelText('用户名'), {
+      target: { value: 'newuser' },
+    });
+    fireEvent.change(screen.getByLabelText('邮箱'), {
+      target: { value: 'new@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText(passwordLabel), {
+      target: { value: 'password123' },
+    });
+    fireEvent.submit(screen.getByLabelText('邮箱').closest('form'));
+
+    const codeInput = await screen.findByLabelText('邮箱验证码');
+    fireEvent.change(codeInput, { target: { value: '123456' } });
+    fireEvent.submit(codeInput.closest('form'));
+
+    await waitFor(() => {
+      expect(mockVerifyEmailCode).toHaveBeenCalledWith({
+        email: 'new@example.com',
+        username: 'newuser',
+        code: '123456',
+      });
+    });
+    expect(screen.getByText('邮箱已验证，请登录')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '登录' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(mockLoginApi).not.toHaveBeenCalled();
+  });
+
+  it('resends email verification code from the verification step', async () => {
+    vi.stubEnv('VITE_PUBLIC_REGISTRATION_ENABLED', 'true');
+    mockRegisterApi.mockResolvedValue({
+      email_verification_required: true,
+      masked_email: 'ne***@example.com',
+      message: '验证码已发送，请查收邮箱并完成验证',
+    });
+    mockResendEmailCode.mockResolvedValue({
+      success: true,
+      message: '如果账户需要验证，验证码已重新发送',
+    });
+
+    renderLoginPage();
+
+    fireEvent.click(screen.getByRole('tab', { name: '注册' }));
+    fireEvent.change(screen.getByLabelText('用户名'), {
+      target: { value: 'newuser' },
+    });
+    fireEvent.change(screen.getByLabelText('邮箱'), {
+      target: { value: 'new@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText(passwordLabel), {
+      target: { value: 'password123' },
+    });
+    fireEvent.submit(screen.getByLabelText('邮箱').closest('form'));
+
+    await screen.findByLabelText('邮箱验证码');
+    fireEvent.click(screen.getByRole('button', { name: '重新发送验证码' }));
+
+    await waitFor(() => {
+      expect(mockResendEmailCode).toHaveBeenCalledWith({
+        email: 'new@example.com',
+        username: 'newuser',
+      });
+    });
+    expect(screen.getByText('如果账户需要验证，验证码已重新发送')).toBeInTheDocument();
+  });
+
+  it('does not enter verification step when registration fails', async () => {
+    vi.stubEnv('VITE_PUBLIC_REGISTRATION_ENABLED', 'true');
+    mockRegisterApi.mockRejectedValue({
+      response: { data: { detail: 'Username already registered' } },
+    });
+
+    renderLoginPage();
+
+    fireEvent.click(screen.getByRole('tab', { name: '注册' }));
+    fireEvent.change(screen.getByLabelText('用户名'), {
+      target: { value: 'newuser' },
+    });
+    fireEvent.change(screen.getByLabelText('邮箱'), {
+      target: { value: 'new@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText(passwordLabel), {
+      target: { value: 'password123' },
+    });
+    fireEvent.submit(screen.getByLabelText('邮箱').closest('form'));
+
+    await waitFor(() => {
+      expect(screen.getByText('用户名已被注册，请更换用户名或直接登录')).toBeInTheDocument();
+    });
+    expect(screen.queryByLabelText('邮箱验证码')).not.toBeInTheDocument();
   });
 });

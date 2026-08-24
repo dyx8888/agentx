@@ -106,6 +106,7 @@ def test_public_demo_settings_backend_routes_are_registered():
     env.setdefault("ENV", "test")
     env["PYTHON_DOTENV_DISABLED"] = "1"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
 
     result = subprocess.run(
         [sys.executable, "-c", code],
@@ -114,10 +115,13 @@ def test_public_demo_settings_backend_routes_are_registered():
         text=True,
         capture_output=True,
         check=False,
+        encoding="utf-8",
+        errors="replace",
     )
     marker = "PUBLIC_DEMO_ROUTE_SCOPE_SUMMARY="
     summary = None
-    for line in (result.stdout + "\n" + result.stderr).splitlines():
+    output = (result.stdout or "") + "\n" + (result.stderr or "")
+    for line in output.splitlines():
         if line.startswith(marker):
             summary = json.loads(line[len(marker) :])
             break

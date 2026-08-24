@@ -28,6 +28,18 @@ export function register(data) {
     .then((res) => res.data);
 }
 
+export function verifyEmailCode(data) {
+  return client
+    .post('/auth/email/verify-code', data)
+    .then((res) => res.data);
+}
+
+export function resendEmailCode(data) {
+  return client
+    .post('/auth/email/resend-code', data)
+    .then((res) => res.data);
+}
+
 /**
  * 刷新 Token
  * @param {string} refreshToken

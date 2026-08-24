@@ -12,7 +12,12 @@ import {
   FileText,
   Truck,
 } from 'lucide-react';
-import { login as apiLogin, register as apiRegister } from '@/api/auth';
+import {
+  login as apiLogin,
+  register as apiRegister,
+  resendEmailCode as apiResendEmailCode,
+  verifyEmailCode as apiVerifyEmailCode,
+} from '@/api/auth';
 import { useAuth } from '@/lib/AuthContext';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -25,7 +30,7 @@ import { useAuth } from '@/lib/AuthContext';
 const DEMO_ENABLED = import.meta.env.VITE_DEMO_ENABLED === 'true';
 const DEMO_USERNAME = import.meta.env.VITE_DEMO_USERNAME || '';
 const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD || '';
-const PUBLIC_REGISTRATION_ENABLED =
+const isPublicRegistrationEnabled = () =>
   import.meta.env.VITE_PUBLIC_REGISTRATION_ENABLED === 'true';
 const LOGIN_PASSWORD_MIN_LENGTH = 6;
 const REGISTER_PASSWORD_MIN_LENGTH = 8;
@@ -48,11 +53,15 @@ const HIGHLIGHTS = [
 function AuthForm() {
   const navigate = useNavigate();
   const { login: authLogin } = useAuth();
+  const publicRegistrationEnabled = isPublicRegistrationEnabled();
 
   const [mode, setMode] = useState('login');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [pendingVerification, setPendingVerification] = useState(null);
+  const [verificationCode, setVerificationCode] = useState('');
 
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [registerForm, setRegisterForm] = useState({
@@ -113,6 +122,33 @@ function AuthForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setMessage('');
+
+    if (mode === 'register' && pendingVerification) {
+      const code = verificationCode.trim();
+      if (!/^\d{6}$/.test(code)) {
+        setError('请输入 6 位邮箱验证码');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        await apiVerifyEmailCode({
+          email: pendingVerification.email,
+          username: pendingVerification.username,
+          code,
+        });
+        setPendingVerification(null);
+        setVerificationCode('');
+        setMode('login');
+        setMessage('邮箱已验证，请登录');
+      } catch (err) {
+        setError(resolveErrorMessage(err, 'register'));
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     if (mode === 'login') {
       const email = loginForm.email.trim();
@@ -129,7 +165,7 @@ function AuthForm() {
       return;
     }
 
-    if (!PUBLIC_REGISTRATION_ENABLED) {
+    if (!publicRegistrationEnabled) {
       setError('公开注册暂未开放，请使用已授权的演示账号登录');
       return;
     }
@@ -152,7 +188,7 @@ function AuthForm() {
 
     setLoading(true);
     try {
-      await apiRegister({
+      const registered = await apiRegister({
         username,
         password,
         email,
@@ -160,9 +196,38 @@ function AuthForm() {
         brand_name: username,
         category: '其他',
       });
+      if (registered?.email_verification_required) {
+        setPendingVerification({
+          username,
+          email,
+          maskedEmail: registered.masked_email || email,
+        });
+        setVerificationCode('');
+        setMessage(registered.message || '验证码已发送，请查收邮箱并完成验证');
+        setLoading(false);
+        return;
+      }
       await performLogin(username, password, '/settings');
     } catch (err) {
       setError(resolveErrorMessage(err, 'register'));
+      setLoading(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    if (!pendingVerification || loading) return;
+    setError('');
+    setMessage('');
+    setLoading(true);
+    try {
+      const result = await apiResendEmailCode({
+        email: pendingVerification.email,
+        username: pendingVerification.username,
+      });
+      setMessage(result?.message || '如果账户需要验证，验证码已重新发送');
+    } catch (err) {
+      setError(resolveErrorMessage(err, 'register'));
+    } finally {
       setLoading(false);
     }
   };
@@ -178,11 +243,16 @@ function AuthForm() {
 
   const switchMode = (next) => {
     if (loading || next === mode) return;
-    if (next === 'register' && !PUBLIC_REGISTRATION_ENABLED) return;
+    if (next === 'register' && !publicRegistrationEnabled) return;
     setMode(next);
+    setPendingVerification(null);
+    setVerificationCode('');
     setShowPassword(false);
     setError('');
+    setMessage('');
   };
+
+  const isVerificationMode = mode === 'register' && pendingVerification;
 
   return (
     <div className="w-full max-w-sm">
@@ -192,7 +262,11 @@ function AuthForm() {
           AgentX
         </h1>
         <p className="mt-2 text-sm text-pretty text-muted-foreground">
-          {mode === 'login' ? '欢迎回来，登录开始你的工作' : '创建账户，开启对话式电商助手'}
+          {mode === 'login'
+            ? '欢迎回来，登录开始你的工作'
+            : isVerificationMode
+              ? '输入邮箱验证码完成注册验证'
+              : '创建账户，开启对话式电商助手'}
         </p>
       </div>
 
@@ -207,7 +281,7 @@ function AuthForm() {
         >
           登录
         </button>
-        {PUBLIC_REGISTRATION_ENABLED && (
+        {publicRegistrationEnabled && (
           <button
             type="button"
             role="tab"
@@ -222,7 +296,34 @@ function AuthForm() {
 
       {/* 表单 */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
-        {mode === 'register' && (
+        {isVerificationMode && (
+          <>
+            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+              验证码已发送至 {pendingVerification.maskedEmail}，请输入 6 位验证码完成注册。
+            </div>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="email-code" className="text-sm font-medium text-foreground">
+                邮箱验证码
+              </label>
+              <input
+                id="email-code"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                placeholder="请输入 6 位验证码"
+                value={verificationCode}
+                onChange={(e) =>
+                  setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+                }
+                autoComplete="one-time-code"
+                className="input-base h-10"
+              />
+            </div>
+          </>
+        )}
+
+        {mode === 'register' && !isVerificationMode && (
           <div className="flex flex-col gap-2">
             <label htmlFor="name" className="text-sm font-medium text-foreground">
               用户名
@@ -244,7 +345,8 @@ function AuthForm() {
           </div>
         )}
 
-        <div className="flex flex-col gap-2">
+        {!isVerificationMode && (
+          <div className="flex flex-col gap-2">
           <label htmlFor="email" className="text-sm font-medium text-foreground">
             {mode === 'login' ? '用户名' : '邮箱'}
           </label>
@@ -264,9 +366,11 @@ function AuthForm() {
               className="input-base input-pl h-10"
             />
           </div>
-        </div>
+          </div>
+        )}
 
-        <div className="flex flex-col gap-2">
+        {!isVerificationMode && (
+          <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <label htmlFor="password" className="text-sm font-medium text-foreground">
               密码
@@ -304,7 +408,8 @@ function AuthForm() {
               {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </button>
           </div>
-        </div>
+          </div>
+        )}
 
         {error && (
           <div
@@ -316,10 +421,26 @@ function AuthForm() {
           </div>
         )}
 
+        {message && (
+          <div className="text-sm leading-5 text-muted-foreground" role="status">
+            {message}
+          </div>
+        )}
+
         <button type="submit" className="btn btn-primary btn-block mt-2 h-10" disabled={loading}>
           {loading && <Loader2 className="size-4 animate-spin" />}
-          {mode === 'login' ? '登录' : '创建账户'}
+          {mode === 'login' ? '登录' : isVerificationMode ? '验证邮箱' : '创建账户'}
         </button>
+        {isVerificationMode && (
+          <button
+            type="button"
+            className="btn btn-outline btn-block h-10"
+            disabled={loading}
+            onClick={handleResendCode}
+          >
+            重新发送验证码
+          </button>
+        )}
       </form>
 
       {/* 分隔线 + 访客入口 — 仅在 demo 启用时渲染 */}

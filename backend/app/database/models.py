@@ -96,6 +96,12 @@ class User(Base):
     # 缺少该列会导致 sqlite3.OperationalError: no such column: is_active。
     # 由迁移 006 补列并按 NOT disabled 回填历史值，保持两字段语义一致。
     is_active = Column(Boolean, default=True, nullable=False)
+    email_verified = Column(Boolean, default=True, nullable=False)
+    email_verified_at = Column(DateTime, nullable=True)
+    email_verification_code_hash = Column(String(128), nullable=True)
+    email_verification_expires_at = Column(DateTime, nullable=True)
+    email_verification_sent_at = Column(DateTime, nullable=True)
+    email_verification_attempts = Column(Integer, default=0, nullable=False)
     bio = Column(Text, nullable=True)
     token_version = Column(Integer, default=0, nullable=False)
     created_at = Column(

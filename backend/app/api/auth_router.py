@@ -11,7 +11,11 @@ Provides login and user information endpoints
 # FastAPI 核心工具
 # Response: 用于在响应中 Set-Cookie / Delete-Cookie（任务 1：httpOnly cookie 方案）
 # Request: 用于在 refresh/logout 端点从 cookie 读取 refresh_token（兼容 body + cookie 双通道）
+import hashlib
+import hmac
 import os  # 读取 REFRESH_TOKEN_ROTATION 环境变量，控制是否启用 refresh token 轮换
+import secrets
+from datetime import datetime, timedelta
 
 import jwt  # 撤销旧 refresh token 时读取 exp 字段（token 已通过 decode_refresh_token 验证签名）
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -55,6 +59,64 @@ logger = get_logger(__name__)
 
 # 创建路由对象
 router = APIRouter()
+
+EMAIL_VERIFICATION_CODE_TTL_MINUTES = 15
+EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60
+EMAIL_VERIFICATION_MAX_ATTEMPTS = 5
+
+
+def _normalize_email(email: str | None) -> str:
+    return (email or "").strip().lower()
+
+
+def _mask_email(email: str | None) -> str:
+    normalized = _normalize_email(email)
+    if "@" not in normalized:
+        return ""
+    name, domain = normalized.split("@", 1)
+    if not name:
+        return f"***@{domain}"
+    visible = name[: min(2, len(name))]
+    return f"{visible}***@{domain}"
+
+
+def _generate_email_verification_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def _hash_email_verification_code(email: str, code: str) -> str:
+    payload = f"{_normalize_email(email)}:{code}".encode("utf-8")
+    secret = _get_secret_key().encode("utf-8")
+    return hmac.new(secret, payload, hashlib.sha256).hexdigest()
+
+
+def _email_verification_expires_at(now: datetime | None = None) -> datetime:
+    return (now or datetime.utcnow()) + timedelta(minutes=EMAIL_VERIFICATION_CODE_TTL_MINUTES)
+
+
+async def _send_email_verification_code(email: str, username: str, code: str) -> bool:
+    from app.core.email import send_email
+
+    body = (
+        f"<p>您好 {username}，</p>"
+        f"<p>您的 AgentX 注册验证码是：</p>"
+        f"<p style=\"font-size: 24px; font-weight: 700; letter-spacing: 4px;\">{code}</p>"
+        f"<p>验证码 {EMAIL_VERIFICATION_CODE_TTL_MINUTES} 分钟内有效。若非本人操作，请忽略此邮件。</p>"
+    )
+    return await send_email(
+        to=email,
+        subject="【AgentX】邮箱验证码",
+        body=body,
+        html=True,
+    )
+
+
+def _set_user_email_verification_code(user, email: str, code: str, now: datetime | None = None):
+    sent_at = now or datetime.utcnow()
+    user.email_verification_code_hash = _hash_email_verification_code(email, code)
+    user.email_verification_expires_at = _email_verification_expires_at(sent_at)
+    user.email_verification_sent_at = sent_at
+    user.email_verification_attempts = 0
 
 # ==========================================
 # Cookie 辅助函数（任务 1：Token 存储强化）
@@ -173,6 +235,10 @@ class UserResponse(BaseModel):
     is_admin: bool = False  # 是否为管理员
     avatar_url: str | None = None  # 头像地址（暂未支持上传，预留字段）
     bio: str | None = None  # 个人简介（由 PUT /users/me 原生 SQL 维护）
+    email_verified: bool = True
+    email_verification_required: bool = False
+    masked_email: str | None = None
+    message: str | None = None
 
 
 # 用户注册的请求格式
@@ -192,6 +258,25 @@ class UserCreate(BaseModel):
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters")
         return v
+
+
+class EmailVerifyCodeRequest(BaseModel):
+    code: str
+    email: str | None = None
+    username: str | None = None
+
+    @field_validator("code")
+    @classmethod
+    def code_must_be_six_digits(cls, v: str) -> str:
+        normalized = v.strip()
+        if len(normalized) != 6 or not normalized.isdigit():
+            raise ValueError("Verification code must be 6 digits")
+        return normalized
+
+
+class EmailResendCodeRequest(BaseModel):
+    email: str | None = None
+    username: str | None = None
 
 
 # ==========================================
@@ -218,6 +303,18 @@ async def login_for_access_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    if user.disabled and not getattr(user, "email_verified", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification required",
+        )
+    if user.disabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
+    if not getattr(user, "email_verified", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification required",
         )
 
     # 第二步：生成登录令牌（JWT）
@@ -499,11 +596,25 @@ async def register_user(user_data: UserCreate):
             status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered"
         )
 
+    normalized_email = _normalize_email(user_data.email)
+    if not normalized_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is required for registration",
+        )
+
     # 第二步：解析所属公司
     # - 优先使用传入的 company_id（校验公司存在性）
     # - 否则若传了 company_name，自动创建 Company 记录（含 brand_name / category）
     from app.database.models import Company as ORMCompany
     from app.database.models import User as ORMUser
+
+    with db.get_session() as session:
+        existing_email = session.query(ORMUser).filter(ORMUser.email == normalized_email).first()
+    if existing_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered"
+        )
 
     company_id = user_data.company_id
     if company_id:
@@ -535,20 +646,38 @@ async def register_user(user_data: UserCreate):
 
     hashed_password = hash_password(user_data.password)
 
-    # 第四步：创建用户记录
-    # 直接使用 ORM 写入，确保 email 字段被持久化（db.create_user 内部的转换会丢弃 email）
+    verification_code = _generate_email_verification_code()
+    verification_now = datetime.utcnow()
+
+    # 第四步：创建待邮箱验证的用户记录
+    # 直接使用 ORM 写入，确保 email 与验证字段被持久化。
     with db.get_session() as session:
         new_user = ORMUser(
             username=user_data.username,
-            email=user_data.email,
+            email=normalized_email,
             password_hash=hashed_password,  # 存储加密后的密码
             company_id=company_id,
             is_admin=False,  # 新用户默认非管理员
-            disabled=False,  # 新用户默认启用
+            disabled=True,  # 邮箱验证通过前禁止登录
+            is_active=False,
+            email_verified=False,
+            email_verified_at=None,
+        )
+        _set_user_email_verification_code(
+            new_user, normalized_email, verification_code, verification_now
         )
         session.add(new_user)
         session.commit()
         user_id = new_user.id
+
+    try:
+        await _send_email_verification_code(
+            normalized_email, user_data.username, verification_code
+        )
+    except Exception as e:
+        logger.warning(
+            "email_verification_send_failed", email=normalized_email, error=str(e)
+        )
 
     # 第五步：回读用户与公司信息，构造完整响应
     created_user = db.get_user_by_id(user_id)
@@ -566,7 +695,112 @@ async def register_user(user_data: UserCreate):
         category=company.category if company else None,
         avatar_url=None,
         bio=None,
+        email_verified=False,
+        email_verification_required=True,
+        masked_email=_mask_email(normalized_email),
+        message="验证码已发送，请查收邮箱并完成验证",
     )
+
+
+def _find_user_for_email_verification(session, request):
+    from app.database.models import User as ORMUser
+
+    normalized_email = _normalize_email(getattr(request, "email", None))
+    username = (getattr(request, "username", None) or "").strip()
+    query = session.query(ORMUser)
+    if normalized_email:
+        return query.filter(ORMUser.email == normalized_email).first()
+    if username:
+        return query.filter(ORMUser.username == username).first()
+    return None
+
+
+@router.post("/email/verify-code")
+async def verify_email_code(request: EmailVerifyCodeRequest):
+    from app.auth import invalidate_user_cache
+
+    now = datetime.utcnow()
+    with db.get_session() as session:
+        user = _find_user_for_email_verification(session, request)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="验证码无效或已过期",
+            )
+
+        if getattr(user, "email_verified", False):
+            return {"success": True, "message": "邮箱已验证"}
+
+        if int(getattr(user, "email_verification_attempts", 0) or 0) >= EMAIL_VERIFICATION_MAX_ATTEMPTS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="验证码无效或已过期",
+            )
+
+        expires_at = getattr(user, "email_verification_expires_at", None)
+        code_hash = getattr(user, "email_verification_code_hash", None)
+        if not expires_at or expires_at < now or not code_hash:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="验证码无效或已过期",
+            )
+
+        expected_hash = _hash_email_verification_code(user.email, request.code)
+        if not hmac.compare_digest(code_hash, expected_hash):
+            user.email_verification_attempts = int(
+                getattr(user, "email_verification_attempts", 0) or 0
+            ) + 1
+            session.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="验证码无效或已过期",
+            )
+
+        user.email_verified = True
+        user.email_verified_at = now
+        user.disabled = False
+        user.is_active = True
+        user.email_verification_code_hash = None
+        user.email_verification_expires_at = None
+        user.email_verification_sent_at = None
+        user.email_verification_attempts = 0
+        user_id = user.id
+        session.commit()
+
+    try:
+        invalidate_user_cache(user_id)
+    except Exception as e:
+        logger.warning("email_verify_cache_invalidate_failed", user_id=user_id, error=str(e))
+
+    return {"success": True, "message": "邮箱已验证，请登录"}
+
+
+@router.post("/email/resend-code")
+async def resend_email_code(request: EmailResendCodeRequest):
+    now = datetime.utcnow()
+    response = {"success": True, "message": "如果账户存在且未验证，我们将发送新的验证码"}
+
+    with db.get_session() as session:
+        user = _find_user_for_email_verification(session, request)
+        if not user or getattr(user, "email_verified", False):
+            return response
+
+        sent_at = getattr(user, "email_verification_sent_at", None)
+        if sent_at and (now - sent_at).total_seconds() < EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS:
+            return response
+
+        verification_code = _generate_email_verification_code()
+        email = _normalize_email(user.email)
+        _set_user_email_verification_code(user, email, verification_code, now)
+        username = user.username
+        session.commit()
+
+    try:
+        await _send_email_verification_code(email, username, verification_code)
+    except Exception as e:
+        logger.warning("email_verification_resend_failed", email=email, error=str(e))
+
+    return response
 
 
 # ==========================================
