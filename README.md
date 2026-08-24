@@ -74,7 +74,7 @@ $env:PYTHONPATH = "backend"
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-For production-like configuration, use `backend/.env.production.example` as a template and set secrets in the deployment platform. Do not commit filled `.env` files.
+For production-like configuration, use `backend/.env.production.example` and `frontend/.env.example` as templates and set secrets in the deployment platform. Do not commit filled `.env` files. Public registration remains off by default; only a dedicated email validation window should set backend `PUBLIC_REGISTRATION_ENABLED=true` and frontend `VITE_PUBLIC_REGISTRATION_ENABLED=true`, then turn both back off.
 
 ### Frontend
 

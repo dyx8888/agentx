@@ -63,6 +63,7 @@ Required environment variables:
 - `FRONTEND_URL=https://<frontend-public-url>`
 - `CORS_ORIGINS=https://<frontend-public-url>`
 - `COOKIE_SECURE=true`
+- `PUBLIC_REGISTRATION_ENABLED=false`
 - `ENABLE_PUBLIC_DOCS=false`
 - `ENABLE_EVOLUTION_API=false`
 
@@ -73,9 +74,10 @@ Optional environment variables:
 - `MILVUS_PORT=19530`
 - `SMTP_HOST=`
 - `SMTP_PORT=587`
-- `SMTP_USERNAME=`
+- `SMTP_USER=`
 - `SMTP_PASSWORD=`
 - `SMTP_FROM=`
+- `SMTP_USE_TLS=true`
 - `OAUTH_REDIRECT_BASE_URL=https://<backend-public-url>`
 - Platform API keys and secrets for Taobao, Douyin, Pinduoduo, and Xiaohongshu
 - Model provider API keys
@@ -101,6 +103,11 @@ For a public demo without Redis, Milvus, SMTP, OAuth, or real platform keys,
 leave those services disabled or unconfigured and verify the UI shows
 `not connected` / `configuration required` states instead of fake success.
 
+Public registration remains disabled by default. For a dedicated email
+registration validation window only, set both `PUBLIC_REGISTRATION_ENABLED=true`
+on the backend and `VITE_PUBLIC_REGISTRATION_ENABLED=true` on the frontend, then
+turn both back to `false` after the smoke is complete.
+
 ## Database Plan
 
 Use Neon Postgres for the first public demo attempt. Do not upload local SQLite
@@ -125,6 +132,9 @@ Required public settings:
 - `JWT_SECRET_KEY` must be generated in the deployment platform, not committed
 - No default administrator account may be committed or documented with a real password
 - External service credentials must be configured through the hosting platform secret store
+- `DATABASE_URL`, `JWT_SECRET_KEY`, encryption keys, `SMTP_PASSWORD`, OAuth
+  secrets, platform API keys, cookies, and verification codes must not be pasted
+  into chat, docs, repository files, logs, screenshots, or reports
 
 Expected behavior when optional services are absent:
 

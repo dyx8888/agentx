@@ -54,12 +54,21 @@ or committed `.env` files.
    - `FRONTEND_URL=https://<vercel-url>`
    - `CORS_ORIGINS=https://<vercel-url>`
    - `COOKIE_SECURE=true`
+   - `PUBLIC_REGISTRATION_ENABLED=false`
    - `ENABLE_PUBLIC_DOCS=false`
    - `ENABLE_EVOLUTION_API=false`
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and
+     `SMTP_USE_TLS` only if SMTP validation is explicitly authorized.
 6. Create a Vercel project from root directory `frontend`.
 7. Set Vercel environment variables:
    - `VITE_API_BASE_URL=https://<render-backend-url>/api`
+   - `VITE_PUBLIC_REGISTRATION_ENABLED=false`
    - `VITE_DEMO_ENABLED=false`
+
+For a dedicated public registration validation window only, set backend
+`PUBLIC_REGISTRATION_ENABLED=true` and frontend
+`VITE_PUBLIC_REGISTRATION_ENABLED=true` together. Turn both back to `false`
+after the validation window.
    - `VITE_DEMO_PASSWORD=`
 
 ## Migration Verification
@@ -85,8 +94,9 @@ Return only these non-secret values after provider setup:
 - Whether Render `/health` is reachable.
 - Whether Vercel build completed.
 
-Do not return `DATABASE_URL`, `JWT_SECRET_KEY`, OAuth secrets, SMTP passwords,
-platform API keys, cookies, or screenshots containing secrets.
+Do not return `DATABASE_URL`, `JWT_SECRET_KEY`, encryption keys, OAuth secrets,
+SMTP passwords, platform API keys, cookies, email verification codes, or
+screenshots containing secrets.
 
 ## Codex Verification After URLs Exist
 

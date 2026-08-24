@@ -165,6 +165,7 @@ Required environment variables:
 - `FRONTEND_URL=https://<frontend-public-url>`
 - `CORS_ORIGINS=https://<frontend-public-url>`
 - `COOKIE_SECURE=true`
+- `PUBLIC_REGISTRATION_ENABLED=false`
 - `ENABLE_PUBLIC_DOCS=false`
 - `ENABLE_EVOLUTION_API=false`
 
@@ -175,15 +176,21 @@ Optional environment variables:
 - `MILVUS_PORT=19530`
 - `SMTP_HOST`
 - `SMTP_PORT=587`
-- `SMTP_USERNAME`
+- `SMTP_USER`
 - `SMTP_PASSWORD`
 - `SMTP_FROM`
+- `SMTP_USE_TLS=true`
 - `OAUTH_REDIRECT_BASE_URL=https://<backend-public-url>`
 - OAuth, platform API, and model-provider keys
 
 Do not set fake values for optional integrations. Leave them unset unless real
 credentials exist, then verify that missing integrations show `not connected`
 or `configuration required`.
+
+For a dedicated public registration validation window only, turn on both
+`PUBLIC_REGISTRATION_ENABLED=true` in the backend provider environment and
+`VITE_PUBLIC_REGISTRATION_ENABLED=true` in the frontend provider environment.
+Keep both false before and after that validation window.
 
 ## Step 3 - Managed Postgres
 
@@ -249,6 +256,9 @@ python tests/performance/deployment_readiness_check.py `
 
 If provider secrets are not stored in a local env file, pass their names with
 `--runtime-secret` instead of writing values into the repository.
+Never paste `DATABASE_URL`, `JWT_SECRET_KEY`, encryption keys, `SMTP_PASSWORD`,
+OAuth secrets, platform API keys, cookies, or verification codes into chat,
+docs, repository files, logs, screenshots, or reports.
 
 ## Step 6 - Public Smoke
 
