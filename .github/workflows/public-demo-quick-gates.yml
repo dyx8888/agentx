@@ -72,6 +72,7 @@ jobs:
             tests/api/test_browser_connector_storage.py \
             tests/api/test_browser_connector_normalization.py \
             tests/api/test_browser_connector_business_integration.py \
+            tests/api/test_browser_connector_cors_auth.py \
             tests/performance/test_browser_connector_manifest_builder.py \
             tests/performance/test_browser_connector_extension_policy.py \
             tests/performance/test_browser_connector_staging_probe.py \
