@@ -5,6 +5,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://replace-with-render-backend-origin.example/api/:path*"
+    },
+    {
+      "source": "/ws/:path*",
+      "destination": "https://replace-with-render-backend-origin.example/ws/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

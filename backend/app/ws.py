@@ -245,6 +245,17 @@ def _invalid_ws_message_payload(reason: str = "invalid_json") -> dict[str, str]:
     }
 
 
+async def _reject_ws_unauthorized(websocket: WebSocket) -> None:
+    await websocket.close(code=4001, reason="Unauthorized")
+
+
+def _user_company_id(user: User) -> int | None:
+    try:
+        return int(user.company_id)
+    except (TypeError, ValueError):
+        return None
+
+
 def _authenticate_ws(websocket: WebSocket) -> User | None:
     """鉴权 WebSocket 连接：双兼容读取 JWT，返回认证用户或 None。
 
@@ -286,7 +297,10 @@ async def websocket_endpoint(websocket: WebSocket, company_id: int):
     if user is None:
         # 验证失败：未携带 token / token 无效 / 用户不存在或已禁用
         # 在 accept 之前 close，Starlette 会以拒绝握手的方式终止连接
-        await websocket.close(code=4001, reason="Unauthorized")
+        await _reject_ws_unauthorized(websocket)
+        return
+    if _user_company_id(user) != company_id:
+        await _reject_ws_unauthorized(websocket)
         return
     # user_id 从认证用户获取，忽略客户端 query parameter 中可被伪造的 user_id
     user_id = str(user.id)
@@ -364,6 +378,11 @@ async def task_status_websocket(websocket: WebSocket, task_id: int):
     客户端连接后注册到 _task_connections[task_id]，
     后续任何对该任务的状态变更都会通过 broadcast_task_status_update 推送。
     """
+    user = _authenticate_ws(websocket)
+    if user is None:
+        await _reject_ws_unauthorized(websocket)
+        return
+
     await websocket.accept()
     _task_connections.setdefault(task_id, []).append(websocket)
     try:
@@ -433,6 +452,11 @@ async def chat_websocket(websocket: WebSocket, agent_name: str):
     客户端发送 JSON 消息后，服务端流式返回：thinking → tool_call → tool_result → text → done。
     若 agent 不存在，返回 error 事件。
     """
+    user = _authenticate_ws(websocket)
+    if user is None:
+        await _reject_ws_unauthorized(websocket)
+        return
+
     await websocket.accept()
     try:
         while True:
@@ -457,7 +481,7 @@ async def chat_websocket(websocket: WebSocket, agent_name: str):
                 continue
 
             user_message = message_data.get("message", "")
-            async for event in _run_agent_chat(agent_name, user_message):
+            async for event in _run_agent_chat(agent_name, user_message, company_id=user.company_id):
                 await websocket.send_json(event)
             await websocket.send_json({"type": "done"})
     except WebSocketDisconnect:

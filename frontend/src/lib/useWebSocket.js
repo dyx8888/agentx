@@ -34,16 +34,22 @@ const ALERT_QUEUE_LIMIT = 10;     // 告警队列上限
 // ── 构建 WebSocket URL ──────────────────────────────────────────
 // 开发环境走 vite 代理 /ws → :8000；生产可用 VITE_WS_BASE 直连（如 wss://api.example.com/ws）
 // cookie 方案：不再拼接 ?token=，鉴权依赖同源 httpOnly cookie（WebSocket 握手时浏览器自动携带）
-function buildWsUrl(companyId) {
+export function buildWsUrl(companyId) {
   const override = import.meta.env.VITE_WS_BASE;
   let base;
   if (override) {
-    base = override.replace(/\/$/, '');
+    base = normalizeWsBase(override);
   } else {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     base = `${proto}//${window.location.host}/ws`;
   }
   return `${base}/connect/${encodeURIComponent(companyId)}`;
+}
+
+function normalizeWsBase(value) {
+  const trimmed = String(value).replace(/\/+$/, '');
+  if (trimmed.endsWith('/ws')) return trimmed;
+  return `${trimmed}/ws`;
 }
 
 // ── reducer：按消息类型路由到不同状态切片 ──────────────────────
