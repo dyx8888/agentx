@@ -79,6 +79,7 @@ def _backend_lightweight_smoke_enabled() -> bool:
 CORS_ALLOW_ORIGINS = _get_cors_origins()
 DOCS_ENABLED = _docs_enabled()
 EVOLUTION_API_ENABLED = _evolution_api_enabled()
+_runtime_model_status = {"status": "not_initialized"}
 
 
 def _is_origin_allowed(origin: str) -> bool:
@@ -155,6 +156,8 @@ from app.tools.registry import registry  # 工具注册表，管理 agent 可调
 async def lifespan(app: FastAPI):
     # lifespan 分为 yield 前（启动）和 yield 后（关闭）两个阶段，保证资源初始化和释放的对称性
     """Initialize Agent on startup"""
+    global _runtime_model_status
+
     from app.core.config import validate_secrets_on_startup
 
     validate_secrets_on_startup()
@@ -176,11 +179,13 @@ async def lifespan(app: FastAPI):
 
     if _backend_lightweight_smoke_enabled():
         app.state.runtime = None
+        _runtime_model_status = {"status": "runtime_skipped"}
         logger.warning("backend_lightweight_smoke_runtime_skipped")
     else:
         runtime = AgentRuntime()  # AgentRuntime 是全局单例，管理所有 agent 的生命周期和执行调度
         await runtime.initialize()  # async 初始化：可能涉及模型加载、外部服务连接等 I/O 操作
         app.state.runtime = runtime  # 挂载到 app.state 上，所有请求处理器通过 request.app.state.runtime 访问
+        _runtime_model_status = getattr(runtime, "model_status", {"status": "unknown"})
         logger.info("agent_runtime_initialized")
 
     try:
@@ -452,6 +457,11 @@ def health_check():
         checks["task_worker"] = "running" if (worker and worker.is_running) else "stopped"
     except Exception:
         checks["task_worker"] = "unknown"  # worker 模块不存在或初始化失败时标记为 unknown，不做降级判断
+
+    model_status = _runtime_model_status.get("status", "unknown")
+    checks["model_gateway"] = model_status
+    if model_status == "model_config_required":
+        overall = "degraded"
 
     if any("unhealthy" in str(v) for v in checks.values()):  # 仅当有组件明确 unhealthy 时才降级，unavailable 不触发降级
         overall = "degraded"

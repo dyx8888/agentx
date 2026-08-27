@@ -15,6 +15,7 @@ AgentRuntime - 核心编排器
 """
 
 # 仅导入必需的类型提示，避免运行时引入不必要的依赖
+import asyncio
 import os
 from typing import Any
 
@@ -56,7 +57,7 @@ from app.runtime.nodes import reflector_node as _reflector_node
 from app.runtime.validator import DynamicValidator
 
 # 通过全局单例获取模型网关，避免在每个 Runtime 实例中重复创建网关连接
-from app.services.model_gateway import get_global_model_gateway
+from app.services.model_gateway import ModelApiKeyMissingError, get_global_model_gateway
 
 # skill_registry 是全局单例，存储所有已注册的 Skill 模板，运行时按需匹配
 from app.skills.registry import skill_registry
@@ -138,6 +139,84 @@ def _build_high_risk_guard_result(
         "working_memory": memory.to_dict(),
     }
 
+def _model_config_required_payload(model_status: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Build the same public missing-key shape used by chat/master routing."""
+    status = model_status or {}
+    if status.get("status") != "model_config_required":
+        return None
+
+    model = str(status.get("model") or "")
+    provider = str(status.get("provider") or "")
+    env_keys = [str(key) for key in (status.get("env_keys") or []) if key]
+    env_hint = " / ".join(env_keys) if env_keys else "模型 API Key"
+    provider_hint = provider or model or "当前模型"
+    message = (
+        f"模型 {model or provider_hint} 缺少 API Key。请配置 {env_hint} 环境变量，"
+        f"或在企业大模型配置中填写 {provider_hint} API Key。"
+    )
+    return {
+        "type": "error",
+        "code": "model_api_key_missing",
+        "message": message,
+        "content": message,
+        "status": "model_config_required",
+        "requires_config": True,
+        "config_target": "llm_api_key",
+        "provider": provider,
+        "model": model,
+        "env_keys": env_keys,
+    }
+
+
+def _build_model_config_required_result(
+    error_payload: dict[str, Any], message: str, agent_name: str
+) -> dict[str, Any]:
+    """Return a normal runtime result when startup has no usable global model key."""
+    memory = WorkingMemory(
+        goal="model_config_required",
+        current_step="blocked",
+        context_focus="llm_api_key",
+        temporary_variables={
+            "requires_config": True,
+            "config_target": "llm_api_key",
+            "agent_name": agent_name,
+            "message_preview": message[:120],
+        },
+    )
+    response = str(error_payload.get("message") or "模型 API Key 未配置。")
+    return {
+        "response": response,
+        "plan": {
+            "steps": [],
+            "task_summary": "Model provider configuration is required before LLM execution.",
+            "model_gateway": {
+                "status": "model_config_required",
+                "code": "model_api_key_missing",
+                "requires_config": True,
+                "config_target": "llm_api_key",
+            },
+        },
+        "step_results": [
+            {
+                "step": 1,
+                "description": "pre-llm model configuration check",
+                "tool_used": "model_gateway",
+                "status": "blocked",
+                "result": response,
+            }
+        ],
+        "reflection": {
+            "passed": False,
+            "code": "model_api_key_missing",
+            "requires_config": True,
+            "config_target": "llm_api_key",
+        },
+        "success": False,
+        "error": error_payload,
+        "working_memory": memory.to_dict(),
+    }
+
+
 # 模块加载时初始化 tracer（幂等）—— 提前 init 是为了确保 tracing SDK 在首次调用前已完成初始化，
 # 避免高并发场景下首次调用时的竞态竞争或延迟；幂等设计保证重复调用不会产生副作用
 init_tracer("agentx")
@@ -168,6 +247,8 @@ class AgentRuntime:
         self.memory_manager = None  # 三层记忆在 initialize 中创建，因为可能依赖 LLM 做语义理解
         self.validator = None  # 校验器同样需要 LLM，所以延迟到 initialize 中实例化
         self._ctx: ToolLoadContext = None  # 缓存最后一次初始化上下文，方便调试和恢复时回看
+        self.model_status = {"status": "not_initialized"}
+        self._execution_lock = asyncio.Lock()
         # Token消耗追踪 - 文档依据: 3.docx
         self._total_tokens_consumed = 0  # 累计Token消耗
         self._loop_iterations = 0  # 当前循环迭代次数
@@ -186,9 +267,26 @@ class AgentRuntime:
         # 1. 获取 LLM
         # 通过全局网关获取 LLM 而非直接创建，是为了复用连接池和配置——网关统一管理 API key、重试策略和负载均衡
         model_gateway = get_global_model_gateway()
-        self.llm = model_gateway.get_llm()
         default_model = model_gateway.get_default_model()
-        logger.info("agent_runtime_model_selected", model=default_model)
+        try:
+            self.llm = model_gateway.get_llm()
+            self.model_status = {"status": "configured", "model": default_model}
+            logger.info("agent_runtime_model_selected", model=default_model)
+        except ModelApiKeyMissingError as exc:
+            self.llm = None
+            self.model_status = {
+                "status": "model_config_required",
+                "code": exc.code,
+                "model": exc.model_key,
+                "provider": exc.provider,
+                "env_keys": list(exc.env_keys),
+            }
+            logger.warning(
+                "agent_runtime_model_config_required",
+                model=exc.model_key,
+                provider=exc.provider,
+                env_keys=list(exc.env_keys),
+            )
 
         # 2. 初始化 MemoryManager
         # 三层记忆管理器在此创建而非 __init__，因为其内部可能需要 LLM 做嵌入向量化，必须等 LLM 就绪
@@ -567,6 +665,94 @@ class AgentRuntime:
         # 无匹配时默认 hybrid：这是最灵活的模式，能应对各种未知类型的问题
         return "hybrid"
 
+    @staticmethod
+    def _normalize_company_id(company_id: str | int | None) -> int | None:
+        if company_id is None:
+            return None
+        text = str(company_id).strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            return None
+
+    def _resolve_request_llm_or_error(
+        self, company_id: str | int | None
+    ) -> tuple[dict[str, Any] | None, Any | None]:
+        model_config_error = _model_config_required_payload(self.model_status)
+        if not model_config_error or self.llm is not None:
+            return None, None
+
+        normalized_company_id = self._normalize_company_id(company_id)
+        if normalized_company_id is None:
+            return model_config_error, None
+
+        model_gateway = get_global_model_gateway()
+        default_model = model_gateway.get_default_model()
+        try:
+            request_llm = model_gateway.get_llm(company_id=normalized_company_id)
+            logger.info(
+                "agent_runtime_company_model_selected",
+                model=default_model,
+                company_id=normalized_company_id,
+            )
+            return None, request_llm
+        except ModelApiKeyMissingError as exc:
+            self.model_status = {
+                "status": "model_config_required",
+                "code": exc.code,
+                "model": exc.model_key,
+                "provider": exc.provider,
+                "env_keys": list(exc.env_keys),
+            }
+            logger.warning(
+                "agent_runtime_company_model_config_required",
+                model=exc.model_key,
+                provider=exc.provider,
+                company_id=normalized_company_id,
+            )
+            return _model_config_required_payload(self.model_status), None
+
+    async def _invoke_graph(
+        self, initial_state: dict[str, Any], trace_id: str, request_llm: Any | None = None
+    ) -> dict[str, Any]:
+        config = {"configurable": {"thread_id": trace_id}}
+        if request_llm is None:
+            return await self.graph.ainvoke(initial_state, config)
+
+        async with self._execution_lock:
+            original_llm = self.llm
+            original_validator = self.validator
+            try:
+                self.llm = request_llm
+                self.validator = DynamicValidator(self.skill_registry, request_llm)
+                return await self.graph.ainvoke(initial_state, config)
+            finally:
+                self.llm = original_llm
+                self.validator = original_validator
+
+    async def _stream_graph_events(
+        self, initial_state: dict[str, Any], trace_id: str, request_llm: Any | None = None
+    ):
+        config = {"configurable": {"thread_id": trace_id}}
+        if request_llm is None:
+            async for event in self.graph.astream(initial_state, config):
+                yield event
+            return
+
+        async with self._execution_lock:
+            original_llm = self.llm
+            original_validator = self.validator
+            try:
+                self.llm = request_llm
+                self.validator = DynamicValidator(self.skill_registry, request_llm)
+                async for event in self.graph.astream(initial_state, config):
+                    yield event
+            finally:
+                self.llm = original_llm
+                self.validator = original_validator
+
     async def run(self, message: str, agent_name: str = "", company_id: str = "") -> dict[str, Any]:
         # 用 company_id + agent_name 组合生成 trace_id，保证同租户同 Agent 的请求可追踪到同一链路
         trace_id = generate_trace_id(company_id, agent_name)
@@ -599,15 +785,17 @@ class AgentRuntime:
             )
             await self.initialize(ctx)
 
+        model_config_error, request_llm = self._resolve_request_llm_or_error(company_id)
+        if model_config_error:
+            return _build_model_config_required_result(model_config_error, message, agent_name)
+
         # 将整个执行包裹在 trace_span 中，使得 tracing 系统能按 agent_runtime 维度聚合
         with trace_span("agent_runtime", {"trace_id": trace_id}):
             initial_state = self._build_initial_state(message, agent_name, company_id, trace_id)
 
             # ainvoke 是异步的图执行方法：内部会按图的拓扑结构依次（或必要时并行）调用各节点
             # thread_id 作为 checkpoint 的隔离键：同 trace_id 的多次调用共享状态，不同 trace_id 完全隔离
-            result = await self.graph.ainvoke(
-                initial_state, {"configurable": {"thread_id": trace_id}}
-            )
+            result = await self._invoke_graph(initial_state, trace_id, request_llm)
 
         # 从结果中解包各字段：用 .get() 而非 [] 取值，防止节点异常时 KeyError
         final_messages = result.get("messages", [])
@@ -657,14 +845,18 @@ class AgentRuntime:
             )
             await self.initialize(ctx)
 
+        model_config_error, request_llm = self._resolve_request_llm_or_error(company_id)
+        if model_config_error:
+            yield model_config_error
+            yield {"type": "done"}
+            return
+
         with trace_span("agent_runtime_stream", {"trace_id": trace_id}):
             initial_state = self._build_initial_state(message, agent_name, company_id, trace_id)
 
         # astream 是异步生成器，每走完一个节点就 yield 一次中间状态——
         # 这样前端可以实时看到 planner 产出的计划、executor 每步的结果，而不是等到全部完成后一次性返回
-        async for event in self.graph.astream(
-            initial_state, {"configurable": {"thread_id": trace_id}}
-        ):
+        async for event in self._stream_graph_events(initial_state, trace_id, request_llm):
             # LangGraph astream 的事件格式是 {node_name: node_output}，取第一个 key 作为节点名
             node_name = list(event.keys())[0]
             node_output = event[node_name]

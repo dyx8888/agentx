@@ -119,6 +119,34 @@ def test_health_check_uses_short_lived_milvus_client(monkeypatch):
     fake_connections.disconnect.assert_not_called()
 
 
+def test_health_check_marks_missing_model_config_as_degraded(monkeypatch):
+    import app.database as database
+    import app.main as main
+
+    class FakeConnection:
+        def close(self):
+            return None
+
+    class FakeMilvusClient:
+        def list_collections(self):
+            return []
+
+        def close(self):
+            return None
+
+    _patch_health_dependencies(
+        monkeypatch,
+        milvus_module=types.SimpleNamespace(MilvusClient=FakeMilvusClient),
+    )
+    monkeypatch.setattr(database, "db", types.SimpleNamespace(get_connection=lambda: FakeConnection()))
+    monkeypatch.setattr(main, "_runtime_model_status", {"status": "model_config_required"})
+
+    result = main.health_check()
+
+    assert result["status"] == "degraded"
+    assert result["checks"]["model_gateway"] == "model_config_required"
+
+
 def _set_config_secrets(monkeypatch, *, env, jwt_secret, encryption_key):
     import app.core.config as config
 
@@ -308,6 +336,60 @@ def test_lifespan_backend_lightweight_smoke_fails_closed_in_prod(monkeypatch):
         asyncio.run(_enter_lifespan(main))
 
     assert events == ["validate"]
+
+
+def test_lifespan_allows_prod_missing_global_llm_key_with_degraded_runtime(monkeypatch):
+    from app.services.model_gateway import ModelApiKeyMissingError
+
+    config = _set_config_secrets(
+        monkeypatch,
+        env="prod",
+        jwt_secret="safe-jwt-secret-for-startup-test",
+        encryption_key="safe-encryption-key-for-startup-test",
+    )
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    events = []
+    original_validate = config.validate_secrets_on_startup
+
+    def wrapped_validate():
+        events.append("validate")
+        return original_validate()
+
+    class RuntimeMissingGlobalLlmKey:
+        def __init__(self):
+            self.model_status = {"status": "not_initialized"}
+
+        async def initialize(self):
+            events.append("runtime")
+            try:
+                raise ModelApiKeyMissingError(
+                    model_key="deepseek",
+                    provider="deepseek",
+                    env_keys=("DEEPSEEK_API_KEY",),
+                )
+            except ModelApiKeyMissingError as exc:
+                self.model_status = {
+                    "status": "model_config_required",
+                    "code": exc.code,
+                    "model": exc.model_key,
+                    "provider": exc.provider,
+                    "env_keys": list(exc.env_keys),
+                }
+
+    monkeypatch.setattr(config, "validate_secrets_on_startup", wrapped_validate)
+    main = _patch_lifespan_dependencies(
+        monkeypatch,
+        events,
+        runtime_cls=RuntimeMissingGlobalLlmKey,
+    )
+    monkeypatch.setattr(main, "_runtime_model_status", {"status": "not_initialized"})
+
+    app = asyncio.run(_enter_lifespan(main))
+
+    assert events == ["validate", "database", "tools", "skills", "runtime", "session_init", "session_close"]
+    assert app.state.runtime.model_status["status"] == "model_config_required"
+    assert main._runtime_model_status["status"] == "model_config_required"
+
 
 def test_lifespan_session_store_init_failure_falls_back_to_memory(monkeypatch):
     config = _set_config_secrets(
