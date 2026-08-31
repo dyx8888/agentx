@@ -269,7 +269,8 @@ def _user_company_id(user: User) -> int | None:
 
 
 def _requested_ws_protocols(websocket: WebSocket) -> list[str]:
-    header = websocket.headers.get("sec-websocket-protocol", "")
+    headers = getattr(websocket, "headers", None)
+    header = headers.get("sec-websocket-protocol", "") if headers is not None else ""
     return [part.strip() for part in header.split(",") if part.strip()]
 
 
