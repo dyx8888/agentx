@@ -46,6 +46,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(
 REFRESH_TOKEN_EXPIRE_DAYS = int(
     os.getenv("JWT_REFRESH_EXPIRE_DAYS", "7")
 )  # refresh token 长期有效（默认 7 天），仅用于换取新 access token，不用于业务鉴权
+WS_TICKET_EXPIRE_SECONDS = int(
+    os.getenv("WS_TICKET_EXPIRE_SECONDS", "60")
+)  # WebSocket 一次性握手票据短期有效，避免把主 token 放进跨域 WS URL
 
 # 用户对象缓存 TTL（秒）：缓存命中时跳过 DB 查询，将认证路由的 P99 瓶颈消除
 # TTL 60s 平衡实时性与性能——用户被禁用/删除后最多 60s 内失效
@@ -247,6 +250,44 @@ def create_access_token_for_user(user: Any, expires_delta: timedelta | None = No
         },
         expires_delta=expires_delta,
     )
+
+
+def create_ws_ticket_for_user(user: Any, expires_delta: timedelta | None = None) -> str:
+    """Create a short-lived WebSocket handshake ticket for an authenticated user.
+
+    The ticket is intentionally separate from the normal access token. The browser
+    requests it over the authenticated HTTP API, then presents it during the WS
+    handshake as a subprotocol so the main token/cookies never go in the URL.
+    """
+    now = datetime.utcnow()
+    expire = now + (expires_delta or timedelta(seconds=WS_TICKET_EXPIRE_SECONDS))
+    payload = {
+        "sub": user.username,
+        "user_id": user.id,
+        "company_id": user.company_id,
+        "is_admin": bool(user.is_admin),
+        "disabled": bool(user.disabled),
+        "token_version": int(getattr(user, "token_version", 0) or 0),
+        "type": "ws_ticket",
+        "iat": now,
+        "exp": expire,
+        "jti": str(uuid.uuid4()),
+    }
+    return jwt.encode(payload, _get_secret_key(), algorithm=ALGORITHM)
+
+
+def decode_ws_ticket(ticket: str) -> dict[str, Any] | None:
+    """Decode and validate a short-lived WebSocket ticket."""
+    try:
+        payload = jwt.decode(ticket, _get_secret_key(), algorithms=[ALGORITHM])
+        exp = payload.get("exp")
+        if exp is None or datetime.utcnow() > datetime.fromtimestamp(exp):
+            return None
+        if payload.get("type") != "ws_ticket":
+            return None
+        return payload
+    except jwt.PyJWTError:
+        return None
 
 
 def decode_access_token(token: str) -> dict[str, Any] | None:

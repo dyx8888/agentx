@@ -17,6 +17,7 @@ from fastapi import (  # WebSocketDisconnect 是 FastAPI 内置异常，精确�
 
 from app.auth import (
     decode_access_token,  # JWT 解码：复用 app/auth.py 的 token 验证逻辑，避免重复实现导致策略不一致
+    decode_ws_ticket,
 )
 from app.core.logging import (
     get_logger,  # 结构化日志：支持按 company_id/user_id 过滤，便于排查某个租户的连接问题
@@ -28,6 +29,9 @@ logger = get_logger(__name__)  # 模块级 logger，线上排查 WebSocket 问�
 router = (
     APIRouter()
 )  # 独立路由模块：WebSocket 端点和 HTTP 端点可以共存于同一个 router 中，便于按功能分组
+
+WS_PROTOCOL = "agentx.ws.v1"
+WS_TICKET_PROTOCOL_PREFIX = "agentx-ticket."
 
 
 class WebSocketManager:
@@ -54,8 +58,16 @@ class WebSocketManager:
             self._lock = asyncio.Lock()  # 异步锁：所有读写连接字典的操作都必须串行化，防止并发 add/del 导致 KeyError 或数据丢失
             logger.info("websocket_manager_initialized")
 
-    async def connect(self, websocket: WebSocket, company_id: int, user_id: str = None):
-        await websocket.accept()  # 必须先 accept 才能收发消息，这是 WebSocket 协议握手的第一步
+    async def connect(
+        self,
+        websocket: WebSocket,
+        company_id: int,
+        user_id: str = None,
+        subprotocol: str | None = None,
+    ):
+        await websocket.accept(
+            subprotocol=subprotocol
+        )  # 必须先 accept 才能收发消息，这是 WebSocket 协议握手的第一步
         async with self._lock:
             # 锁内操作：确保_connections和_user_connections的插入是原子性的，不会出现"只插入了一个"的中间状态
             if company_id not in self._connections:
@@ -256,12 +268,53 @@ def _user_company_id(user: User) -> int | None:
         return None
 
 
+def _requested_ws_protocols(websocket: WebSocket) -> list[str]:
+    header = websocket.headers.get("sec-websocket-protocol", "")
+    return [part.strip() for part in header.split(",") if part.strip()]
+
+
+def _extract_ws_ticket(websocket: WebSocket) -> str | None:
+    for protocol in _requested_ws_protocols(websocket):
+        if protocol.startswith(WS_TICKET_PROTOCOL_PREFIX):
+            return protocol[len(WS_TICKET_PROTOCOL_PREFIX) :]
+    return None
+
+
+def _selected_ws_subprotocol(websocket: WebSocket) -> str | None:
+    protocols = _requested_ws_protocols(websocket)
+    if WS_PROTOCOL in protocols:
+        return WS_PROTOCOL
+    return None
+
+
+def _user_from_auth_payload(payload: dict[str, Any]) -> User | None:
+    username = payload.get("sub")
+    if not username:
+        return None
+
+    user = db.get_user_by_username(username)
+    if not user or user.disabled:
+        return None
+
+    current_token_version = int(getattr(user, "token_version", 0) or 0)
+    payload_token_version = payload.get("token_version")
+    if payload_token_version is None:
+        return user if current_token_version == 0 else None
+    try:
+        if int(payload_token_version) != current_token_version:
+            return None
+    except (TypeError, ValueError):
+        return None
+    return user
+
+
 def _authenticate_ws(websocket: WebSocket) -> User | None:
     """鉴权 WebSocket 连接：双兼容读取 JWT，返回认证用户或 None。
 
     Token 来源优先级：
-      1. query parameter `?token=`（保留兼容旧客户端 / 跨域直连场景）
-      2. httpOnly cookie `access_token`（新 cookie 方案，握手时浏览器同源自动携带）
+      1. WebSocket subprotocol short-lived ticket（跨域直连 Render）
+      2. query parameter `?token=`（保留兼容旧客户端）
+      3. httpOnly cookie `access_token`（同源 WS 兜底）
 
     cookie 鉴权机制说明：
       前端切换到 httpOnly cookie 后，JS 无法读取 token，WebSocket URL 不再拼 ?token=。
@@ -271,6 +324,13 @@ def _authenticate_ws(websocket: WebSocket) -> User | None:
 
     验证逻辑复用 app/auth.py 的 decode_access_token，与 HTTP 接口校验保持一致。
     """
+    ws_ticket = _extract_ws_ticket(websocket)
+    if ws_ticket is not None:
+        payload = decode_ws_ticket(ws_ticket)
+        if not payload:
+            return None
+        return _user_from_auth_payload(payload)
+
     # 优先读 query param（兼容旧客户端 / 跨域直连 / 显式传 token 的场景）
     token = websocket.query_params.get("token")
     # query param 无 token 时回退到 cookie（httpOnly cookie 方案：握手时浏览器同源自动携带）
@@ -281,13 +341,7 @@ def _authenticate_ws(websocket: WebSocket) -> User | None:
     payload = decode_access_token(token)
     if not payload:
         return None
-    username = payload.get("sub")
-    if not username:
-        return None
-    user = db.get_user_by_username(username)
-    if not user or user.disabled:
-        return None
-    return user
+    return _user_from_auth_payload(payload)
 
 
 @router.websocket("/connect/{company_id}")
@@ -304,7 +358,12 @@ async def websocket_endpoint(websocket: WebSocket, company_id: int):
         return
     # user_id 从认证用户获取，忽略客户端 query parameter 中可被伪造的 user_id
     user_id = str(user.id)
-    await ws_manager.connect(websocket, company_id, user_id)
+    await ws_manager.connect(
+        websocket,
+        company_id,
+        user_id,
+        subprotocol=_selected_ws_subprotocol(websocket),
+    )
     try:
         while True:
             data = (
@@ -383,7 +442,7 @@ async def task_status_websocket(websocket: WebSocket, task_id: int):
         await _reject_ws_unauthorized(websocket)
         return
 
-    await websocket.accept()
+    await websocket.accept(subprotocol=_selected_ws_subprotocol(websocket))
     _task_connections.setdefault(task_id, []).append(websocket)
     try:
         while True:
@@ -457,7 +516,7 @@ async def chat_websocket(websocket: WebSocket, agent_name: str):
         await _reject_ws_unauthorized(websocket)
         return
 
-    await websocket.accept()
+    await websocket.accept(subprotocol=_selected_ws_subprotocol(websocket))
     try:
         while True:
             data = await websocket.receive_text()

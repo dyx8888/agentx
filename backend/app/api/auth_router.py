@@ -38,10 +38,12 @@ from app.auth import (  # 复用 HS256 算法常量与密钥获取函数
     ACCESS_TOKEN_EXPIRE_MINUTES,  # 任务 1: access_token cookie 的 max_age
     ALGORITHM,
     REFRESH_TOKEN_EXPIRE_DAYS,  # 任务 1: refresh_token cookie 的 max_age
+    WS_TICKET_EXPIRE_SECONDS,
     _get_secret_key,
     authenticate_user,
     create_access_token_for_user,  # P0-3: 签发带 user_id 的 token
     create_refresh_token,
+    create_ws_ticket_for_user,
     decode_refresh_token,
     get_current_active_user,
     is_token_revoked,
@@ -195,6 +197,12 @@ class Token(BaseModel):
     token_type: str  # 令牌类型（固定为 "bearer"）
 
 
+class WebSocketTicketResponse(BaseModel):
+    ws_ticket: str
+    expires_in: int
+    token_type: str = "websocket-ticket"
+
+
 # 刷新令牌请求体：前端用 refresh_token 换取新 access_token
 class RefreshTokenRequest(BaseModel):
     refresh_token: str | None = None
@@ -332,6 +340,17 @@ async def login_for_access_token(
 
     # 返回令牌（JSON 结构保持不变，向后兼容 localStorage 方案的前端）
     return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+
+@router.post("/ws-ticket", response_model=WebSocketTicketResponse)
+async def create_websocket_ticket(
+    current_user: User = Depends(get_current_active_user),
+):
+    """Issue a short-lived ticket for direct Render WebSocket handshakes."""
+    return WebSocketTicketResponse(
+        ws_ticket=create_ws_ticket_for_user(current_user),
+        expires_in=WS_TICKET_EXPIRE_SECONDS,
+    )
 
 
 # ==========================================

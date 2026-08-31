@@ -1,5 +1,7 @@
 ﻿import { useEffect, useReducer, useRef } from 'react';
 
+import { createWsTicket } from '@/api/auth';
+
 /**
  * useWebSocket — 实时通知接入 Hook
  *
@@ -16,12 +18,11 @@
  *   3. 指数退避重连（1s→2s→4s→8s→16s），最多 5 次，避免后端不可用时打满连接
  *   4. 心跳 ping 每 30s 一次，穿透代理/防火墙的空闲断连
  *   5. 异常会记录为前端告警并降级，不阻塞主聊天功能
- *   6. companyId 缺失时不连接；鉴权依赖同源 httpOnly cookie 自动携带
+ *   6. companyId 缺失时不连接；鉴权使用同源 /api 签发的短期 WS ticket
  *
- * cookie 鉴权说明（与 client.js 的 withCredentials 同源带 cookie 一致）：
- *   切换到 httpOnly cookie 后，JS 不再读取 token，URL 不拼 ?token=。
- *   只要 WS URL 与页面同源，浏览器在 WebSocket 握手阶段会自动携带 access_token
- *   httpOnly cookie，后端 ws.py 的 _authenticate_ws 会从 cookie 读取校验。
+ * WS ticket 说明：
+ *   前端先通过同源 /api/auth/ws-ticket 获取短期票据，再通过 WebSocket subprotocol
+ *   完成 direct Render 握手鉴权；URL 不拼 ?token=，不依赖跨域 cookie。
  *
  * @param {string|number} companyId - 公司 ID
  * @returns {{connected: boolean, taskStatus: object|null, reviewNotifications: array, agentStatus: object, chainProgress: object, alerts: array, dismissReview: function, dismissAlert: function}}
@@ -30,10 +31,12 @@ const MAX_RETRIES = 5;            // 最大重连次数
 const HEARTBEAT_INTERVAL = 30000; // 心跳间隔 30s
 const REVIEW_QUEUE_LIMIT = 20;    // 审核通知队列上限，超出丢弃最旧的
 const ALERT_QUEUE_LIMIT = 10;     // 告警队列上限
+export const WS_PROTOCOL = 'agentx.ws.v1';
+export const WS_TICKET_PROTOCOL_PREFIX = 'agentx-ticket.';
 
 // ── 构建 WebSocket URL ──────────────────────────────────────────
 // 开发环境走 vite 代理 /ws → :8000；生产可用 VITE_WS_BASE 直连（如 wss://api.example.com/ws）
-// cookie 方案：不再拼接 ?token=，鉴权依赖同源 httpOnly cookie（WebSocket 握手时浏览器自动携带）
+// direct Render 方案：URL 不拼 ?token=，握手票据通过 WebSocket subprotocol 传递。
 export function buildWsUrl(companyId) {
   const override = import.meta.env.VITE_WS_BASE;
   let base;
@@ -48,8 +51,22 @@ export function buildWsUrl(companyId) {
 
 function normalizeWsBase(value) {
   const trimmed = String(value).replace(/\/+$/, '');
-  if (trimmed.endsWith('/ws')) return trimmed;
-  return `${trimmed}/ws`;
+  const withWsProtocol = trimmed
+    .replace(/^https:\/\//i, 'wss://')
+    .replace(/^http:\/\//i, 'ws://');
+  if (withWsProtocol.endsWith('/ws')) return withWsProtocol;
+  return `${withWsProtocol}/ws`;
+}
+
+export function buildWsProtocols(ticket) {
+  const normalizedTicket = String(ticket || '').trim();
+  return normalizedTicket
+    ? [WS_PROTOCOL, `${WS_TICKET_PROTOCOL_PREFIX}${normalizedTicket}`]
+    : [WS_PROTOCOL];
+}
+
+function getWsTicketValue(response) {
+  return response?.ws_ticket || response?.ticket || '';
 }
 
 // ── reducer：按消息类型路由到不同状态切片 ──────────────────────
@@ -140,12 +157,13 @@ export function useWebSocket(companyId) {
   const closedByUsRef = useRef(false); // 组件卸载主动关闭标记，避免触发重连
 
   useEffect(() => {
-    // cookie 方案：不再依赖 getAuthToken()，鉴权由同源 httpOnly cookie 在 WebSocket 握手时自动携带
+    // direct Render 方案：先通过同源 /api 获取短期 WS ticket，再用子协议完成 WS 鉴权
     // companyId 缺失则不连接（静默降级）
     if (!companyId) {
       dispatch({ type: 'SET_CONNECTED', value: false });
       return undefined;
     }
+    closedByUsRef.current = false;
 
     const url = buildWsUrl(companyId);
 
@@ -175,11 +193,46 @@ export function useWebSocket(companyId) {
       }
     };
 
+    const scheduleReconnect = () => {
+      if (closedByUsRef.current) return;
+      if (retryCountRef.current >= MAX_RETRIES) {
+        console.warn(`[useWebSocket] 已达最大重连次数 ${MAX_RETRIES}，停止重连`);
+        return;
+      }
+      const delay = Math.min(1000 * 2 ** retryCountRef.current, 16000);
+      retryCountRef.current += 1;
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, delay);
+    };
+
     // 建立连接
-    const connect = () => {
+    const connect = async () => {
+      let ticket;
+      try {
+        ticket = getWsTicketValue(await createWsTicket());
+      } catch {
+        if (!closedByUsRef.current) {
+          console.warn('[useWebSocket] WS ticket 获取失败，已降级');
+          dispatch({ type: 'SET_CONNECTED', value: false });
+          scheduleReconnect();
+        }
+        return;
+      }
+      if (!ticket) {
+        if (!closedByUsRef.current) {
+          console.warn('[useWebSocket] WS ticket 缺失，已降级');
+          dispatch({ type: 'SET_CONNECTED', value: false });
+          scheduleReconnect();
+        }
+        return;
+      }
+      if (closedByUsRef.current) return;
+
       let ws;
       try {
-        ws = new WebSocket(url);
+        ws = new WebSocket(url, buildWsProtocols(ticket));
       } catch (e) {
         // 构造异常（如 URL 非法）—— 静默降级，不重连
         console.warn('[useWebSocket] 构造失败，已降级:', e);
@@ -187,7 +240,6 @@ export function useWebSocket(companyId) {
         return;
       }
       wsRef.current = ws;
-      closedByUsRef.current = false;
 
       ws.onopen = () => {
         retryCountRef.current = 0; // 连接成功，重置重试计数
@@ -261,16 +313,7 @@ export function useWebSocket(companyId) {
         // 主动关闭（卸载）则不再重连
         if (closedByUsRef.current) return;
         // 指数退避重连：1s, 2s, 4s, 8s, 16s
-        if (retryCountRef.current >= MAX_RETRIES) {
-          console.warn(`[useWebSocket] 已达最大重连次数 ${MAX_RETRIES}，停止重连`);
-          return;
-        }
-        const delay = Math.min(1000 * 2 ** retryCountRef.current, 16000);
-        retryCountRef.current += 1;
-        reconnectTimerRef.current = setTimeout(() => {
-          reconnectTimerRef.current = null;
-          connect();
-        }, delay);
+        scheduleReconnect();
       };
     };
 
@@ -301,4 +344,3 @@ export function useWebSocket(companyId) {
     dismissAlert,
   };
 }
-

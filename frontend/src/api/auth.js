@@ -60,6 +60,14 @@ export function getMe() {
 }
 
 /**
+ * 获取 WebSocket 短期握手票据
+ * @returns {Promise<{ws_ticket: string, expires_in: number, token_type: string}>}
+ */
+export function createWsTicket() {
+  return client.post('/auth/ws-ticket').then((res) => res.data);
+}
+
+/**
  * 更新当前用户资料
  * @param {Object} profile - { username, company_name, brand_name, category, bio }
  * @returns {Promise<{success: boolean, message: string}>}
