@@ -137,7 +137,7 @@ describe('SettingsPage', () => {
 
     expect(screen.getByText('浏览器连接器：未连接')).toBeInTheDocument();
     expect(await screen.findByText('浏览器连接器采集 / 只读来源')).toBeInTheDocument();
-    expect(await screen.findByText('后端试点：已开启')).toBeInTheDocument();
+    expect(await screen.findByText('后端能力：已开启')).toBeInTheDocument();
   });
 
   it('shows browser connector as connected when extension marker exists', async () => {
@@ -180,7 +180,7 @@ describe('SettingsPage', () => {
     });
   });
 
-  it('shows browser connector pilot disabled state without loading records', async () => {
+  it('shows browser connector global disabled state without loading records', async () => {
     browserConnectorApi.getBrowserConnectorStatus.mockResolvedValueOnce({
       enabled: false,
       reason: 'browser_connector_disabled',
@@ -192,8 +192,8 @@ describe('SettingsPage', () => {
     renderSettingsPage();
     fireEvent.click(screen.getByText('浏览器连接器'));
 
-    expect(await screen.findByText('后端试点：未开启')).toBeInTheDocument();
-    expect(screen.getByText('当前租户未开启浏览器连接器试点', { exact: false })).toBeInTheDocument();
+    expect(await screen.findByText('后端能力：未开启')).toBeInTheDocument();
+    expect(screen.getByText('浏览器连接器已被全局安全开关关闭', { exact: false })).toBeInTheDocument();
     expect(screen.getByText('确认导入达人')).toBeDisabled();
     expect(screen.getByText('确认写入知识库')).toBeDisabled();
     expect(browserConnectorApi.listBrowserConnectorRecords).not.toHaveBeenCalled();

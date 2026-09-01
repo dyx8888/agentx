@@ -43,7 +43,9 @@ features:
     enabled: false
     phase: 8
   browser_connector:
-    enabled: false
+    enabled: true
     phase: 0
+    # Browser connector access is scoped by the authenticated user's company_id.
+    # Tenant/user allowlists are retained only for legacy config compatibility.
     tenant_allowlist: []
     user_allowlist: []

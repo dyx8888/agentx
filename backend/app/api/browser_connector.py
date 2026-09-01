@@ -7,6 +7,7 @@ and rejects payloads that try to carry credentials or other sensitive fields.
 """
 
 from datetime import datetime, timezone
+import os
 from typing import Any, Literal
 from urllib.parse import parse_qsl, urlsplit
 
@@ -16,7 +17,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_active_user
-from app.core.feature_flags import get_feature_flags
 from app.database.core import get_db
 from app.database.models import User
 from app.services.browser_connector_business import (
@@ -32,6 +32,7 @@ from app.services.browser_connector_schemas import BrowserConnectorRecordKind
 router = APIRouter(tags=["browser-connector"])
 
 BROWSER_CONNECTOR_FEATURE = "browser_connector"
+BROWSER_CONNECTOR_DISABLE_VALUES = {"0", "false", "no", "off"}
 
 SENSITIVE_KEY_MARKERS = (
     "authorization",
@@ -218,7 +219,7 @@ class BrowserConnectorIngestResponse(BaseModel):
 
 
 class BrowserConnectorStatusResponse(BaseModel):
-    """Current backend rollout status for the authenticated browser connector user."""
+    """Current backend availability for the authenticated browser connector user."""
 
     enabled: bool
     reason: Literal["enabled", "tenant_required", "browser_connector_disabled"]
@@ -267,7 +268,7 @@ class BrowserConnectorCampaignSnapshotsResponse(BaseModel):
 async def get_browser_connector_status(
     current_user: User = Depends(get_current_active_user),
 ):
-    """Return explicit rollout state before the Settings page requests connector records."""
+    """Return explicit backend availability before the Settings page requests connector records."""
     company_id, enabled, reason = _browser_connector_rollout_state(current_user)
     return BrowserConnectorStatusResponse(
         enabled=enabled,
@@ -332,14 +333,9 @@ def _browser_connector_rollout_state(
         return None, False, "tenant_required"
 
     normalized_company_id = int(company_id)
-    enabled = get_feature_flags().is_enabled_for_context(
-        BROWSER_CONNECTOR_FEATURE,
-        tenant_id=normalized_company_id,
-        user_id=getattr(current_user, "id", None),
-    )
-    if enabled:
-        return normalized_company_id, True, "enabled"
-    return normalized_company_id, False, "browser_connector_disabled"
+    if _browser_connector_emergency_disabled():
+        return normalized_company_id, False, "browser_connector_disabled"
+    return normalized_company_id, True, "enabled"
 
 
 def _require_browser_connector_enabled(current_user: User) -> int:
@@ -349,9 +345,16 @@ def _require_browser_connector_enabled(current_user: User) -> int:
     if not enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="browser_connector_disabled: Browser connector is not enabled for this tenant",
+            detail="browser_connector_disabled: Browser connector is disabled by the emergency feature switch",
         )
     return company_id
+
+
+def _browser_connector_emergency_disabled() -> bool:
+    env_value = os.getenv(f"FEATURE_{BROWSER_CONNECTOR_FEATURE.upper()}")
+    if env_value is None:
+        return False
+    return env_value.strip().lower() in BROWSER_CONNECTOR_DISABLE_VALUES
 
 
 @router.get("/records", response_model=BrowserConnectorRecordsResponse)

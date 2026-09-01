@@ -159,9 +159,9 @@ const DEFAULT_CONNECTOR_ROLLOUT = {
 
 function disabledConnectorMessage(reason) {
   if (reason === 'tenant_required') {
-    return '当前账号尚未绑定企业，无法使用浏览器连接器试点。';
+    return '当前账号尚未绑定企业，无法使用浏览器连接器。';
   }
-  return '当前租户未开启浏览器连接器试点；请先配置 FEATURE_BROWSER_CONNECTOR_TENANT_IDS 或由管理员开启。';
+  return '浏览器连接器已被全局安全开关关闭；请联系管理员开启。';
 }
 
 function resetConnectorRecords(setSummary, setRecords, setSelectedCreatorIds, setSelectedKnowledgeIds) {
@@ -408,7 +408,7 @@ function BrowserConnectorSection() {
             )}
             aria-hidden="true"
           />
-          后端试点：{rolloutLabel}
+          后端能力：{rolloutLabel}
         </span>
       </div>
 
