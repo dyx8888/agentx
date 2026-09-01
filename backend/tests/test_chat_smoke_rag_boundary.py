@@ -45,7 +45,7 @@ class _DummyDB:
         return _DummySession()
 
 
-async def _collect_chat_stream(monkeypatch, *, smoke_env_value=None):
+async def _collect_chat_stream(monkeypatch, *, smoke_env_value=None, model_provider=None):
     import app.database as database_module
     import app.services.message_persistence as persistence_module
 
@@ -69,8 +69,15 @@ async def _collect_chat_stream(monkeypatch, *, smoke_env_value=None):
     )
     monkeypatch.setattr(persistence_module, "save_user_message", lambda **_kwargs: None)
 
+    request_data = {
+        "message": "AgentRuntime SSE smoke ok",
+        "company_context": {"brand": "x"},
+    }
+    if model_provider:
+        request_data["model_provider"] = model_provider
+
     response = await chat.chat_stream(
-        chat.ChatRequest(message="AgentRuntime SSE smoke ok", company_context={"brand": "x"}),
+        chat.ChatRequest(**request_data),
         req=SimpleNamespace(),
         current_user=SimpleNamespace(id=7, company_id=65),
     )
@@ -100,3 +107,12 @@ async def test_chat_rag_preretrieval_allowed_by_default(monkeypatch):
     fake_pipeline, _, _ = await _collect_chat_stream(monkeypatch)
 
     assert fake_pipeline.kwargs["skip_rag"] is False
+
+
+@pytest.mark.asyncio
+async def test_chat_model_provider_reaches_context_package(monkeypatch):
+    _, fake_router, _ = await _collect_chat_stream(
+        monkeypatch, model_provider="custom_proxy"
+    )
+
+    assert fake_router.context_package.intent_entities["model_provider"] == "custom_proxy"

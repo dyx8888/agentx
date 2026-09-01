@@ -3,7 +3,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock the API modules using vi.hoisted
-const { mockStreamChat, mockGetConversations, mockGetConversation, mockCreateConversation, mockDeleteConversation, mockApproveToolResult, mockRejectToolResult } = vi.hoisted(() => ({
+const { mockStreamChat, mockGetConversations, mockGetConversation, mockCreateConversation, mockDeleteConversation, mockApproveToolResult, mockRejectToolResult, mockAuthState } = vi.hoisted(() => ({
   mockStreamChat: vi.fn(() => vi.fn()),
   mockGetConversations: vi.fn(),
   mockGetConversation: vi.fn(),
@@ -11,6 +11,12 @@ const { mockStreamChat, mockGetConversations, mockGetConversation, mockCreateCon
   mockDeleteConversation: vi.fn(),
   mockApproveToolResult: vi.fn(),
   mockRejectToolResult: vi.fn(),
+  mockAuthState: {
+    user: { username: 'testuser' },
+    logout: vi.fn(),
+    loading: false,
+    isAuthenticated: true,
+  },
 }));
 
 vi.mock('@/api/chat', () => ({
@@ -31,12 +37,7 @@ vi.mock('@/api/review', () => ({
 
 // Mock useAuth
 vi.mock('@/lib/AuthContext', () => ({
-  useAuth: () => ({
-    user: { username: 'testuser' },
-    logout: vi.fn(),
-    loading: false,
-    isAuthenticated: true,
-  }),
+  useAuth: () => mockAuthState,
   AuthProvider: ({ children }) => children,
 }));
 
@@ -94,12 +95,15 @@ vi.mock('@/components/ChatInput', () => ({
 
 // Mock TopBar (extracted from ChatInput) — receives model + apiKey + files toggle
 vi.mock('@/components/TopBar', () => ({
-  default: ({ model, apiKey, filesOpen, onToggleFiles }) => (
+  default: ({ model, apiKey, filesOpen, onToggleFiles, setModel }) => (
     <div data-testid="top-bar">
       <span data-testid="model">{model}</span>
       <span data-testid="api-key">{apiKey}</span>
       <span data-testid="files-open">{filesOpen ? 'open' : 'closed'}</span>
       <button data-testid="toggle-files" onClick={onToggleFiles}>文件</button>
+      <button data-testid="select-custom-model" onClick={() => setModel?.('custom_proxy')}>
+        选择自定义模型
+      </button>
     </div>
   ),
 }));
@@ -133,6 +137,8 @@ describe('ChatPage', () => {
     mockCreateConversation.mockResolvedValue({ id: 'new-conv', title: 'Test' });
     mockDeleteConversation.mockResolvedValue({});
     mockStreamChat.mockReturnValue(vi.fn());
+    mockAuthState.user = { username: 'testuser' };
+    localStorage.clear();
   });
 
   it('renders sidebar and chat area', async () => {
@@ -365,14 +371,55 @@ describe('ChatPage', () => {
     expect(screen.getByTestId('sidebar-open')).toHaveTextContent('closed');
   });
 
-  it('passes selected model to top bar', async () => {
+  it('starts without a legacy hard-coded model selection', async () => {
     renderChatPage();
 
     await waitFor(() => {
       expect(screen.getByTestId('top-bar')).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('model')).toHaveTextContent('glm-5.2');
+    expect(screen.getByTestId('model').textContent).toBe('');
+  });
+
+  it('ignores legacy custom model names stored as selected_model', async () => {
+    localStorage.setItem('selected_model', 'deepseek-v4-flash');
+
+    renderChatPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('top-bar')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('model').textContent).toBe('');
+    await waitFor(() => {
+      expect(localStorage.getItem('selected_model')).toBeNull();
+    });
+  });
+
+  it('sends the selected provider key in the chat payload', async () => {
+    mockAuthState.user = { username: 'testuser', company_id: 239 };
+    renderChatPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('top-bar')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('select-custom-model'));
+    await waitFor(() => {
+      expect(screen.getByTestId('model')).toHaveTextContent('custom_proxy');
+    });
+
+    fireEvent.click(screen.getByTestId('send-btn'));
+
+    await waitFor(() => {
+      expect(mockStreamChat).toHaveBeenCalled();
+    });
+    expect(mockStreamChat.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        company_id: '239',
+        model_provider: 'custom_proxy',
+      })
+    );
   });
 
   it('toggles file panel on demand', async () => {

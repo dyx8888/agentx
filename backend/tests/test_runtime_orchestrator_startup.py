@@ -158,7 +158,69 @@ def test_agent_runtime_uses_company_model_config_after_global_key_degraded(monke
 
     result = asyncio.run(runtime.run("hello", agent_name="brand_bd", company_id="42"))
 
-    assert gateway.calls == [{}, {"company_id": 42}]
+    assert gateway.calls == [{}, {"model_key": "deepseek", "company_id": 42}]
     assert runtime.llm is None
     assert runtime.model_status["status"] == "model_config_required"
+    assert result["success"] is True
+
+
+def test_agent_runtime_uses_selected_company_model_key(monkeypatch):
+    import app.runtime.orchestrator as orchestrator
+
+    class CompanyGateway:
+        def __init__(self):
+            self.calls = []
+
+        def get_default_model(self):
+            return "deepseek"
+
+        def get_llm(self, *args, **kwargs):
+            self.calls.append(kwargs)
+            if kwargs.get("company_id") == 42:
+                return "company-llm"
+            raise ModelApiKeyMissingError(
+                model_key="deepseek",
+                provider="deepseek",
+                env_keys=("DEEPSEEK_API_KEY",),
+            )
+
+    async def no_tools(self, ctx):
+        return []
+
+    class FakeGraph:
+        def __init__(self, runtime):
+            self.runtime = runtime
+
+        async def ainvoke(self, state, config):
+            assert self.runtime.llm == "company-llm"
+            return {
+                "messages": state["messages"],
+                "step_results": [{"status": "ok"}],
+                "reflection": {"passed": True},
+                "plan": {"steps": []},
+                "working_memory": state["working_memory"],
+            }
+
+    gateway = CompanyGateway()
+    monkeypatch.setattr(orchestrator, "get_global_model_gateway", lambda: gateway)
+    monkeypatch.setattr(orchestrator, "MemoryManager", lambda: object())
+    monkeypatch.setattr(orchestrator.ToolLoader, "load", no_tools)
+    monkeypatch.setattr(
+        orchestrator.AgentRuntime,
+        "_build_graph",
+        lambda self: setattr(self, "graph", FakeGraph(self)),
+    )
+
+    runtime = orchestrator.AgentRuntime()
+
+    result = asyncio.run(
+        runtime.run(
+            "hello",
+            agent_name="brand_bd",
+            company_id="42",
+            model_key="custom_proxy",
+        )
+    )
+
+    assert gateway.calls == [{}, {"model_key": "custom_proxy", "company_id": 42}]
     assert result["success"] is True

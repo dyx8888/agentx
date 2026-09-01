@@ -312,6 +312,22 @@ class MasterAgentRouter:
         self._master_dispatcher = master_dispatcher
         self._tool_loader = tool_loader
 
+    @staticmethod
+    def _selected_model_key(context: ContextPackage) -> str | None:
+        value = (getattr(context, "intent_entities", {}) or {}).get("model_provider", "")
+        value = str(value or "").strip()
+        return value or None
+
+    @staticmethod
+    def _context_company_id(context: ContextPackage) -> int | None:
+        company_id = getattr(context, "company_id", None) or (
+            getattr(context, "intent_entities", {}) or {}
+        ).get("company_id", "")
+        try:
+            return int(company_id) if company_id else None
+        except (TypeError, ValueError):
+            return None
+
     # ==================== 主入口 ====================
 
     async def execute(self, context: ContextPackage) -> AsyncIterator[dict]:
@@ -590,6 +606,7 @@ class MasterAgentRouter:
                 message=task_message,
                 agent_name=agent_key,
                 company_id=str(company_id) if company_id else "",
+                model_key=self._selected_model_key(context),
             )
             response = result.get("response", "")
             success = result.get("success", True)
@@ -800,12 +817,11 @@ class MasterAgentRouter:
                 "intermediate": "model gateway unavailable; returned retrieved RAG content",
             }
 
-        company_id = getattr(context, "company_id", None)
-        try:
-            company_id_int = int(company_id) if company_id else None
-        except (TypeError, ValueError):
-            company_id_int = None
-        llm = mg.get_llm(company_id=company_id_int)
+        company_id_int = self._context_company_id(context)
+        llm = mg.get_llm(
+            model_key=self._selected_model_key(context),
+            company_id=company_id_int,
+        )
         references = self._format_rag_references(rag_answer_chunks)
         prompt = (
             "User question:\n"
@@ -888,11 +904,11 @@ class MasterAgentRouter:
             company_id = getattr(context, "company_id", None) or context.intent_entities.get(
                 "company_id", ""
             )
-            try:
-                company_id_int = int(company_id) if company_id else None
-            except (TypeError, ValueError):
-                company_id_int = None
-            llm = mg.get_llm(company_id=company_id_int)
+            company_id_int = self._context_company_id(context)
+            llm = mg.get_llm(
+                model_key=self._selected_model_key(context),
+                company_id=company_id_int,
+            )
 
             # 工具：优先用 master 专属工具集（从 tool_providers.yaml 加载），
             # 加载失败或为空时降级到 get_core_tools() 兜底
@@ -994,6 +1010,7 @@ class MasterAgentRouter:
                         message=query,
                         agent_name="master",
                         company_id=company_id,
+                        model_key=self._selected_model_key(context),
                     ):
                         yield event
                 else:
@@ -1067,7 +1084,7 @@ class MasterAgentRouter:
                 return {"answer": f"计算引擎 {agent_key} 无可用方法", "detail": ""}
 
             # LLM slot-filling：从 query 抽取结构化入参
-            slot_result = await self._llm_slot_fill(query, methods)
+            slot_result = await self._llm_slot_fill(query, methods, context)
 
             if slot_result and slot_result.get("method_name"):
                 method_name = slot_result["method_name"]
@@ -1153,7 +1170,9 @@ class MasterAgentRouter:
                 continue
         return methods
 
-    async def _llm_slot_fill(self, query: str, methods: list[dict]) -> dict | None:
+    async def _llm_slot_fill(
+        self, query: str, methods: list[dict], context: ContextPackage
+    ) -> dict | None:
         """LLM slot-filling：从 query 抽取结构化入参。
 
         返回 {"method_name": str, "params": dict} 或 None（LLM 不可用/解析失败）。
@@ -1162,7 +1181,11 @@ class MasterAgentRouter:
         if mg is None:
             return None
         try:
-            llm = mg.get_llm()
+            company_id_int = self._context_company_id(context)
+            llm = mg.get_llm(
+                model_key=self._selected_model_key(context),
+                company_id=company_id_int,
+            )
         except Exception as e:
             logger.warning("slot_fill_llm_unavailable", error=str(e))
             return None
@@ -1180,7 +1203,7 @@ class MasterAgentRouter:
                 SystemMessage(content="你是参数抽取器，仅输出 JSON。"),
                 HumanMessage(content=prompt),
             ]
-            resp = await llm.ainvoke(messages)
+            resp = await llm.ainvoke(messages, company_id=company_id_int)
             content = resp.content if hasattr(resp, "content") else str(resp)
 
             data = self._extract_json(content)
@@ -1455,7 +1478,7 @@ class MasterAgentRouter:
             )
             return True, "Smoke LLM review disabled by test env"
 
-        llm_result = await self._llm_review(query, final_result_text)
+        llm_result = await self._llm_review(query, final_result_text, context)
         if llm_result is None:
             # LLM 不可用，降级到结构化格式校验（已通过）
             logger.info(
@@ -1473,6 +1496,7 @@ class MasterAgentRouter:
         self,
         query: str,
         final_result_text: str,
+        context: ContextPackage,
     ) -> tuple[bool, str] | None:
         """LLM 验收：对比 final_result_text 与原始 query 的 intent。
 
@@ -1482,7 +1506,11 @@ class MasterAgentRouter:
         if mg is None:
             return None
         try:
-            llm = mg.get_llm()
+            company_id_int = self._context_company_id(context)
+            llm = mg.get_llm(
+                model_key=self._selected_model_key(context),
+                company_id=company_id_int,
+            )
         except Exception as e:
             logger.warning("review_llm_unavailable", error=str(e))
             return None
@@ -1499,7 +1527,7 @@ class MasterAgentRouter:
                 SystemMessage(content="你是 AgentX 质量审查员，仅输出 JSON。"),
                 HumanMessage(content=prompt),
             ]
-            resp = await llm.ainvoke(messages)
+            resp = await llm.ainvoke(messages, company_id=company_id_int)
             content = resp.content if hasattr(resp, "content") else str(resp)
 
             data = self._extract_json(content)

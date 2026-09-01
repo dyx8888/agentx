@@ -24,6 +24,19 @@ import ChatArea from '@/components/ChatArea';
 import ChatInput from '@/components/ChatInput';
 import FilePanel from '@/components/FilePanel';
 import FilePreviewModal from '@/components/FilePreviewModal';
+import { LLM_PROVIDERS } from '@/lib/llmProviders';
+
+const LEGACY_SELECTED_MODEL_VALUES = new Set(
+  LLM_PROVIDERS.flatMap((provider) => provider.models.map((model) => model.value))
+);
+const KNOWN_MODEL_PROVIDER_KEYS = new Set(LLM_PROVIDERS.map((provider) => provider.key));
+
+function readStoredModelProvider() {
+  const stored = localStorage.getItem('selected_model');
+  if (!stored || stored.includes(':') || LEGACY_SELECTED_MODEL_VALUES.has(stored)) return '';
+  if (!KNOWN_MODEL_PROVIDER_KEYS.has(stored)) return '';
+  return stored;
+}
 
 function resolveChatErrorMessage(err) {
   const code = err?.code || err?.data?.code;
@@ -96,12 +109,7 @@ export default function ChatPage() {
   const [previewFile, setPreviewFile] = useState(null);
 
   // 鈹€鈹€ 妯″瀷閫夋嫨 鈹€鈹€
-  const [selectedModel, setSelectedModel] = useState(
-    () => {
-      const stored = localStorage.getItem('selected_model');
-      return !stored || stored === 'deepseek-chat' ? 'glm-5.2' : stored;
-    }
-  );
+  const [selectedModel, setSelectedModel] = useState(readStoredModelProvider);
 
   // 鈹€鈹€ 宓屽叆妯″瀷閫夋嫨 鈹€鈹€
   const [selectedEmbedding, setSelectedEmbedding] = useState(
@@ -129,7 +137,11 @@ export default function ChatPage() {
 
   // 鈹€鈹€ 淇濆瓨妯″瀷閫夋嫨 鈹€鈹€
   useEffect(() => {
-    localStorage.setItem('selected_model', selectedModel);
+    if (selectedModel) {
+      localStorage.setItem('selected_model', selectedModel);
+    } else {
+      localStorage.removeItem('selected_model');
+    }
   }, [selectedModel]);
 
   // 鈹€鈹€ 鏂板缓瀵硅瘽 鈹€鈹€
@@ -257,6 +269,9 @@ export default function ChatPage() {
       if (companyId) {
         chatPayload.company_id = companyId;
       }
+      if (selectedModel) {
+        chatPayload.model_provider = selectedModel;
+      }
 
       const abort = streamChat(
         chatPayload,
@@ -367,7 +382,7 @@ export default function ChatPage() {
 
       abortRef.current = abort;
     },
-    [isStreaming, activeConversationId, updateLastAssistant, loadConversations]
+    [isStreaming, activeConversationId, companyId, selectedModel, updateLastAssistant, loadConversations]
   );
 
   // 鈹€鈹€ 鍋滄娴佸紡 鈹€鈹€

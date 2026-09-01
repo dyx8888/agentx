@@ -5,6 +5,7 @@ from app.communication.hierarchical import SubTask as HierarchicalSubTask
 from app.communication.master_dispatcher import MasterDispatcher, SubTask as MasterSubTask
 from app.communication.parallel import ParallelAgentDispatcher, ParallelTask
 from app.communication.pipeline_tracker import MixedModeDispatcher
+from app.perception.context_package import ContextPackage
 
 
 class StrictA2AAdapter:
@@ -122,3 +123,74 @@ async def test_master_dispatcher_delegate_uses_task_message_keyword():
                 "payload": None,
             }
         ]
+
+
+@pytest.mark.asyncio
+async def test_master_dispatcher_runtime_receives_selected_model_provider():
+    class FakeRuntime:
+        def __init__(self):
+            self.calls = []
+
+        async def run(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"success": True, "response": "ok"}
+
+    runtime = FakeRuntime()
+    dispatcher = MasterDispatcher(agent_runtime=runtime)
+    dispatcher._context = ContextPackage(
+        raw_input="summarize campaign",
+        rewritten_query="summarize campaign",
+        company_id="65",
+        intent_entities={"company_id": "65", "model_provider": "custom_proxy"},
+    )
+    task = MasterSubTask(task_id="m1", description="summarize campaign")
+
+    result = await dispatcher._master_execute(task, results={})
+
+    assert result["success"] is True
+    assert runtime.calls == [
+        {
+            "message": "summarize campaign",
+            "agent_name": "master",
+            "company_id": "65",
+            "model_key": "custom_proxy",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_master_dispatcher_llm_complete_uses_selected_model_provider():
+    class FakeResponse:
+        content = '{"passed": true, "issues": []}'
+
+    class FakeLLM:
+        def __init__(self):
+            self.calls = []
+
+        async def ainvoke(self, messages, **kwargs):
+            self.calls.append(kwargs)
+            return FakeResponse()
+
+    class FakeGateway:
+        def __init__(self):
+            self.calls = []
+            self.llm = FakeLLM()
+
+        def get_llm(self, **kwargs):
+            self.calls.append(kwargs)
+            return self.llm
+
+    gateway = FakeGateway()
+    dispatcher = MasterDispatcher(model_gateway=gateway)
+    dispatcher._context = ContextPackage(
+        raw_input="review result",
+        rewritten_query="review result",
+        company_id="65",
+        intent_entities={"company_id": "65", "model_provider": "custom_proxy"},
+    )
+
+    content = await dispatcher._llm_complete("system", "user")
+
+    assert content == '{"passed": true, "issues": []}'
+    assert gateway.calls == [{"model_key": "custom_proxy", "company_id": 65}]
+    assert gateway.llm.calls == [{"company_id": 65}]

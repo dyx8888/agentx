@@ -42,6 +42,22 @@ describe('streamChat API routing', () => {
     );
   });
 
+  it('includes the selected model provider key in the request body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okStreamResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    const streamChat = await loadStreamChat();
+
+    streamChat({ message: 'hello', model_provider: 'custom_proxy' }, {});
+
+    const [, options] = fetchMock.mock.calls[0];
+    expect(JSON.parse(options.body)).toEqual(
+      expect.objectContaining({
+        message: 'hello',
+        model_provider: 'custom_proxy',
+      })
+    );
+  });
+
   it('uses VITE_API_BASE_URL override when configured', async () => {
     const fetchMock = vi.fn().mockResolvedValue(okStreamResponse());
     vi.stubGlobal('fetch', fetchMock);

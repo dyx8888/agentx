@@ -112,6 +112,40 @@ describe('LlmConfigSection', () => {
     expect(await screen.findByPlaceholderText('sk-****2222')).toHaveValue('');
   });
 
+  it('shows common providers and preserves a custom proxy model name', async () => {
+    mocks.getLlmConfig.mockResolvedValue({
+      status: 'configured',
+      setup_required: false,
+      missing_required: [],
+      providers: {
+        custom_proxy: {
+          providerType: 'openai_compatible',
+          baseUrl: 'https://proxy.example.com/v1',
+          gateway: 'https://proxy.example.com/v1',
+          modelName: 'deepseek-v4-flash',
+          enabled: true,
+          preferredTasks: ['chat'],
+          apiKeyMasked: 'sk-****3456',
+          tpm: { 'deepseek-v4-flash': 200000 },
+          warnAt90: true,
+        },
+      },
+    });
+
+    const { container } = renderSection();
+
+    expect(await screen.findByRole('button', { name: /自定义中转站/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /DeepSeek/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /智谱 GLM/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /OpenAI/ })).toBeInTheDocument();
+    expect(screen.getByLabelText('模型名称')).toHaveValue('deepseek-v4-flash');
+
+    const datalistValues = Array.from(container.querySelectorAll('datalist option')).map(
+      (option) => option.getAttribute('value')
+    );
+    expect(datalistValues).toContain('deepseek-v4-flash');
+  });
+
   it('does not migrate legacy localStorage plaintext apiKey into state or payload', async () => {
     localStorage.setItem(
       'llm_providers',

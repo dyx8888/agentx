@@ -15,37 +15,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { getTodayCost, getCostSummary } from '@/api/costs';
 import { getEmbeddingConfig } from '@/api/rag';
 import { getLlmConfig } from '@/api/llmConfig';
-
-/* ═══════════════════════════════════════════════════════════════
-   模型列表 — 沿用项目后端支持的模型
-   ═══════════════════════════════════════════════════════════════ */
-const MODEL_OPTIONS = [
-  { value: 'glm-5.2', label: 'GLM-5.2', provider: 'zhipu' },
-  { value: 'deepseek-chat', label: 'DeepSeek-V3', provider: 'deepseek' },
-  { value: 'deepseek-coder', label: 'DeepSeek-Coder', provider: 'deepseek' },
-  { value: 'gpt-4o', label: 'GPT-4o', provider: 'openai' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o mini', provider: 'openai' },
-  { value: 'claude-3-5-sonnet', label: 'Claude 3.5', provider: 'anthropic' },
-];
-
-const PROVIDER_LABELS = {
-  zhipu: '智谱',
-  deepseek: 'DeepSeek',
-  openai: 'OpenAI',
-  anthropic: 'Anthropic',
-  custom_proxy: '自定义中转站',
-};
-
-function isProviderConfigured(providerConfig) {
-  if (!providerConfig || providerConfig.enabled === false) return false;
-  const gateway = providerConfig.gateway || providerConfig.baseUrl;
-  const maskedKey = providerConfig.apiKeyMasked || providerConfig.api_key_masked;
-  return Boolean(gateway && maskedKey);
-}
-
-function getProviderLabel(providerKey) {
-  return PROVIDER_LABELS[providerKey] || providerKey;
-}
+import { buildChatModelOptions } from '@/lib/llmProviders';
 
 /* ═══════════════════════════════════════════════════════════════
    嵌入模式标签 — 变更① T1.8：与后端 EmbeddingMode 枚举对齐
@@ -294,40 +264,7 @@ export default function TopBar({
     return () => document.removeEventListener('mousedown', handle);
   }, []);
 
-  const modelOptions = useMemo(
-    () => {
-      const baseOptions = MODEL_OPTIONS.map((option) => {
-        const configured = isProviderConfigured(llmProviders[option.provider]);
-        return {
-          ...option,
-          providerLabel: getProviderLabel(option.provider),
-          disabled: !configured,
-          statusLabel: configured ? '已配置' : '未配置',
-        };
-      });
-
-      const customOptions = Object.entries(llmProviders || {}).flatMap(([providerKey, providerConfig]) => {
-        if (!isProviderConfigured(providerConfig)) return [];
-        const modelName = String(providerConfig?.modelName || providerConfig?.model_name || '').trim();
-        if (!modelName) return [];
-        const knownStaticOption = MODEL_OPTIONS.some(
-          (option) => option.provider === providerKey && option.value === modelName
-        );
-        if (knownStaticOption) return [];
-        return [{
-          value: modelName,
-          label: modelName,
-          provider: providerKey,
-          providerLabel: getProviderLabel(providerKey),
-          disabled: false,
-          statusLabel: '已配置',
-        }];
-      });
-
-      return [...customOptions, ...baseOptions];
-    },
-    [llmProviders]
-  );
+  const modelOptions = useMemo(() => buildChatModelOptions(llmProviders), [llmProviders]);
   const configuredModelOptions = useMemo(
     () => modelOptions.filter((m) => !m.disabled),
     [modelOptions]
@@ -336,11 +273,15 @@ export default function TopBar({
   const currentModelOption =
     modelOptions.find((m) => m.value === model && !m.disabled) ||
     modelOptions.find((m) => m.value === model);
-  const currentLabel = currentModelOption?.label ?? model;
+  const currentLabel = currentModelOption?.label ?? '选择模型';
   const currentModelUnavailable = currentModelOption?.disabled ?? true;
 
   useEffect(() => {
-    if (llmConfigStatus === 'loading' || configuredModelOptions.length === 0) return;
+    if (llmConfigStatus === 'loading') return;
+    if (configuredModelOptions.length === 0) {
+      if (model) setModel?.('');
+      return;
+    }
     const currentConfigured = modelOptions.some((m) => m.value === model && !m.disabled);
     if (!currentConfigured) {
       setModel?.(configuredModelOptions[0].value);

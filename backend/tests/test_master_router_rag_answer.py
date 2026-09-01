@@ -49,6 +49,7 @@ async def test_react_uses_rag_chunks_before_generic_routing(monkeypatch):
         raw_input="What is the marker?",
         company_id="65",
         intent_type="knowledge",
+        intent_entities={"model_provider": "custom_proxy"},
         rag_chunks=[
             {
                 "content": "The secret marker is RAG_SMOKE_TEST.",
@@ -64,6 +65,7 @@ async def test_react_uses_rag_chunks_before_generic_routing(monkeypatch):
     assert result_events
     assert result_events[-1]["data"] == "RAG_SMOKE_TEST"
     assert any(event.get("type") == "observation" for event in events)
+    assert gateway.last_kwargs["model_key"] == "custom_proxy"
     assert gateway.last_kwargs["company_id"] == 65
     assert gateway.llm.last_kwargs["company_id"] == 65
 

@@ -14,15 +14,19 @@ import {
 import { useAuth } from '@/lib/AuthContext';
 import { cn } from '@/lib/utils';
 import { getLlmConfig, updateLlmConfig } from '@/api/llmConfig';
+import {
+  LLM_PROVIDERS,
+  PROVIDER_BY_KEY,
+  TASK_OPTIONS,
+  buildProviderPayload,
+  isProviderConfigured,
+  modelOptionsForProvider,
+  normalizePreferredTasks,
+  normalizeProviderState,
+  preferredTasksToInput,
+} from '@/lib/llmProviders';
 
 const SUCCESS_COLOR = 'oklch(0.7 0.09 145)';
-const DEFAULT_PROVIDER_TYPE = 'openai_compatible';
-const TASK_OPTIONS = [
-  { value: 'chat', label: '聊天' },
-  { value: 'analysis', label: '分析' },
-  { value: 'content', label: '内容' },
-  { value: 'workflow', label: '工作流' },
-];
 const LLM_STATUS_LABELS = {
   provider: '模型厂商',
   gateway: '网关地址',
@@ -30,130 +34,6 @@ const LLM_STATUS_LABELS = {
   modelName: '模型名称',
   apiKey: 'API 密钥',
 };
-
-const LLM_PROVIDERS = [
-  {
-    key: 'deepseek',
-    name: 'DeepSeek',
-    desc: 'DeepSeek 兼容 OpenAI 的接口',
-    defaultProviderType: DEFAULT_PROVIDER_TYPE,
-    defaultGateway: 'https://api.deepseek.com/v1',
-    defaultModelName: 'deepseek-chat',
-    defaultPreferredTasks: ['chat', 'analysis'],
-    models: [
-      { value: 'deepseek-chat', label: 'DeepSeek-V3', defaultTpm: 200000 },
-      { value: 'deepseek-coder', label: 'DeepSeek-Coder', defaultTpm: 100000 },
-    ],
-    placeholder: 'sk-...',
-  },
-  {
-    key: 'openai',
-    name: 'OpenAI',
-    desc: 'OpenAI 兼容 GPT 接口',
-    defaultProviderType: DEFAULT_PROVIDER_TYPE,
-    defaultGateway: 'https://api.openai.com/v1',
-    defaultModelName: 'gpt-4o-mini',
-    defaultPreferredTasks: ['chat', 'analysis'],
-    models: [
-      { value: 'gpt-4o', label: 'GPT-4o', defaultTpm: 200000 },
-      { value: 'gpt-4o-mini', label: 'GPT-4o mini', defaultTpm: 500000 },
-    ],
-    placeholder: 'sk-...',
-  },
-  {
-    key: 'custom_proxy',
-    name: '自定义中转站',
-    desc: '兼容 OpenAI 的网关地址 / 模型 / API 密钥',
-    defaultProviderType: DEFAULT_PROVIDER_TYPE,
-    defaultGateway: 'https://proxy.example.com/v1',
-    defaultModelName: 'custom-chat-model',
-    defaultPreferredTasks: ['chat'],
-    models: [
-      { value: 'custom-chat-model', label: '自定义模型', defaultTpm: 200000 },
-    ],
-    placeholder: 'sk-...',
-  },
-  {
-    key: 'anthropic',
-    name: 'Anthropic',
-    desc: '通过 OpenAI-compatible 中转站接入 Claude',
-    defaultProviderType: DEFAULT_PROVIDER_TYPE,
-    defaultGateway: 'https://api.anthropic.com/v1',
-    defaultModelName: 'claude-3-5-sonnet',
-    defaultPreferredTasks: ['chat', 'analysis'],
-    models: [
-      { value: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet', defaultTpm: 100000 },
-    ],
-    placeholder: 'sk-ant-...',
-  },
-];
-
-const PROVIDER_BY_KEY = Object.fromEntries(LLM_PROVIDERS.map((provider) => [provider.key, provider]));
-
-function normalizePreferredTasks(value) {
-  const raw = Array.isArray(value) ? value : String(value || '').split(',');
-  const normalized = [];
-  for (const item of raw) {
-    const task = String(item || '').trim();
-    if (task && !normalized.includes(task)) normalized.push(task);
-  }
-  return normalized;
-}
-
-function preferredTasksToInput(value) {
-  return normalizePreferredTasks(value).join(', ');
-}
-
-function providerDefaults(provider) {
-  const fallbackModel = provider?.models?.[0]?.value || '';
-  return {
-    providerType: provider?.defaultProviderType || DEFAULT_PROVIDER_TYPE,
-    baseUrl: provider?.defaultGateway || '',
-    gateway: provider?.defaultGateway || '',
-    modelName: provider?.defaultModelName || fallbackModel,
-    enabled: true,
-    preferredTasks: provider?.defaultPreferredTasks || [],
-    apiKey: '',
-    tpm: {},
-    usage: {},
-    warnAt90: true,
-  };
-}
-
-function normalizeProviderState(provider, cfg = {}) {
-  const defaults = providerDefaults(provider);
-  const baseUrl = cfg.baseUrl ?? cfg.gateway ?? defaults.baseUrl;
-  return {
-    ...defaults,
-    providerType: cfg.providerType || defaults.providerType,
-    baseUrl,
-    gateway: cfg.gateway ?? baseUrl,
-    modelName: cfg.modelName || defaults.modelName,
-    enabled: cfg.enabled ?? defaults.enabled,
-    preferredTasks: normalizePreferredTasks(cfg.preferredTasks ?? cfg.preferred_tasks ?? defaults.preferredTasks),
-    apiKey: cfg.apiKey || '',
-    tpm: cfg.tpm || {},
-    usage: cfg.usage || {},
-    warnAt90: cfg.warnAt90 ?? true,
-  };
-}
-
-function buildProviderPayload(key, cfg = {}) {
-  const provider = PROVIDER_BY_KEY[key] || { key };
-  const normalized = normalizeProviderState(provider, cfg);
-  const baseUrl = normalized.baseUrl || normalized.gateway || '';
-  return {
-    providerType: normalized.providerType || DEFAULT_PROVIDER_TYPE,
-    baseUrl,
-    gateway: baseUrl,
-    modelName: normalized.modelName || '',
-    enabled: normalized.enabled ?? true,
-    preferredTasks: normalizePreferredTasks(normalized.preferredTasks),
-    apiKey: normalized.apiKey || '',
-    tpm: normalized.tpm || {},
-    warnAt90: normalized.warnAt90 ?? true,
-  };
-}
 
 function ProviderCardSkeleton() {
   return (
@@ -186,7 +66,8 @@ function ProviderCardSkeleton() {
 function ProviderCard({ provider, data, onChange, apiKeyPlaceholder }) {
   const [showKey, setShowKey] = useState(false);
   const formData = normalizeProviderState(provider, data);
-  const modelsWithUsage = provider.models.map((model) => {
+  const providerModels = modelOptionsForProvider(provider, formData.modelName);
+  const modelsWithUsage = providerModels.map((model) => {
     const used = formData.usage?.[model.value] ?? 0;
     const limit = formData.tpm?.[model.value] ?? model.defaultTpm;
     return { ...model, used, limit };
@@ -288,7 +169,7 @@ function ProviderCard({ provider, data, onChange, apiKeyPlaceholder }) {
           className="input-base h-9 text-xs"
         />
         <datalist id={`${provider.key}-model-options`}>
-          {provider.models.map((model) => (
+          {providerModels.map((model) => (
             <option key={model.value} value={model.value}>{model.label}</option>
           ))}
         </datalist>
@@ -469,12 +350,19 @@ export default function LlmConfigSection() {
         for (const [key, cfg] of Object.entries(remote)) {
           const provider = PROVIDER_BY_KEY[key] || { key };
           next[key] = normalizeProviderState(provider, { ...cfg, apiKey: '' });
-          if (cfg.apiKeyMasked) nextMasked[key] = cfg.apiKeyMasked;
+          const maskedKey = cfg.apiKeyMasked || cfg.api_key_masked || '';
+          if (maskedKey) nextMasked[key] = maskedKey;
         }
         if (Object.keys(next).length === 0) {
           try {
             localStorage.removeItem('llm_providers');
           } catch { /* noop */ }
+        }
+        const configuredKey =
+          LLM_PROVIDERS.find((provider) => isProviderConfigured(remote[provider.key]))?.key ||
+          Object.keys(remote).find((key) => isProviderConfigured(remote[key]));
+        if (configuredKey) {
+          setActiveKey(configuredKey);
         }
         setProviders(next);
         setMaskedKeys(nextMasked);
@@ -519,7 +407,8 @@ export default function LlmConfigSection() {
       for (const [key, cfg] of Object.entries(remote)) {
         const provider = PROVIDER_BY_KEY[key] || { key };
         next[key] = normalizeProviderState(provider, { ...cfg, apiKey: '' });
-        if (cfg.apiKeyMasked) nextMasked[key] = cfg.apiKeyMasked;
+        const maskedKey = cfg.apiKeyMasked || cfg.api_key_masked || '';
+        if (maskedKey) nextMasked[key] = maskedKey;
       }
       setProviders((prev) => {
         const cleared = Object.fromEntries(
@@ -583,6 +472,7 @@ export default function LlmConfigSection() {
         <div className="flex flex-wrap gap-2">
           {LLM_PROVIDERS.map((provider) => {
             const isActive = provider.key === activeKey;
+            const configured = isProviderConfigured(providers[provider.key]);
             return (
               <button
                 key={provider.key}
@@ -598,6 +488,18 @@ export default function LlmConfigSection() {
               >
                 <Cpu className={cn('size-3.5', isActive ? 'text-primary-foreground' : 'text-primary')} />
                 <span>{provider.name}</span>
+                {configured && (
+                  <span
+                    className={cn(
+                      'rounded-full px-1.5 py-0.5 text-[10px]',
+                      isActive
+                        ? 'bg-primary-foreground/20 text-primary-foreground'
+                        : 'bg-primary/10 text-primary'
+                    )}
+                  >
+                    已配置
+                  </span>
+                )}
                 {isActive && <Check className="size-3.5" />}
               </button>
             );

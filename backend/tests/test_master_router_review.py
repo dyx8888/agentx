@@ -11,6 +11,7 @@ def _context(query: str = "请用一句话回复：AgentRuntime SSE smoke ok。"
         raw_input=query,
         company_id="65",
         intent_type="chat",
+        intent_entities={"model_provider": "custom_proxy"},
         rag_chunks=[],
     )
 
@@ -64,11 +65,12 @@ async def test_llm_review_runs_by_default(monkeypatch):
     router = MasterAgentRouter()
     calls = 0
 
-    async def fake_llm_review(query, final_result_text):
+    async def fake_llm_review(query, final_result_text, context):
         nonlocal calls
         calls += 1
         assert "AgentRuntime SSE smoke ok" in query
         assert final_result_text == "AgentRuntime SSE smoke ok。"
+        assert context.intent_entities["model_provider"] == "custom_proxy"
         return True, "fake review accepted"
 
     monkeypatch.setattr(router, "_llm_review", fake_llm_review)

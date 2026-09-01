@@ -481,6 +481,7 @@ class ChatRequest(BaseModel):
     company_context: dict[str, Any] = Field(default_factory=dict)
     agent_id: str | None = None
     agent_name: str | None = None
+    model_provider: str | None = None
     session_id: str | None = None
     company_id: str | None = None
     conversation_id: int | None = None
@@ -490,6 +491,18 @@ class ChatRequest(BaseModel):
     @classmethod
     def filter_message(cls, v: str) -> str:
         return InputFilter.validate_message(v)
+
+    @field_validator("model_provider")
+    @classmethod
+    def filter_model_provider(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = str(v).strip()
+        if not value:
+            return None
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", value):
+            raise ValueError("Invalid model_provider")
+        return value
 
 
 def _sse(payload: dict[str, Any]) -> str:
@@ -670,6 +683,8 @@ async def chat_stream(
                 agent_name="master",
                 skip_rag=skip_rag_preretrieval,
             )
+            if request.model_provider:
+                context_package.intent_entities["model_provider"] = request.model_provider
 
             rag_refs = (
                 context_package.rag_references

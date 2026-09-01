@@ -1,4 +1,4 @@
-﻿"""
+"""
 AgentRuntime - 核心编排器
 实现 Plan-Execute-Reflect 三层架构：
 1. Planner: 分析任务，生成结构化执行计划
@@ -678,23 +678,30 @@ class AgentRuntime:
             return None
 
     def _resolve_request_llm_or_error(
-        self, company_id: str | int | None
+        self, company_id: str | int | None, model_key: str | None = None
     ) -> tuple[dict[str, Any] | None, Any | None]:
         model_config_error = _model_config_required_payload(self.model_status)
-        if not model_config_error or self.llm is not None:
+        normalized_company_id = self._normalize_company_id(company_id)
+        selected_model = (model_key or "").strip() or None
+
+        if normalized_company_id is None:
+            if model_config_error:
+                return model_config_error, None
             return None, None
 
-        normalized_company_id = self._normalize_company_id(company_id)
-        if normalized_company_id is None:
-            return model_config_error, None
+        if not selected_model and not model_config_error:
+            return None, None
 
         model_gateway = get_global_model_gateway()
-        default_model = model_gateway.get_default_model()
+        resolved_model = selected_model or model_gateway.get_default_model()
         try:
-            request_llm = model_gateway.get_llm(company_id=normalized_company_id)
+            request_llm = model_gateway.get_llm(
+                model_key=resolved_model,
+                company_id=normalized_company_id,
+            )
             logger.info(
                 "agent_runtime_company_model_selected",
-                model=default_model,
+                model=resolved_model,
                 company_id=normalized_company_id,
             )
             return None, request_llm
@@ -753,7 +760,13 @@ class AgentRuntime:
                 self.llm = original_llm
                 self.validator = original_validator
 
-    async def run(self, message: str, agent_name: str = "", company_id: str = "") -> dict[str, Any]:
+    async def run(
+        self,
+        message: str,
+        agent_name: str = "",
+        company_id: str = "",
+        model_key: str | None = None,
+    ) -> dict[str, Any]:
         # 用 company_id + agent_name 组合生成 trace_id，保证同租户同 Agent 的请求可追踪到同一链路
         trace_id = generate_trace_id(company_id, agent_name)
         guard_decision = detect_high_risk_action(message, agent_name)
@@ -785,7 +798,10 @@ class AgentRuntime:
             )
             await self.initialize(ctx)
 
-        model_config_error, request_llm = self._resolve_request_llm_or_error(company_id)
+        model_config_error, request_llm = self._resolve_request_llm_or_error(
+            company_id,
+            model_key=model_key,
+        )
         if model_config_error:
             return _build_model_config_required_result(model_config_error, message, agent_name)
 
@@ -816,7 +832,13 @@ class AgentRuntime:
             "working_memory": working_memory.to_dict(),
         }
 
-    async def run_stream(self, message: str, agent_name: str = "", company_id: str = ""):
+    async def run_stream(
+        self,
+        message: str,
+        agent_name: str = "",
+        company_id: str = "",
+        model_key: str | None = None,
+    ):
         # 流式执行的 trace_id 和懒初始化逻辑与 run() 相同
         trace_id = generate_trace_id(company_id, agent_name)
         guard_decision = detect_high_risk_action(message, agent_name)
@@ -845,7 +867,10 @@ class AgentRuntime:
             )
             await self.initialize(ctx)
 
-        model_config_error, request_llm = self._resolve_request_llm_or_error(company_id)
+        model_config_error, request_llm = self._resolve_request_llm_or_error(
+            company_id,
+            model_key=model_key,
+        )
         if model_config_error:
             yield model_config_error
             yield {"type": "done"}

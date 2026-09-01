@@ -35,6 +35,7 @@ export function streamChat(params, callbacks) {
     ...(params.conversation_id && { conversation_id: params.conversation_id }),
     ...(params.agent_name && { agent_name: params.agent_name }),
     ...(params.company_id && { company_id: String(params.company_id) }),
+    ...(params.model_provider && { model_provider: String(params.model_provider) }),
     ...(params.mode && { mode: params.mode }),
   };
 

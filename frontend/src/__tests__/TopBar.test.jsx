@@ -32,7 +32,7 @@ vi.mock('@/api/llmConfig', () => ({
 function renderTopBar(props = {}) {
   return render(
     <TopBar
-      model="glm-5.2"
+      model="zhipu"
       setModel={vi.fn()}
       embedding="bge-large-zh"
       setEmbedding={vi.fn()}
@@ -55,6 +55,8 @@ describe('TopBar', () => {
         zhipu: {
           gateway: 'https://llm.example.test',
           apiKeyMasked: 'sk-****test',
+          modelName: 'glm-5.2',
+          preferredTasks: ['chat'],
           tpm: { glm: 100000 },
         },
       },
@@ -135,7 +137,7 @@ describe('TopBar', () => {
       },
     });
 
-    renderTopBar({ model: 'deepseek-v4-flash' });
+    renderTopBar({ model: 'custom_proxy' });
 
     expect(await screen.findByText('deepseek-v4-flash')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
@@ -162,7 +164,22 @@ describe('TopBar', () => {
     renderTopBar({ model: 'glm-5.2', setModel });
 
     await waitFor(() => {
-      expect(setModel).toHaveBeenCalledWith('deepseek-v4-flash');
+      expect(setModel).toHaveBeenCalledWith('custom_proxy');
+    });
+  });
+
+  it('clears a stale selected model when no chat provider is configured', async () => {
+    const setModel = vi.fn();
+    mocks.getLlmConfig.mockResolvedValue({
+      status: 'not_configured',
+      setup_required: true,
+      providers: {},
+    });
+
+    renderTopBar({ model: 'deepseek-v4-flash', setModel });
+
+    await waitFor(() => {
+      expect(setModel).toHaveBeenCalledWith('');
     });
   });
 

@@ -110,6 +110,25 @@ class MasterDispatcher:
         self._context: ContextPackage | None = None
         self._review_attempts = 0
 
+    def _selected_model_key(self) -> str | None:
+        value = ""
+        if self._context:
+            value = self._context.intent_entities.get("model_provider", "")
+        value = str(value or "").strip()
+        return value or None
+
+    def _context_company_id(self) -> int | None:
+        company_id = ""
+        if self._context:
+            company_id = (
+                self._context.intent_entities.get("company_id", "")
+                or getattr(self._context, "company_id", "")
+            )
+        try:
+            return int(company_id) if company_id else None
+        except (TypeError, ValueError):
+            return None
+
     # ==================== 1. 任务拆解 ====================
 
     async def decompose(self, context: ContextPackage) -> list[SubTask]:
@@ -406,15 +425,14 @@ class MasterDispatcher:
             return {"success": True, "summary": task.description, "degraded": True}
 
         description = self._augment_description(task, results)
-        company_id = ""
-        if self._context:
-            company_id = self._context.intent_entities.get("company_id", "")
+        company_id = self._context_company_id()
 
         try:
             out = await runtime.run(
                 message=description,
                 agent_name="master",
-                company_id=company_id,
+                company_id=str(company_id) if company_id else "",
+                model_key=self._selected_model_key(),
             )
             return {
                 "success": bool(out.get("success", True)),
@@ -967,7 +985,11 @@ class MasterDispatcher:
         if gateway is None:
             return ""
         try:
-            llm = gateway.get_llm()
+            company_id = self._context_company_id()
+            llm = gateway.get_llm(
+                model_key=self._selected_model_key(),
+                company_id=company_id,
+            )
         except Exception as e:
             logger.warning("master_dispatcher_llm_unavailable", error=str(e))
             return ""
@@ -978,10 +1000,12 @@ class MasterDispatcher:
             messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
             ainvoke = getattr(llm, "ainvoke", None)
             if ainvoke is not None:
-                resp = await ainvoke(messages)
+                resp = await ainvoke(messages, company_id=company_id)
             else:
                 loop = asyncio.get_event_loop()
-                resp = await loop.run_in_executor(None, lambda: llm.invoke(messages))
+                resp = await loop.run_in_executor(
+                    None, lambda: llm.invoke(messages, company_id=company_id)
+                )
             return resp.content if hasattr(resp, "content") else str(resp)
         except Exception as e:
             logger.warning("master_dispatcher_llm_failed", error=str(e))
