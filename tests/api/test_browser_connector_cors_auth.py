@@ -60,7 +60,7 @@ def _valid_payload():
 
 @pytest.fixture(autouse=True)
 def browser_connector_rollout_gate(monkeypatch):
-    monkeypatch.setenv("FEATURE_BROWSER_CONNECTOR", "false")
+    monkeypatch.delenv("FEATURE_BROWSER_CONNECTOR", raising=False)
     monkeypatch.setenv("FEATURE_BROWSER_CONNECTOR_TENANT_IDS", "42")
     monkeypatch.delenv("FEATURE_BROWSER_CONNECTOR_USER_IDS", raising=False)
 
@@ -166,12 +166,26 @@ def test_ingest_without_login_is_rejected(db_session):
     assert response.status_code in {401, 403}
 
 
-def test_ingest_rejects_non_pilot_tenant(monkeypatch, db_session):
+def test_ingest_allows_tenant_bound_user_when_not_in_legacy_allowlist(monkeypatch, db_session):
     monkeypatch.setenv("FEATURE_BROWSER_CONNECTOR_TENANT_IDS", "42")
     client = _build_client(
         db_session,
-        current_user=_user(user_id=8, company_id=77, username="non-pilot"),
+        current_user=_user(user_id=8, company_id=77, username="tenant-user"),
     )
+
+    response = client.post("/api/browser-connector/ingest", json=_valid_payload())
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["accepted"] is True
+    assert data["company_id"] == 77
+    assert data["tenant_id"] == 77
+    assert data["user_id"] == 8
+
+
+def test_ingest_rejects_when_emergency_switch_is_disabled(monkeypatch, db_session):
+    monkeypatch.setenv("FEATURE_BROWSER_CONNECTOR", "false")
+    client = _build_client(db_session, current_user=_user())
 
     response = client.post("/api/browser-connector/ingest", json=_valid_payload())
 

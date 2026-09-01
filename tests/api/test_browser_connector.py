@@ -180,17 +180,47 @@ def test_ingest_binds_authenticated_user_and_tenant(client):
     assert "items" not in data
 
 
-def test_ingest_returns_explicit_disabled_when_tenant_is_not_in_rollout(monkeypatch, db_session):
+def test_ingest_allows_tenant_bound_user_without_rollout_allowlist(monkeypatch, db_session):
     from app.api.browser_connector import router as browser_connector_router
     from app.auth import get_current_active_user
     from app.database.core import get_db
 
+    monkeypatch.delenv("FEATURE_BROWSER_CONNECTOR", raising=False)
     monkeypatch.setenv("FEATURE_BROWSER_CONNECTOR_TENANT_IDS", "")
     app = FastAPI()
     app.include_router(browser_connector_router, prefix="/api/browser-connector")
 
     async def mock_get_user():
         return SimpleNamespace(id=8, company_id=77, username="non-pilot", disabled=False)
+
+    def mock_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_current_active_user] = mock_get_user
+    app.dependency_overrides[get_db] = mock_get_db
+
+    response = TestClient(app).post("/api/browser-connector/ingest", json=_valid_payload())
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["accepted"] is True
+    assert data["company_id"] == 77
+    assert data["tenant_id"] == 77
+    assert data["user_id"] == 8
+
+
+def test_ingest_returns_explicit_disabled_when_emergency_switch_is_off(monkeypatch, db_session):
+    from app.api.browser_connector import router as browser_connector_router
+    from app.auth import get_current_active_user
+    from app.database.core import get_db
+
+    monkeypatch.setenv("FEATURE_BROWSER_CONNECTOR", "false")
+    monkeypatch.setenv("FEATURE_BROWSER_CONNECTOR_TENANT_IDS", "")
+    app = FastAPI()
+    app.include_router(browser_connector_router, prefix="/api/browser-connector")
+
+    async def mock_get_user():
+        return SimpleNamespace(id=8, company_id=77, username="disabled", disabled=False)
 
     def mock_get_db():
         yield db_session
@@ -242,11 +272,12 @@ def test_status_returns_enabled_for_rollout_tenant(client):
     assert data["user_id"] == 7
 
 
-def test_status_returns_disabled_without_record_lookup(monkeypatch, db_session):
+def test_status_returns_enabled_without_record_lookup_allowlist(monkeypatch, db_session):
     from app.api.browser_connector import router as browser_connector_router
     from app.auth import get_current_active_user
     from app.database.core import get_db
 
+    monkeypatch.delenv("FEATURE_BROWSER_CONNECTOR", raising=False)
     monkeypatch.setenv("FEATURE_BROWSER_CONNECTOR_TENANT_IDS", "")
     app = FastAPI()
     app.include_router(browser_connector_router, prefix="/api/browser-connector")
@@ -264,8 +295,8 @@ def test_status_returns_disabled_without_record_lookup(monkeypatch, db_session):
 
     assert response.status_code == 200
     data = response.json()
-    assert data["enabled"] is False
-    assert data["reason"] == "browser_connector_disabled"
+    assert data["enabled"] is True
+    assert data["reason"] == "enabled"
     assert data["company_id"] == 77
 
 
