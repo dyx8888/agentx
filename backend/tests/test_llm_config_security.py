@@ -170,7 +170,7 @@ def test_get_llm_config_masks_stored_api_key(monkeypatch):
     assert "sk-stored-secret-9999" not in _serialized(payload)
 
 
-def test_regular_user_cannot_update_llm_config_for_own_company(monkeypatch):
+def test_regular_user_can_update_llm_config_for_own_company(monkeypatch):
     fake_db = FakeCompaniesDB({1: _company(1)})
     client = _client(monkeypatch, fake_db, _user(company_id=1, is_admin=False))
 
@@ -186,9 +186,17 @@ def test_regular_user_cannot_update_llm_config_for_own_company(monkeypatch):
         },
     )
 
-    assert response.status_code == 403
-    assert fake_db.companies[1].llm_api_key is None
-    assert fake_db.saved_configs == []
+    assert response.status_code == 200
+    payload = response.json()
+    provider = payload["providers"]["custom_proxy"]
+    assert provider["baseUrl"] == "https://proxy.example.com/v1"
+    assert provider["apiKeyMasked"]
+    assert "apiKey" not in provider
+    assert "sk-user-secret" not in _serialized(payload)
+
+    stored = json.loads(fake_db.companies[1].llm_api_key)
+    assert stored["custom_proxy"]["apiKey"] == "sk-user-secret"
+    assert fake_db.saved_configs
 
 
 def test_regular_user_cannot_update_other_company_llm_config(monkeypatch):

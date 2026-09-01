@@ -653,14 +653,6 @@ def _llm_provider_response(cfg: dict) -> LlmProviderConfigResponse:
     )
 
 
-def _require_llm_config_update_access(current_user: User) -> None:
-    if not getattr(current_user, "is_admin", False):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins can update LLM provider configuration",
-        )
-
-
 def _llm_config_status(config_map: dict) -> dict:
     configured_provider_count = 0
     has_provider = False
@@ -759,12 +751,13 @@ async def update_llm_config(
 ):
     """更新公司的 LLM 配置。
 
+    - 同公司普通用户可维护本公司 LLM provider 配置，用于 BYO API Key / 自付 token
+    - 跨公司用户仍由 _check_company_access 拦截
     - apiKey 为空字符串 => 保留原值（便于只改 gateway/限额不改 key）
     - apiKey 非空 => 更新为新值
     - 返回更新后的脱敏视图（与 GET 一致）
     """
     company = _check_company_access(current_user, company_id)
-    _require_llm_config_update_access(current_user)
     try:
         existing = _load_llm_config_json(company)
 
