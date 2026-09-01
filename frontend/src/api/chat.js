@@ -1,5 +1,5 @@
 ﻿
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
 
 /**
  * SSE 流式聊天
@@ -40,7 +40,7 @@ export function streamChat(params, callbacks) {
 
   const headers = { 'Content-Type': 'application/json' };
 
-  fetch(`${API_BASE}/chat/`, {
+  fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),

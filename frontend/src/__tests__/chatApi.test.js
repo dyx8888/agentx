@@ -34,7 +34,7 @@ describe('streamChat API routing', () => {
     streamChat({ message: 'hello' }, {});
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/chat/',
+      '/api/chat',
       expect.objectContaining({
         method: 'POST',
         credentials: 'include',
@@ -50,7 +50,20 @@ describe('streamChat API routing', () => {
     streamChat({ message: 'hello' }, {});
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://backend.example.test/api/chat/',
+      'https://backend.example.test/api/chat',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+  it('normalizes a trailing slash in VITE_API_BASE_URL', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okStreamResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    const streamChat = await loadStreamChat('https://backend.example.test/api/');
+
+    streamChat({ message: 'hello' }, {});
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://backend.example.test/api/chat',
       expect.objectContaining({ credentials: 'include' }),
     );
   });

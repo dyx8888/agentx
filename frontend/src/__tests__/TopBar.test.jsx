@@ -29,7 +29,7 @@ vi.mock('@/api/llmConfig', () => ({
   getLlmConfig: mocks.getLlmConfig,
 }));
 
-function renderTopBar() {
+function renderTopBar(props = {}) {
   return render(
     <TopBar
       model="glm-5.2"
@@ -39,6 +39,7 @@ function renderTopBar() {
       filesOpen={false}
       onToggleFiles={vi.fn()}
       conversationTitle="新对话"
+      {...props}
     />
   );
 }
@@ -119,5 +120,58 @@ describe('TopBar', () => {
 
     expect(await screen.findAllByText('$0.10')).toHaveLength(2);
     expect(screen.queryByText('¥0.10')).not.toBeInTheDocument();
+  });
+
+  it('shows a configured custom proxy model as selectable', async () => {
+    mocks.getLlmConfig.mockResolvedValue({
+      status: 'configured',
+      providers: {
+        custom_proxy: {
+          gateway: 'https://proxy.example.test/v1',
+          apiKeyMasked: 'sk-****test',
+          modelName: 'deepseek-v4-flash',
+          preferredTasks: ['chat'],
+        },
+      },
+    });
+
+    renderTopBar({ model: 'deepseek-v4-flash' });
+
+    expect(await screen.findByText('deepseek-v4-flash')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '选择模型' }));
+
+    expect(screen.getAllByText('deepseek-v4-flash')).toHaveLength(2);
+    expect(screen.getByText('自定义中转站')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /deepseek-v4-flash/ })).not.toBeDisabled();
+  });
+
+  it('switches away from an unavailable stored model when a configured model exists', async () => {
+    const setModel = vi.fn();
+    mocks.getLlmConfig.mockResolvedValue({
+      status: 'configured',
+      providers: {
+        custom_proxy: {
+          gateway: 'https://proxy.example.test/v1',
+          apiKeyMasked: 'sk-****test',
+          modelName: 'deepseek-v4-flash',
+          preferredTasks: ['chat'],
+        },
+      },
+    });
+
+    renderTopBar({ model: 'glm-5.2', setModel });
+
+    await waitFor(() => {
+      expect(setModel).toHaveBeenCalledWith('deepseek-v4-flash');
+    });
+  });
+
+  it('keeps dropdowns above the chat content stacking layer', async () => {
+    renderTopBar();
+
+    await waitFor(() => {
+      expect(mocks.getLlmConfig).toHaveBeenCalled();
+    });
+    expect(screen.getByRole('banner')).toHaveClass('relative', 'z-[100]');
   });
 });

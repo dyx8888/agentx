@@ -28,8 +28,23 @@ const MODEL_OPTIONS = [
   { value: 'claude-3-5-sonnet', label: 'Claude 3.5', provider: 'anthropic' },
 ];
 
+const PROVIDER_LABELS = {
+  zhipu: '智谱',
+  deepseek: 'DeepSeek',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  custom_proxy: '自定义中转站',
+};
+
 function isProviderConfigured(providerConfig) {
-  return Boolean(providerConfig?.gateway && providerConfig?.apiKeyMasked);
+  if (!providerConfig || providerConfig.enabled === false) return false;
+  const gateway = providerConfig.gateway || providerConfig.baseUrl;
+  const maskedKey = providerConfig.apiKeyMasked || providerConfig.api_key_masked;
+  return Boolean(gateway && maskedKey);
+}
+
+function getProviderLabel(providerKey) {
+  return PROVIDER_LABELS[providerKey] || providerKey;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -280,20 +295,57 @@ export default function TopBar({
   }, []);
 
   const modelOptions = useMemo(
-    () => MODEL_OPTIONS.map((option) => {
-      const configured = isProviderConfigured(llmProviders[option.provider]);
-      return {
-        ...option,
-        disabled: !configured,
-        statusLabel: configured ? '已配置' : '未配置',
-      };
-    }),
+    () => {
+      const baseOptions = MODEL_OPTIONS.map((option) => {
+        const configured = isProviderConfigured(llmProviders[option.provider]);
+        return {
+          ...option,
+          providerLabel: getProviderLabel(option.provider),
+          disabled: !configured,
+          statusLabel: configured ? '已配置' : '未配置',
+        };
+      });
+
+      const customOptions = Object.entries(llmProviders || {}).flatMap(([providerKey, providerConfig]) => {
+        if (!isProviderConfigured(providerConfig)) return [];
+        const modelName = String(providerConfig?.modelName || providerConfig?.model_name || '').trim();
+        if (!modelName) return [];
+        const knownStaticOption = MODEL_OPTIONS.some(
+          (option) => option.provider === providerKey && option.value === modelName
+        );
+        if (knownStaticOption) return [];
+        return [{
+          value: modelName,
+          label: modelName,
+          provider: providerKey,
+          providerLabel: getProviderLabel(providerKey),
+          disabled: false,
+          statusLabel: '已配置',
+        }];
+      });
+
+      return [...customOptions, ...baseOptions];
+    },
     [llmProviders]
   );
-  const configuredModelCount = modelOptions.filter((m) => !m.disabled).length;
-  const currentModelOption = modelOptions.find((m) => m.value === model);
+  const configuredModelOptions = useMemo(
+    () => modelOptions.filter((m) => !m.disabled),
+    [modelOptions]
+  );
+  const configuredModelCount = configuredModelOptions.length;
+  const currentModelOption =
+    modelOptions.find((m) => m.value === model && !m.disabled) ||
+    modelOptions.find((m) => m.value === model);
   const currentLabel = currentModelOption?.label ?? model;
   const currentModelUnavailable = currentModelOption?.disabled ?? true;
+
+  useEffect(() => {
+    if (llmConfigStatus === 'loading' || configuredModelOptions.length === 0) return;
+    const currentConfigured = modelOptions.some((m) => m.value === model && !m.disabled);
+    if (!currentConfigured) {
+      setModel?.(configuredModelOptions[0].value);
+    }
+  }, [configuredModelOptions, llmConfigStatus, model, modelOptions, setModel]);
 
   // 变更① T1.8：显示嵌入模式名称（本地模型/硅基流动 API/DeepSeek API/OpenAI API）
   // 而非模型文件名；加载中或失败时默认显示"本地模型"
@@ -400,7 +452,7 @@ export default function TopBar({
   });
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/80 px-4 backdrop-blur">
+    <header className="relative z-[100] flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/80 px-4 backdrop-blur">
       {/* 左侧：当前对话标题 */}
       <div className="flex items-center gap-2">
         <Sparkles className="size-4 text-primary" />
@@ -437,11 +489,11 @@ export default function TopBar({
               tabIndex={-1}
               aria-activedescendant={
                 modelActiveIndex >= 0 && modelOptions[modelActiveIndex]
-                  ? `model-option-${modelOptions[modelActiveIndex].value}`
+                  ? `model-option-${modelActiveIndex}`
                   : undefined
               }
               onKeyDown={handleModelKeyDown}
-              className="dropdown-content absolute left-0 top-full z-50 mt-1 w-56 py-1 outline-none"
+              className="dropdown-content absolute left-0 top-full z-[120] mt-1 w-64 py-1 outline-none"
               style={{ boxShadow: '0 8px 24px rgba(0, 0, 0, 0.08)' }}
             >
               <div className="border-b border-border px-3 py-2">
@@ -458,8 +510,8 @@ export default function TopBar({
               </div>
               {modelOptions.map((m, i) => (
                 <button
-                  key={m.value}
-                  id={`model-option-${m.value}`}
+                  key={`${m.provider}:${m.value}`}
+                  id={`model-option-${i}`}
                   type="button"
                   role="option"
                   tabIndex={-1}
@@ -480,7 +532,12 @@ export default function TopBar({
                       : 'text-foreground hover:bg-accent hover:text-accent-foreground'
                   )}
                 >
-                  <span className="truncate">{m.label}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{m.label}</span>
+                    <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                      {m.providerLabel}
+                    </span>
+                  </span>
                   <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
                     {m.statusLabel}
                   </span>
@@ -528,7 +585,7 @@ export default function TopBar({
                   : undefined
               }
               onKeyDown={handleEmbeddingKeyDown}
-              className="dropdown-content absolute right-0 top-full z-50 mt-1 w-64 py-1 outline-none"
+              className="dropdown-content absolute right-0 top-full z-[120] mt-1 w-64 py-1 outline-none"
               style={{ boxShadow: '0 8px 24px rgba(0, 0, 0, 0.08)' }}
             >
               {/* 当前模式信息 */}
@@ -635,7 +692,7 @@ export default function TopBar({
             <div
               role="dialog"
               aria-label="Token 消耗详情"
-              className="dropdown-content absolute right-0 top-full z-50 mt-1 w-80 p-4"
+              className="dropdown-content absolute right-0 top-full z-[120] mt-1 w-80 p-4"
               style={{ boxShadow: '0 8px 24px rgba(0, 0, 0, 0.08)' }}
             >
               {usageLoading ? (

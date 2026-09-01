@@ -549,6 +549,7 @@ def _chat_error_payload_from_event(event: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@router.post("", include_in_schema=False)
 @router.post("/")
 async def chat_stream(
     request: ChatRequest,

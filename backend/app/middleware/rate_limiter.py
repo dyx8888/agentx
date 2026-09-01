@@ -372,7 +372,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
     IP_LIMIT = _env_int("RATE_LIMIT_IP", 200)
     WINDOW_SECONDS = _env_int("RATE_LIMIT_WINDOW", 60)
 
-    LLM_ENDPOINTS = {"/api/chat/stream", "/api/chat/", "/api/tasks/"}
+    LLM_ENDPOINTS = {"/api/chat", "/api/chat/", "/api/chat/stream", "/api/tasks/"}
     LOGIN_ENDPOINTS = {"/api/auth/token", "/api/auth/login"}
     SKIP_ENDPOINTS = {
         "/health",
