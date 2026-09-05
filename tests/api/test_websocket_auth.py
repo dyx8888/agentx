@@ -14,7 +14,7 @@ class FakeWebSocket:
         self.closed = None
         self.sent = []
 
-    async def accept(self):
+    async def accept(self, subprotocol=None):
         self.accepted = True
 
     async def close(self, code=None, reason=None):
@@ -55,8 +55,8 @@ def test_connect_websocket_allows_matching_company(monkeypatch):
     calls = []
 
     class FakeManager:
-        async def connect(self, websocket, company_id, user_id=None):
-            await websocket.accept()
+        async def connect(self, websocket, company_id, user_id=None, subprotocol=None):
+            await websocket.accept(subprotocol=subprotocol)
             calls.append(("connect", company_id, user_id))
 
         async def disconnect(self, websocket, company_id, user_id=None):

@@ -188,13 +188,12 @@ export function updateAgentConfig(agentId, data) {
 
 export function chatWithAgent(agentId, message, callback) {
   return new Promise((resolve, reject) => {
-    const token = getAuthToken();
-    fetch(`${API_BASE}/chat/`, {
+    fetch(`${API_BASE}/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
       },
+      credentials: 'include',
       body: JSON.stringify({ message, agent_id: agentId }),
     }).then(async (res) => {
       if (!res.ok) {

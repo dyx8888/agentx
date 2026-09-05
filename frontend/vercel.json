@@ -5,6 +5,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/chat/",
+      "destination": "https://agentx-backend-s4r5.onrender.com/api/chat"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://agentx-backend-s4r5.onrender.com/api/:path*"
     },

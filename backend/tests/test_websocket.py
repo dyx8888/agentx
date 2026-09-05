@@ -33,9 +33,12 @@ class TestWebSocket:
     def setup_method(self):
         """每个测试方法前的设置：Mock 认证用户"""
         app.dependency_overrides[get_current_active_user] = lambda: self.test_user
+        self._ws_auth_patch = patch("app.ws._authenticate_ws", return_value=self.test_user)
+        self._ws_auth_patch.start()
 
     def teardown_method(self):
         """每个测试方法后的清理：移除认证 Mock"""
+        self._ws_auth_patch.stop()
         app.dependency_overrides.pop(get_current_active_user, None)
 
     @pytest.mark.asyncio
