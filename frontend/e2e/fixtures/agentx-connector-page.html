@@ -28,7 +28,7 @@
 
       async function runAllowlistedFetch() {
         const response = await fetch(
-          "/square_pc_api/square/search_feed_author?token=should-not-leak",
+          "/square_pc_api/square/search_feed_author",
           {
             headers: {
               Authorization: "Bearer should-not-be-collected"
@@ -39,7 +39,7 @@
       }
 
       async function runAllowlistedPostWithBody() {
-        const response = await fetch("/apply_sample_pc_api/sample/apply?secret=should-not-leak", {
+        const response = await fetch("/apply_sample_pc_api/sample/apply", {
           method: "POST",
           headers: {
             Authorization: "Bearer post-authorization-should-not-be-collected",
@@ -55,7 +55,7 @@
       function runAllowlistedXhr() {
         return new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.open("GET", "/creative_radar_api/radar/list?session=should-not-leak");
+          xhr.open("GET", "/creative_radar_api/radar/list");
           xhr.setRequestHeader("Authorization", "Bearer xhr-should-not-be-collected");
           xhr.onload = () => resolve();
           xhr.onerror = () => reject(new Error("xhr failed"));

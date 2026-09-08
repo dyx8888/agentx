@@ -1,8 +1,8 @@
 """Build a safe deployment manifest for the AgentX browser connector.
 
 The local development manifest targets localhost. This helper creates a disposable deployment
-manifest with exactly one backend transport permission, without broadening platform page matches
-or committing private staging domains into the source manifest.
+manifest with exactly one backend transport permission, while preserving the source page-injection
+matches and without committing private staging domains into the source manifest.
 """
 
 from __future__ import annotations
@@ -69,9 +69,7 @@ def _validate_manifest(manifest: dict[str, Any]) -> None:
         if isinstance(item, dict):
             content_matches.extend(str(match) for match in item.get("matches", []))
     if not content_matches:
-        raise ValueError("deployment manifest must keep platform content-script matches")
-    if any(match in BROAD_HOST_PERMISSIONS for match in content_matches):
-        raise ValueError("deployment manifest content scripts must not use broad matches")
+        raise ValueError("deployment manifest must keep content-script matches")
 
 
 def main() -> int:

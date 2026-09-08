@@ -235,6 +235,29 @@ class WebSocketManager:
             },
         )
 
+    async def send_capture_completed(
+        self,
+        *,
+        user_id: int,
+        company_id: int,
+        capture_job_id: int,
+        conversation_id: int,
+        status: str,
+        classification: str,
+    ):
+        """Send a capture lifecycle update only to the owning user, not the whole tenant."""
+        await self.send_to_user(
+            str(user_id),
+            {
+                "type": "capture_completed",
+                "captureJobId": capture_job_id,
+                "conversationId": conversation_id,
+                "companyId": company_id,
+                "status": status,
+                "classification": classification,
+            },
+        )
+
     def get_connection_count(self, company_id: int = None) -> int:
         # 同步方法不需要锁：Python GIL 保证 int 和简单 dict.get 的读取操作是原子性的
         if company_id is not None:

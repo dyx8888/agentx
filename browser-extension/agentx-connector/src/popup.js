@@ -1,6 +1,6 @@
 const DEFAULT_SETTINGS = {
   enabled: true,
-  endpoint: "http://localhost:8000/api/browser-connector/ingest"
+  endpoint: "https://agentx-fnbfc0d1r-dyx8888s-projects.vercel.app/api/browser-connector/ingest"
 };
 
 const INGEST_PATH = "/api/browser-connector/ingest";
@@ -9,26 +9,50 @@ const LOCAL_DEV_HOSTS = new Set(["localhost", "127.0.0.1"]);
 const enabledEl = document.getElementById("enabled");
 const endpointEl = document.getElementById("endpoint");
 const saveEl = document.getElementById("save");
+const captureCurrentPageEl = document.getElementById("captureCurrentPage");
+const captureJobEl = document.getElementById("captureJob");
+const captureJobHintEl = document.getElementById("captureJobHint");
 const statusBadgeEl = document.getElementById("statusBadge");
 const queuedCountEl = document.getElementById("queuedCount");
 const lastStatusEl = document.getElementById("lastStatus");
 
-document.addEventListener("DOMContentLoaded", loadState);
+document.addEventListener("DOMContentLoaded", async () => {
+  await loadState();
+  await loadCaptureJobs();
+});
 saveEl.addEventListener("click", saveSettings);
+captureCurrentPageEl.addEventListener("click", captureCurrentPage);
+if (captureJobEl) captureJobEl.addEventListener("change", selectCaptureJob);
 
 async function loadState() {
   const state = await chrome.storage.local.get(["settings", "deliveries", "lastDelivery"]);
-  const settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}) };
+  const { settings, endpointCheck, changed } = normalizeSettings(state.settings || {});
+  if (changed) {
+    await chrome.storage.local.set({ settings });
+  }
+
   enabledEl.checked = Boolean(settings.enabled);
-  endpointEl.value = settings.endpoint || DEFAULT_SETTINGS.endpoint;
-  renderStatus(settings, state.deliveries || [], state.lastDelivery || null);
+  renderEndpoint(settings.endpoint || DEFAULT_SETTINGS.endpoint);
+  renderStatus(
+    settings,
+    state.deliveries || [],
+    endpointCheck.ok
+      ? state.lastDelivery || null
+      : {
+          ok: false,
+          skipped: true,
+          reason: "invalid_endpoint",
+          error: endpointCheck.error
+        }
+  );
 }
 
 async function saveSettings() {
   const endpointCheck = validateEndpoint(endpointEl.value);
   if (!endpointCheck.ok) {
+    renderEndpoint(String(endpointEl.value || "").trim());
     renderStatus(
-      { enabled: enabledEl.checked, endpoint: DEFAULT_SETTINGS.endpoint },
+      { enabled: enabledEl.checked, endpoint: String(endpointEl.value || "").trim() },
       [],
       {
         ok: false,
@@ -45,7 +69,103 @@ async function saveSettings() {
     endpoint: endpointCheck.endpoint
   };
   await chrome.storage.local.set({ settings });
-  renderStatus(settings, [], null);
+  renderEndpoint(settings.endpoint);
+  renderStatus(settings, [], { ok: true, skipped: true, reason: "settings_saved" });
+}
+
+async function captureCurrentPage() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !Number.isInteger(tab.id)) {
+      lastStatusEl.textContent = "No active page";
+      return;
+    }
+
+    const enabled = await chrome.runtime.sendMessage({
+      type: "AGENTX_CONNECTOR_ENABLE_GENERIC_CAPTURE",
+      tabId: tab.id
+    });
+    if (!enabled || !enabled.ok) {
+      lastStatusEl.textContent = "Blocked page";
+      return;
+    }
+
+    const capture = await chrome.runtime.sendMessage({
+      type: "AGENTX_CONNECTOR_CAPTURE_CURRENT_PAGE",
+      tabId: tab.id
+    });
+    const delivery = capture && capture.result && capture.result.delivery;
+    lastStatusEl.textContent = delivery && delivery.status ? `HTTP ${delivery.status}` : "Capture started";
+  } catch (_error) {
+    lastStatusEl.textContent = "Unavailable";
+  }
+}
+
+async function loadCaptureJobs() {
+  try {
+    const result = await chrome.runtime.sendMessage({ type: "AGENTX_CONNECTOR_GET_CAPTURE_JOBS" });
+    renderCaptureJobs(result && result.captureJobs, result && result.activeCaptureJobId);
+  } catch (_error) {
+    renderCaptureJobs([], null);
+  }
+}
+
+function renderCaptureJobs(jobs, activeId) {
+  if (!captureJobEl) return;
+  const entries = Array.isArray(jobs) ? jobs : [];
+  captureJobEl.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "No task selected";
+  captureJobEl.appendChild(empty);
+  for (const job of entries) {
+    const option = document.createElement("option");
+    option.value = String(job.id);
+    option.textContent = `#${job.id} ${job.purpose} - ${job.target_host}`;
+    option.selected = Number(job.id) === Number(activeId);
+    captureJobEl.appendChild(option);
+  }
+  captureJobEl.value = activeId ? String(activeId) : "";
+  if (captureJobHintEl) {
+    captureJobHintEl.textContent = entries.length
+      ? "Task capability is memory-only and expires automatically."
+      : "Create a task in the current AgentX conversation first.";
+  }
+}
+
+async function selectCaptureJob() {
+  if (!captureJobEl) return;
+  const rawId = captureJobEl.value;
+  try {
+    await chrome.runtime.sendMessage({
+      type: "AGENTX_CONNECTOR_SELECT_CAPTURE_JOB",
+      captureJobId: rawId ? Number(rawId) : null
+    });
+  } finally {
+    await loadCaptureJobs();
+  }
+}
+
+function normalizeSettings(rawSettings) {
+  const original = { ...DEFAULT_SETTINGS, ...(rawSettings || {}) };
+  const endpointCheck = validateEndpoint(original.endpoint);
+  if (!endpointCheck.ok) {
+    return { settings: original, endpointCheck, changed: false };
+  }
+
+  const settings = { ...original, endpoint: endpointCheck.endpoint };
+  return {
+    settings,
+    endpointCheck,
+    changed:
+      original.endpoint !== settings.endpoint ||
+      original.enabled !== settings.enabled
+  };
+}
+
+function renderEndpoint(endpoint) {
+  endpointEl.value = endpoint;
+  endpointEl.title = endpoint;
 }
 
 function renderStatus(settings, deliveries, lastDelivery) {
@@ -61,7 +181,11 @@ function renderStatus(settings, deliveries, lastDelivery) {
 
   if (lastDelivery.skipped) {
     lastStatusEl.textContent =
-      lastDelivery.reason === "invalid_endpoint" ? "Invalid endpoint" : "Skipped";
+      lastDelivery.reason === "invalid_endpoint"
+        ? "Invalid endpoint"
+        : lastDelivery.reason === "settings_saved"
+          ? "Saved"
+          : "Skipped";
     return;
   }
 
@@ -74,10 +198,9 @@ function renderStatus(settings, deliveries, lastDelivery) {
 }
 
 function validateEndpoint(endpoint) {
-  const value = String(endpoint || "").trim() || DEFAULT_SETTINGS.endpoint;
   let parsed;
   try {
-    parsed = new URL(value);
+    parsed = normalizeEndpointInput(endpoint);
   } catch (_error) {
     return { ok: false, error: "Endpoint must be a valid URL" };
   }
@@ -105,6 +228,15 @@ function validateEndpoint(endpoint) {
   return { ok: true, endpoint: parsed.href };
 }
 
+function normalizeEndpointInput(endpoint) {
+  const value = String(endpoint || "").trim() || DEFAULT_SETTINGS.endpoint;
+  const parsed = new URL(value);
+  if (parsed.pathname === "/" && !parsed.search && !parsed.hash) {
+    parsed.pathname = INGEST_PATH;
+  }
+  return parsed;
+}
+
 function endpointMatchesHostPermission(parsedEndpoint) {
   const manifest =
     chrome.runtime && chrome.runtime.getManifest ? chrome.runtime.getManifest() : {};
@@ -129,4 +261,16 @@ function hostPermissionMatchesEndpoint(permission, parsedEndpoint) {
   } catch (_error) {
     return false;
   }
+}
+
+if (typeof globalThis !== "undefined" && globalThis.__AGENTX_CONNECTOR_TEST_ENABLE__) {
+  globalThis.__AGENTX_CONNECTOR_POPUP_TEST__ = {
+    normalizeEndpointInput,
+    validateEndpoint,
+    normalizeSettings,
+    loadState,
+    saveSettings,
+    captureCurrentPage,
+    renderCaptureJobs
+  };
 }

@@ -73,7 +73,8 @@ input[type="checkbox"] {
   height: 16px;
 }
 
-input[type="url"] {
+input[type="url"],
+select {
   box-sizing: border-box;
   width: 100%;
   border: 1px solid #cbd5e1;
@@ -92,6 +93,21 @@ button {
   font-size: 13px;
   font-weight: 700;
   padding: 9px 12px;
+}
+
+.capture-job {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.job-hint {
+  margin-top: 7px;
+}
+
+#captureCurrentPage {
+  background: #2563eb;
 }
 
 .meta {

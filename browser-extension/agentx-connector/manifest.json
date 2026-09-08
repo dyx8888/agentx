@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "AgentX Browser Connector MVP",
-  "description": "Read-only connector that captures allowlisted API responses and forwards sanitized data to AgentX.",
-  "version": "0.1.0",
+  "description": "Read-only connector that captures user-selected page data and approved API responses, then forwards sanitized data to AgentX.",
+  "version": "0.2.0",
   "action": {
     "default_popup": "popup.html",
     "default_title": "AgentX Connector"
@@ -13,35 +13,29 @@
   "content_scripts": [
     {
       "matches": [
-        "https://buyin.jinritemai.com/*",
-        "https://compass.jinritemai.com/*",
-        "https://fxg.jinritemai.com/*",
-        "https://www.douyin.com/*",
-        "https://xqttool.com/*",
-        "https://www.xqttool.com/*",
-        "https://cc.oceanengine.com/*"
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*/*"
       ],
-      "js": ["src/content-script.js"],
+      "js": ["src/platform-policy.js", "src/content-script.js"],
       "run_at": "document_start",
       "all_frames": false
     }
   ],
   "host_permissions": [
     "http://localhost/*",
-    "http://127.0.0.1/*"
+    "http://127.0.0.1/*",
+    "https://agentx-fnbfc0d1r-dyx8888s-projects.vercel.app/*",
+    "https://*/*"
   ],
-  "permissions": ["storage"],
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "web_accessible_resources": [
     {
       "resources": ["src/injected.js"],
       "matches": [
-        "https://buyin.jinritemai.com/*",
-        "https://compass.jinritemai.com/*",
-        "https://fxg.jinritemai.com/*",
-        "https://www.douyin.com/*",
-        "https://xqttool.com/*",
-        "https://www.xqttool.com/*",
-        "https://cc.oceanengine.com/*"
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*/*"
       ]
     }
   ]

@@ -27,7 +27,8 @@ def test_build_manifest_uses_exact_https_backend_permission():
     manifest = builder.build_manifest(source, "https://api-staging.example.com/path/ignored")
 
     assert manifest["host_permissions"] == ["https://api-staging.example.com/*"]
-    assert "https://buyin.jinritemai.com/*" in manifest["content_scripts"][0]["matches"]
+    assert "https://*/*" in manifest["content_scripts"][0]["matches"]
+    assert "https://*/*" in manifest["web_accessible_resources"][0]["matches"]
     assert "https://*/*" not in manifest["host_permissions"]
     assert "http://localhost/*" not in manifest["host_permissions"]
 

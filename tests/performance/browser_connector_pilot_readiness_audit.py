@@ -238,21 +238,29 @@ def check_extension_manifest(read_text: TextReader) -> list[PilotCheck]:
     )
 
     host_permissions = {str(item) for item in manifest.get("host_permissions", [])}
-    broad = sorted(host_permissions & {"https://*/*", "http://*/*", "<all_urls>"})
-    local_allowed = host_permissions <= {"http://localhost/*", "http://127.0.0.1/*"}
-    if local_allowed and not broad:
-        checks.append(pass_check("local manifest backend permissions", "local transport permissions only"))
+    permissions = {str(item) for item in manifest.get("permissions", [])}
+    unsafe_broad = sorted(host_permissions & {"http://*/*", "<all_urls>"})
+    has_wide_https = "https://*/*" in host_permissions
+    required_permissions = {"activeTab", "scripting", "storage", "tabs"}
+    if has_wide_https and not unsafe_broad and "cookies" not in permissions and required_permissions <= permissions:
+        checks.append(pass_check("extension permission boundary", "wide HTTPS pages, no cookie permission, user-triggered script capability"))
     else:
-        checks.append(fail_check("local manifest backend permissions", f"unexpected host permissions: {sorted(host_permissions)}"))
+        detail = {
+            "wide_https": has_wide_https,
+            "unsafe_broad": unsafe_broad,
+            "cookies": "cookies" in permissions,
+            "missing_permissions": sorted(required_permissions - permissions),
+        }
+        checks.append(fail_check("extension permission boundary", str(detail)))
 
     content_matches: list[str] = []
     for item in manifest.get("content_scripts", []):
         if isinstance(item, dict):
             content_matches.extend(str(match) for match in item.get("matches", []))
-    if any("jinritemai.com" in match for match in content_matches) and any("douyin.com" in match for match in content_matches):
-        checks.append(pass_check("platform content-script matches", "allowlisted platform matches present"))
+    if "https://*/*" in content_matches:
+        checks.append(pass_check("page content-script coverage", "wide HTTPS page injection configured"))
     else:
-        checks.append(fail_check("platform content-script matches", "expected douyin/jinritemai matches"))
+        checks.append(fail_check("page content-script coverage", "expected https://*/* match"))
     return checks
 
 

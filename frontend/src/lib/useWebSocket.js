@@ -11,6 +11,7 @@ import { createWsTicket } from '@/api/auth';
  *   - agent_status          Agent 运行状态
  *   - chain_progress        多 Agent 协作链路进度
  *   - alert                 告警
+ *   - capture_completed     浏览器采集任务完成
  *
  * 设计要点：
  *   1. useReducer 聚合状态，单次 dispatch 触发一次重渲染，避免高频消息刷屏
@@ -77,6 +78,7 @@ const initialState = {
   agentStatus: {},         // { [agentKey]: { status, taskCount } }
   chainProgress: {},       // { [chainName]: { completedSteps, totalSteps, currentStep } }
   alerts: [],              // 告警队列
+  captureCompleted: null,  // 最近完成的 CaptureJob
 };
 
 function reducer(state, action) {
@@ -125,6 +127,9 @@ function reducer(state, action) {
       if (next.length > ALERT_QUEUE_LIMIT) next.shift();
       return { ...state, alerts: next };
     }
+
+    case 'CAPTURE_COMPLETED':
+      return { ...state, captureCompleted: action.payload };
 
     case 'DISMISS_REVIEW':
       return {
@@ -291,6 +296,9 @@ export function useWebSocket(companyId) {
           case 'alert':
             dispatch({ type: 'ALERT', payload: msg });
             break;
+          case 'capture_completed':
+            dispatch({ type: 'CAPTURE_COMPLETED', payload: msg });
+            break;
           case 'pong':
             // 心跳响应，无需处理
             break;
@@ -340,6 +348,7 @@ export function useWebSocket(companyId) {
     agentStatus: state.agentStatus,
     chainProgress: state.chainProgress,
     alerts: state.alerts,
+    captureCompleted: state.captureCompleted,
     dismissReview,
     dismissAlert,
   };

@@ -6,6 +6,7 @@ AgentX Chrome extension. It binds identity from the authenticated AgentX user
 and rejects payloads that try to carry credentials or other sensitive fields.
 """
 
+import asyncio
 from datetime import datetime, timezone
 import os
 from typing import Any, Literal
@@ -26,6 +27,19 @@ from app.services.browser_connector_business import (
     list_connector_campaign_snapshots,
 )
 from app.services.browser_connector_capture import store_browser_connector_capture
+from app.services.browser_connector_jobs import (
+    CAPTURE_JOB_PURPOSES,
+    CaptureJobError,
+    claim_capture_job,
+    classify_capture_job_for_user,
+    complete_capture_job,
+    create_capture_draft,
+    create_capture_job,
+    get_capture_job_for_user,
+    issue_capture_job_ticket,
+    list_capture_jobs,
+    serialize_capture_job,
+)
 from app.services.browser_connector_schemas import BrowserConnectorRecordKind
 
 
@@ -61,7 +75,7 @@ SENSITIVE_EXACT_KEYS = {
     "card",
 }
 
-ALLOWED_HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+ALLOWED_HTTP_METHODS = {"GET", "HEAD"}
 
 
 def _normalize_key(key: str) -> str:
@@ -187,10 +201,16 @@ class BrowserConnectorIngestRequest(BaseModel):
     policy: CapturePolicy
     captured_at: datetime | None = None
 
+    # A job ID alone carries no authority. The matching short-lived capability is
+    # verified server-side and is never persisted in connector event storage.
+    capture_job_id: int | None = Field(default=None, ge=1, exclude=True)
+    capability_ticket: str | None = Field(default=None, min_length=16, max_length=512, exclude=True)
+
     # Accepted only so client-provided identity cannot break ingestion; ignored.
     tenant_id: int | str | None = Field(default=None, exclude=True)
     company_id: int | str | None = Field(default=None, exclude=True)
     user_id: int | str | None = Field(default=None, exclude=True)
+    conversation_id: int | str | None = Field(default=None, exclude=True)
 
     model_config = {"extra": "forbid"}
 
@@ -216,6 +236,42 @@ class BrowserConnectorIngestResponse(BaseModel):
     captured_at: datetime | None
     matched_rule: str
     data_shape: Literal["object", "array"]
+    capture_job_id: int | None = None
+    capture_status: str | None = None
+    classification: str | None = None
+
+
+class CaptureJobCreateRequest(BaseModel):
+    conversation_id: int = Field(..., ge=1)
+    target_url: str = Field(..., min_length=8, max_length=2048)
+    purpose: Literal[
+        "creator",
+        "knowledge",
+        "competitor_evidence",
+        "content_reference",
+        "generic_evidence",
+    ] = "generic_evidence"
+    source_message_id: int | None = Field(default=None, ge=1)
+    capture_limit: int = Field(default=1, ge=1, le=3)
+
+
+class CaptureJobTicketResponse(BaseModel):
+    job: dict[str, Any]
+    capability_ticket: str
+
+
+class CaptureJobListResponse(BaseModel):
+    items: list[dict[str, Any]]
+
+
+class CaptureDraftRequest(BaseModel):
+    draft_kind: Literal["analysis_summary", "invitation_draft"]
+
+
+class CaptureDraftResponse(BaseModel):
+    job: dict[str, Any]
+    message_id: int
+    content: str
 
 
 class BrowserConnectorStatusResponse(BaseModel):
@@ -264,6 +320,27 @@ class BrowserConnectorCampaignSnapshotsResponse(BaseModel):
     read_only: bool = True
 
 
+def _schedule_capture_completed_notification(capture_job) -> None:
+    """Best-effort realtime notification. ChatPage polling remains the reliable fallback."""
+    async def notify() -> None:
+        from app.ws import ws_manager
+
+        await ws_manager.send_capture_completed(
+            user_id=int(capture_job.user_id),
+            company_id=int(capture_job.company_id),
+            capture_job_id=int(capture_job.id),
+            conversation_id=int(capture_job.conversation_id),
+            status=str(capture_job.status),
+            classification=str(capture_job.classification or "generic_evidence"),
+        )
+
+    try:
+        asyncio.get_running_loop().create_task(notify())
+    except RuntimeError:
+        # A synchronous test or script may call this module without an event loop.
+        return
+
+
 @router.get("/status", response_model=BrowserConnectorStatusResponse)
 async def get_browser_connector_status(
     current_user: User = Depends(get_current_active_user),
@@ -289,8 +366,27 @@ async def ingest_browser_connector_payload(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    """Accept structured browser connector data for the authenticated tenant."""
+    """Accept a sanitized capture through current auth plus an optional task capability."""
     _require_browser_connector_enabled(current_user)
+
+    capture_job = None
+    if request.capture_job_id is not None:
+        if not request.capability_ticket:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Capture job requires a capability ticket",
+            )
+        try:
+            capture_job = claim_capture_job(
+                db,
+                job_id=request.capture_job_id,
+                capability_ticket=request.capability_ticket,
+                page_url=request.page.url,
+                api_url=request.api.url,
+                current_user=current_user,
+            )
+        except CaptureJobError as exc:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
     data_shape: Literal["object", "array"] = "array" if isinstance(request.data, list) else "object"
     try:
@@ -300,6 +396,13 @@ async def ingest_browser_connector_payload(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
+
+    if capture_job is not None:
+        try:
+            capture_job = complete_capture_job(db, job_id=capture_job.id, event=stored.event)
+        except CaptureJobError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        _schedule_capture_completed_notification(capture_job)
 
     return BrowserConnectorIngestResponse(
         accepted=True,
@@ -312,7 +415,117 @@ async def ingest_browser_connector_payload(
         captured_at=request.captured_at,
         matched_rule=request.api.matched_rule,
         data_shape=data_shape,
+        capture_job_id=capture_job.id if capture_job else None,
+        capture_status=capture_job.status if capture_job else None,
+        classification=capture_job.classification if capture_job else None,
     )
+
+
+@router.post("/capture-jobs", response_model=CaptureJobTicketResponse, status_code=status.HTTP_201_CREATED)
+async def create_browser_capture_job(
+    request: CaptureJobCreateRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Create an explicit, user-owned request for one safe page capture."""
+    _require_browser_connector_enabled(current_user)
+    try:
+        created = create_capture_job(
+            db,
+            current_user=current_user,
+            conversation_id=request.conversation_id,
+            target_url=request.target_url,
+            purpose=request.purpose,
+            source_message_id=request.source_message_id,
+            capture_limit=request.capture_limit,
+        )
+    except CaptureJobError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return CaptureJobTicketResponse(
+        job=serialize_capture_job(created.job), capability_ticket=created.capability_ticket
+    )
+
+
+@router.get("/capture-jobs", response_model=CaptureJobListResponse)
+async def list_browser_capture_jobs(
+    conversation_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=30, ge=1, le=100),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    _require_browser_connector_enabled(current_user)
+    jobs = list_capture_jobs(
+        db,
+        current_user=current_user,
+        conversation_id=conversation_id,
+        limit=limit,
+    )
+    return CaptureJobListResponse(items=[serialize_capture_job(job) for job in jobs])
+
+
+@router.get("/capture-jobs/{job_id}", response_model=dict[str, Any])
+async def get_browser_capture_job(
+    job_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    _require_browser_connector_enabled(current_user)
+    try:
+        return serialize_capture_job(get_capture_job_for_user(db, job_id=job_id, current_user=current_user))
+    except CaptureJobError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/capture-jobs/{job_id}/ticket", response_model=CaptureJobTicketResponse)
+async def refresh_browser_capture_job_ticket(
+    job_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    _require_browser_connector_enabled(current_user)
+    try:
+        created = issue_capture_job_ticket(db, job_id=job_id, current_user=current_user)
+    except CaptureJobError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return CaptureJobTicketResponse(
+        job=serialize_capture_job(created.job), capability_ticket=created.capability_ticket
+    )
+
+
+@router.post("/capture-jobs/{job_id}/classify", response_model=dict[str, Any])
+async def classify_browser_capture_job(
+    job_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Confirm the job's safe candidate category before creating a local draft."""
+    _require_browser_connector_enabled(current_user)
+    try:
+        job = classify_capture_job_for_user(db, job_id=job_id, current_user=current_user)
+    except CaptureJobError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return serialize_capture_job(job)
+
+
+@router.post("/capture-jobs/{job_id}/draft", response_model=CaptureDraftResponse)
+async def create_browser_capture_draft(
+    job_id: int,
+    request: CaptureDraftRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Generate an on-platform draft only; this route never sends external messages."""
+    _require_browser_connector_enabled(current_user)
+    try:
+        job, message = create_capture_draft(
+            db,
+            job_id=job_id,
+            current_user=current_user,
+            draft_kind=request.draft_kind,
+        )
+    except CaptureJobError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return CaptureDraftResponse(job=serialize_capture_job(job), message_id=message.id, content=message.content)
 
 
 def _require_connector_company(current_user: User) -> int:

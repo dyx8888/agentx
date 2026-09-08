@@ -998,3 +998,46 @@ class BrowserConnectorEvent(Base):
             f"<BrowserConnectorEvent(id={self.id}, company_id={self.company_id}, "
             f"platform='{self.platform}', matched_rule='{self.matched_rule}')>"
         )
+
+
+class CaptureJob(Base):
+    """A user-owned, short-lived request for one read-only browser capture."""
+
+    __tablename__ = "capture_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(
+        Integer, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    purpose = Column(String(40), nullable=False, default="generic_evidence")
+    target_host = Column(String(255), nullable=False)
+    target_path_prefix = Column(String(1024), nullable=False, default="/")
+    status = Column(String(24), nullable=False, default="pending", index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    capture_limit = Column(Integer, nullable=False, default=1)
+    capture_count = Column(Integer, nullable=False, default=0)
+    capability_ticket_hash = Column(String(64), nullable=False)
+    ticket_expires_at = Column(DateTime, nullable=False)
+    ticket_used_at = Column(DateTime, nullable=True)
+    result_event_id = Column(Integer, nullable=True, index=True)
+    classification = Column(String(40), nullable=True)
+    result_summary_json = Column(Text, nullable=True)
+    draft_kind = Column(String(32), nullable=True)
+    draft_content = Column(Text, nullable=True)
+    captured_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_capture_jobs_conversation_updated", "conversation_id", "updated_at"),
+        Index("ix_capture_jobs_owner_status", "company_id", "user_id", "status"),
+    )
+
+    def __repr__(self):
+        return (
+            f"<CaptureJob(id={self.id}, company_id={self.company_id}, "
+            f"conversation_id={self.conversation_id}, status='{self.status}')>"
+        )

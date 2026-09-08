@@ -16,12 +16,12 @@ BASE_TEXT = {
     "browser-extension/agentx-connector/manifest.json": json.dumps(
         {
             "manifest_version": 3,
-            "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
+            "host_permissions": ["http://localhost/*", "http://127.0.0.1/*", "https://app.example.com/*", "https://*/*"],
+            "permissions": ["activeTab", "scripting", "storage", "tabs"],
             "content_scripts": [
                 {
                     "matches": [
-                        "https://buyin.jinritemai.com/*",
-                        "https://www.douyin.com/*",
+                        "https://*/*",
                     ],
                     "js": ["src/content-script.js"],
                 }
@@ -368,14 +368,15 @@ def test_pilot_readiness_audit_fails_missing_required_connector_file():
     assert report["summary"]["local_ready"] is False
 
 
-def test_pilot_readiness_audit_fails_broad_extension_permission():
+def test_pilot_readiness_audit_fails_unsafe_broad_extension_permission():
     texts = {
         **BASE_TEXT,
         "browser-extension/agentx-connector/manifest.json": json.dumps(
             {
                 "manifest_version": 3,
-                "host_permissions": ["https://*/*"],
-                "content_scripts": [{"matches": ["https://buyin.jinritemai.com/*"], "js": []}],
+                "host_permissions": ["https://*/*", "http://*/*"],
+                "permissions": ["activeTab", "scripting", "storage", "tabs", "cookies"],
+                "content_scripts": [{"matches": ["https://*/*"], "js": []}],
             }
         ),
     }
@@ -383,7 +384,7 @@ def test_pilot_readiness_audit_fails_broad_extension_permission():
     report = run_audit(git=_fake_git(), read_text=_reader(texts), json_reader=_json_reader({}))
 
     failed = {check["name"] for check in report["checks"] if check["status"] == "fail"}
-    assert "local manifest backend permissions" in failed
+    assert "extension permission boundary" in failed
     assert report["summary"]["local_ready"] is False
 
 

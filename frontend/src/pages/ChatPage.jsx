@@ -11,6 +11,13 @@ import { useAuth } from '@/lib/AuthContext';
 import { formatFileSize, cn } from '@/lib/utils';
 import { streamChat } from '@/api/chat';
 import {
+  classifyCaptureJob,
+  createCaptureDraft,
+  createCaptureJob,
+  listCaptureJobs,
+  refreshCaptureJobTicket,
+} from '@/api/browserConnector';
+import {
   getConversations,
   getConversation,
   createConversation,
@@ -25,6 +32,7 @@ import ChatInput from '@/components/ChatInput';
 import FilePanel from '@/components/FilePanel';
 import FilePreviewModal from '@/components/FilePreviewModal';
 import { LLM_PROVIDERS } from '@/lib/llmProviders';
+import CaptureRequestCard from '@/components/CaptureRequestCard';
 
 const LEGACY_SELECTED_MODEL_VALUES = new Set(
   LLM_PROVIDERS.flatMap((provider) => provider.models.map((model) => model.value))
@@ -82,6 +90,124 @@ export default function ChatPage() {
   const companyId = user?.company_id ? String(user.company_id) : '';
   const ws = useWebSocket(companyId);
 
+  const [activeConversationId, setActiveConversationId] = useState(null);
+  const [captureJobs, setCaptureJobs] = useState([]);
+  const [captureBusyJobId, setCaptureBusyJobId] = useState(null);
+
+  const mergeCaptureJobs = useCallback((incoming) => {
+    const next = Array.isArray(incoming) ? incoming : [];
+    setCaptureJobs((previous) => next.map((job) => {
+      const previousJob = previous.find((item) => item.id === job.id);
+      if (job.status === 'pending' && previousJob?.capability_ticket) {
+        return { ...job, capability_ticket: previousJob.capability_ticket };
+      }
+      return job;
+    }));
+  }, []);
+
+  const loadCaptureJobs = useCallback(async (conversationId) => {
+    try {
+      const data = await listCaptureJobs(conversationId);
+      mergeCaptureJobs(data.items || []);
+    } catch (err) {
+      console.error('加载网页采集任务失败:', err);
+    }
+  }, [mergeCaptureJobs]);
+
+  useEffect(() => {
+    loadCaptureJobs();
+  }, [loadCaptureJobs]);
+
+  useEffect(() => {
+    if (!activeConversationId) return undefined;
+    loadCaptureJobs(activeConversationId);
+    const timer = setInterval(() => loadCaptureJobs(activeConversationId), 4000);
+    return () => clearInterval(timer);
+  }, [activeConversationId, loadCaptureJobs]);
+
+  useEffect(() => {
+    const completed = ws.captureCompleted;
+    if (completed) {
+      loadCaptureJobs(completed.conversationId || activeConversationId);
+    }
+  }, [ws.captureCompleted, activeConversationId, loadCaptureJobs]);
+
+  const announceCaptureJobToExtension = useCallback((jobResponse) => {
+    if (!jobResponse?.job || !jobResponse?.capability_ticket) return;
+    window.dispatchEvent(new CustomEvent('agentx-browser-connector-capture-job', {
+      detail: jobResponse,
+    }));
+  }, []);
+
+  const handleCreateCaptureJob = useCallback(async ({ target_url: targetUrl, purpose }) => {
+    let conversationId = activeConversationId;
+    if (!conversationId) {
+      const conversation = await createConversation({ title: '网页采集任务' });
+      conversationId = conversation.id;
+      setActiveConversationId(conversationId);
+      setConversations((previous) => [conversation, ...previous]);
+    }
+    const response = await createCaptureJob({
+      conversation_id: conversationId,
+      target_url: targetUrl,
+      purpose,
+      capture_limit: 1,
+    });
+    setCaptureJobs((previous) => [
+      { ...response.job, capability_ticket: response.capability_ticket },
+      ...previous.filter((job) => job.id !== response.job.id),
+    ]);
+    announceCaptureJobToExtension(response);
+  }, [activeConversationId, announceCaptureJobToExtension]);
+
+  const handleUseCaptureJob = useCallback((job) => {
+    announceCaptureJobToExtension({ job, capability_ticket: job.capability_ticket });
+  }, [announceCaptureJobToExtension]);
+
+  const handleRefreshCaptureTicket = useCallback(async (job) => {
+    setCaptureBusyJobId(job.id);
+    try {
+      const response = await refreshCaptureJobTicket(job.id);
+      setCaptureJobs((previous) => previous.map((item) => item.id === job.id
+        ? { ...response.job, capability_ticket: response.capability_ticket }
+        : item));
+      announceCaptureJobToExtension(response);
+    } finally {
+      setCaptureBusyJobId(null);
+    }
+  }, [announceCaptureJobToExtension]);
+
+  const handleClassifyCaptureJob = useCallback(async (job) => {
+    setCaptureBusyJobId(job.id);
+    try {
+      const result = await classifyCaptureJob(job.id);
+      setCaptureJobs((previous) => previous.map((item) => item.id === job.id ? { ...item, ...result } : item));
+    } finally {
+      setCaptureBusyJobId(null);
+    }
+  }, []);
+
+  const handleCaptureDraft = useCallback(async (job, draftKind) => {
+    setCaptureBusyJobId(job.id);
+    try {
+      const result = await createCaptureDraft(job.id, draftKind);
+      setCaptureJobs((previous) => previous.map((item) => item.id === job.id ? { ...item, ...result.job } : item));
+      setMessages((previous) => [...previous, {
+        id: `capture-draft-${result.message_id}`,
+        role: 'assistant',
+        content: result.content,
+        sources: [],
+        warnings: [],
+        toolResults: [],
+        delegations: [],
+        isStreaming: false,
+        createdAt: new Date().toISOString(),
+      }]);
+    } finally {
+      setCaptureBusyJobId(null);
+    }
+  }, []);
+
   // 浠诲姟鐘舵€?toast锛歨ook 浠呬繚鐣欐渶鏂颁竴鏉?taskStatus锛岃繖閲岃浆鎴愮煭鏆傞槦鍒楀睍绀?
   const [taskToasts, setTaskToasts] = useState([]);
   const wsTaskStatus = ws.taskStatus;
@@ -97,7 +223,6 @@ export default function ChatPage() {
 
   // 鈹€鈹€ 瀵硅瘽鐘舵€?鈹€鈹€
   const [conversations, setConversations] = useState([]);
-  const [activeConversationId, setActiveConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [draftMessage, setDraftMessage] = useState('');
@@ -499,6 +624,15 @@ export default function ChatPage() {
 
         {/* 鑱婂ぉ鍖哄煙 */}
         <main className="flex-1 overflow-y-auto scrollbar-thin">
+          <CaptureRequestCard
+            jobs={captureJobs}
+            onCreate={handleCreateCaptureJob}
+            onUse={handleUseCaptureJob}
+            onRefreshTicket={handleRefreshCaptureTicket}
+            onClassify={handleClassifyCaptureJob}
+            onDraft={handleCaptureDraft}
+            busyJobId={captureBusyJobId}
+          />
           <ChatArea
             messages={messages}
             isStreaming={isStreaming}

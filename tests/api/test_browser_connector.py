@@ -452,6 +452,12 @@ def test_browser_connector_has_no_platform_write_automation_entrypoints():
     assert route_matches == {
         ("get", "/status"),
         ("post", "/ingest"),
+        ("post", "/capture-jobs"),
+        ("get", "/capture-jobs"),
+        ("get", "/capture-jobs/{job_id}"),
+        ("post", "/capture-jobs/{job_id}/ticket"),
+        ("post", "/capture-jobs/{job_id}/classify"),
+        ("post", "/capture-jobs/{job_id}/draft"),
         ("get", "/records"),
         ("post", "/import/kols"),
         ("post", "/import/knowledge"),
