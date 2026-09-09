@@ -25,6 +25,12 @@ function formatExpiry(value) {
   return `有效至 ${new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
+function hasUsableTicket(job) {
+  if (!job?.capability_ticket || !job.ticket_expires_at) return false;
+  const expiresAt = new Date(job.ticket_expires_at).getTime();
+  return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
 export default function CaptureRequestCard({
   jobs = [],
   onCreate,
@@ -89,7 +95,7 @@ export default function CaptureRequestCard({
         <div className="mt-3 space-y-2">
           {jobs.map((job) => {
             const isBusy = busyJobId === job.id;
-            const canUse = job.status === 'pending' && job.capability_ticket;
+            const canUse = job.status === 'pending' && hasUsableTicket(job);
             const canClassify = job.status === 'captured';
             const canDraft = job.status === 'classified' || job.status === 'draft_ready';
             return (
@@ -110,11 +116,11 @@ export default function CaptureRequestCard({
                 )}
                 <div className="mt-2 flex flex-wrap gap-2">
                   {canUse && (
-                    <button type="button" onClick={() => onUse?.(job)} className="inline-flex items-center gap-1 rounded border border-primary/40 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5">
+                    <button type="button" disabled={isBusy} onClick={() => onUse?.(job)} className="inline-flex items-center gap-1 rounded border border-primary/40 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/5 disabled:opacity-50">
                       <ExternalLink className="size-3.5" />交给插件
                     </button>
                   )}
-                  {job.status === 'pending' && !job.capability_ticket && (
+                  {job.status === 'pending' && !canUse && (
                     <button type="button" disabled={isBusy} onClick={() => onRefreshTicket?.(job)} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-foreground disabled:opacity-50">
                       <RefreshCw className={cn('size-3.5', isBusy && 'animate-spin')} />重新授权
                     </button>

@@ -160,8 +160,18 @@ export default function ChatPage() {
     announceCaptureJobToExtension(response);
   }, [activeConversationId, announceCaptureJobToExtension]);
 
-  const handleUseCaptureJob = useCallback((job) => {
-    announceCaptureJobToExtension({ job, capability_ticket: job.capability_ticket });
+  const handleUseCaptureJob = useCallback(async (job) => {
+    setCaptureBusyJobId(job.id);
+    try {
+      // A fresh short-lived ticket avoids handing the extension an expired capability.
+      const response = await refreshCaptureJobTicket(job.id);
+      setCaptureJobs((previous) => previous.map((item) => item.id === job.id
+        ? { ...response.job, capability_ticket: response.capability_ticket }
+        : item));
+      announceCaptureJobToExtension(response);
+    } finally {
+      setCaptureBusyJobId(null);
+    }
   }, [announceCaptureJobToExtension]);
 
   const handleRefreshCaptureTicket = useCallback(async (job) => {

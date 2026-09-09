@@ -1,6 +1,6 @@
 """Integration coverage for explicit, tenant-bound browser capture jobs."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -119,6 +119,24 @@ def test_capture_job_binds_owner_conversation_and_excludes_ticket_from_job_respo
     assert created["job"]["target_host"] == "www.xiaohongshu.com"
     assert "capability_ticket" not in created["job"]
     assert len(created["capability_ticket"]) >= 16
+
+
+def test_capture_job_timestamps_are_explicit_future_utc_for_browser_clients(db_session):
+    _conversation(db_session)
+    created = _create_job(_client(db_session, _user()))
+    job = created["job"]
+
+    expires_at = datetime.fromisoformat(job["expires_at"].replace("Z", "+00:00"))
+    ticket_expires_at = datetime.fromisoformat(
+        job["ticket_expires_at"].replace("Z", "+00:00")
+    )
+    created_at = datetime.fromisoformat(job["created_at"].replace("Z", "+00:00"))
+
+    assert expires_at.tzinfo is not None
+    assert ticket_expires_at.tzinfo is not None
+    assert created_at.tzinfo is not None
+    assert expires_at > datetime.now(timezone.utc)
+    assert ticket_expires_at > datetime.now(timezone.utc)
 
 
 def test_ingest_with_job_marks_captured_and_generates_on_platform_draft(db_session):

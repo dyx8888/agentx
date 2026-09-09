@@ -20,6 +20,7 @@ yarn-error.log*
 .npm-cache/
 frontend/dist/
 frontend/playwright-report/
+test-results/
 
 # Env
 .env

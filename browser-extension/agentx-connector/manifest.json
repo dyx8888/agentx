@@ -25,7 +25,6 @@
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",
-    "https://agentx-fnbfc0d1r-dyx8888s-projects.vercel.app/*",
     "https://*/*"
   ],
   "permissions": ["activeTab", "scripting", "storage", "tabs"],

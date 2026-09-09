@@ -70,10 +70,33 @@ test.describe('AgentX browser connector extension', () => {
           target_host: 'buyin.jinritemai.com',
           target_path_prefix: '/test-fixtures',
           expires_at: new Date(Date.now() + 60_000).toISOString(),
+          ticket_expires_at: new Date(Date.now() + 60_000).toISOString(),
           capability_ticket: 'test-capture-job-ticket'
         }
       });
       expect(captureJob.ok).toBe(true);
+
+      const sessionState = await worker.evaluate(() =>
+        chrome.storage.session.get(['captureJobs', 'activeCaptureJobId'])
+      );
+      expect(sessionState.activeCaptureJobId).toBe(901);
+      expect(sessionState.captureJobs).toEqual([
+        expect.objectContaining({ id: 901, capability_ticket: 'test-capture-job-ticket' })
+      ]);
+
+      const expiredCaptureJob = await openExtensionPage(context, worker, {
+        type: 'AGENTX_CONNECTOR_SET_CAPTURE_JOB',
+        captureJob: {
+          id: 902,
+          purpose: 'generic_evidence',
+          target_host: 'buyin.jinritemai.com',
+          target_path_prefix: '/test-fixtures',
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+          ticket_expires_at: new Date(Date.now() - 1_000).toISOString(),
+          capability_ticket: 'expired-capture-job-ticket'
+        }
+      });
+      expect(expiredCaptureJob.ok).toBe(false);
 
       const html = await fs.readFile(fixturePath, 'utf8');
       await context.route('https://buyin.jinritemai.com/test-fixtures/agentx-connector.html', async (route) => {
@@ -374,6 +397,45 @@ test.describe('AgentX browser connector extension', () => {
     } finally {
       await context.close();
       await ingest.close();
+      await fs.rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+});
+
+test.describe('AgentX browser connector endpoint synchronization', () => {
+  test('uses the current AgentX Preview origin after the extension is installed', async () => {
+    test.setTimeout(60_000);
+
+    const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-connector-endpoint-'));
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: process.env.PLAYWRIGHT_EXTENSION_CHANNEL || 'msedge',
+      headless: false,
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`
+      ]
+    });
+    const previewUrl = 'https://agentx-e2e-dyx8888s-projects.vercel.app/';
+    const expectedEndpoint = `${previewUrl}api/browser-connector/ingest`;
+
+    try {
+      const worker = await waitForExtensionWorker(context);
+      await context.route(`${previewUrl}**`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: '<!doctype html><title>AgentX test</title><main>AgentX</main>'
+        });
+      });
+      const page = await context.newPage();
+      await page.goto(previewUrl, { waitUntil: 'domcontentloaded' });
+
+      await expect.poll(async () => worker.evaluate(async () => {
+        const { settings } = await chrome.storage.local.get(['settings']);
+        return settings?.endpoint || '';
+      })).toBe(expectedEndpoint);
+    } finally {
+      await context.close();
       await fs.rm(userDataDir, { recursive: true, force: true });
     }
   });

@@ -1,10 +1,11 @@
 const DEFAULT_SETTINGS = {
   enabled: true,
-  endpoint: "https://agentx-fnbfc0d1r-dyx8888s-projects.vercel.app/api/browser-connector/ingest"
+  endpoint: ""
 };
 
 const INGEST_PATH = "/api/browser-connector/ingest";
 const LOCAL_DEV_HOSTS = new Set(["localhost", "127.0.0.1"]);
+const AGENTX_VERCEL_HOST_PATTERN = /^agentx(?:-[a-z0-9-]+)?-dyx8888s-projects\.vercel\.app$/i;
 
 const enabledEl = document.getElementById("enabled");
 const endpointEl = document.getElementById("endpoint");
@@ -17,6 +18,7 @@ const queuedCountEl = document.getElementById("queuedCount");
 const lastStatusEl = document.getElementById("lastStatus");
 
 document.addEventListener("DOMContentLoaded", async () => {
+  await chrome.runtime.sendMessage({ type: "AGENTX_CONNECTOR_SYNC_ENDPOINT" }).catch(() => {});
   await loadState();
   await loadCaptureJobs();
 });
@@ -32,7 +34,7 @@ async function loadState() {
   }
 
   enabledEl.checked = Boolean(settings.enabled);
-  renderEndpoint(settings.endpoint || DEFAULT_SETTINGS.endpoint);
+  renderEndpoint(settings.endpoint || "");
   renderStatus(
     settings,
     state.deliveries || [],
@@ -128,7 +130,7 @@ function renderCaptureJobs(jobs, activeId) {
   captureJobEl.value = activeId ? String(activeId) : "";
   if (captureJobHintEl) {
     captureJobHintEl.textContent = entries.length
-      ? "Task capability is memory-only and expires automatically."
+      ? "Task capability is session-only and expires automatically."
       : "Create a task in the current AgentX conversation first.";
   }
 }
@@ -221,7 +223,7 @@ function validateEndpoint(endpoint) {
   if (!isLocalHttp && !isHttps) {
     return { ok: false, error: "Endpoint must use https, except local development hosts" };
   }
-  if (!endpointMatchesHostPermission(parsed)) {
+  if (!endpointMatchesHostPermission(parsed) && !isTrustedAgentXEndpoint(parsed)) {
     return { ok: false, error: "Endpoint origin is not granted by the extension manifest" };
   }
 
@@ -229,12 +231,20 @@ function validateEndpoint(endpoint) {
 }
 
 function normalizeEndpointInput(endpoint) {
-  const value = String(endpoint || "").trim() || DEFAULT_SETTINGS.endpoint;
+  const value = String(endpoint || "").trim();
+  if (!value) {
+    throw new Error("endpoint is required");
+  }
   const parsed = new URL(value);
   if (parsed.pathname === "/" && !parsed.search && !parsed.hash) {
     parsed.pathname = INGEST_PATH;
   }
   return parsed;
+}
+
+function isTrustedAgentXEndpoint(parsedEndpoint) {
+  return parsedEndpoint.protocol === "https:" &&
+    AGENTX_VERCEL_HOST_PATTERN.test(parsedEndpoint.hostname);
 }
 
 function endpointMatchesHostPermission(parsedEndpoint) {

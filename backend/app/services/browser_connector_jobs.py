@@ -7,7 +7,7 @@ import hmac
 import json
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -325,7 +325,8 @@ def serialize_capture_job(job: CaptureJob) -> dict[str, Any]:
         "target_host": job.target_host,
         "target_path_prefix": job.target_path_prefix,
         "status": job.status,
-        "expires_at": job.expires_at,
+        "expires_at": _serialize_utc_datetime(job.expires_at),
+        "ticket_expires_at": _serialize_utc_datetime(job.ticket_expires_at),
         "capture_limit": job.capture_limit,
         "capture_count": job.capture_count,
         "result_event_id": job.result_event_id,
@@ -333,10 +334,19 @@ def serialize_capture_job(job: CaptureJob) -> dict[str, Any]:
         "evidence": _summary_from_job(job),
         "draft_kind": job.draft_kind,
         "draft_content": job.draft_content,
-        "captured_at": job.captured_at,
-        "created_at": job.created_at,
-        "updated_at": job.updated_at,
+        "captured_at": _serialize_utc_datetime(job.captured_at),
+        "created_at": _serialize_utc_datetime(job.created_at),
+        "updated_at": _serialize_utc_datetime(job.updated_at),
     }
+
+
+def _serialize_utc_datetime(value: datetime | None) -> datetime | None:
+    """Expose persisted UTC values with an explicit offset for browser clients."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def normalize_capture_target(target_url: str) -> tuple[str, str]:

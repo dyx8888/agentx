@@ -2,12 +2,15 @@ importScripts("platform-policy.js");
 
 const DEFAULT_SETTINGS = {
   enabled: true,
-  endpoint: "https://agentx-fnbfc0d1r-dyx8888s-projects.vercel.app/api/browser-connector/ingest"
+  endpoint: ""
 };
 
 const MAX_LOG_ENTRIES = 50;
 const INGEST_PATH = "/api/browser-connector/ingest";
 const LOCAL_DEV_HOSTS = new Set(["localhost", "127.0.0.1"]);
+const AGENTX_VERCEL_HOST_PATTERN = /^agentx(?:-[a-z0-9-]+)?-dyx8888s-projects\.vercel\.app$/i;
+const CAPTURE_JOBS_SESSION_KEY = "captureJobs";
+const ACTIVE_CAPTURE_JOB_SESSION_KEY = "activeCaptureJobId";
 const MAX_CAPTURE_DEPTH = 6;
 const MAX_CAPTURE_ARRAY_ITEMS = 50;
 const MAX_CAPTURE_OBJECT_KEYS = 100;
@@ -20,6 +23,8 @@ const PHONE_LIKE_PATTERN = /\b(?:\+?86[-\s]?)?1[3-9]\d{9}\b/g;
 const genericCaptureExpiries = new Map();
 const captureJobs = new Map();
 let activeCaptureJobId = null;
+let captureJobsLoaded = false;
+let captureJobsLoadPromise = null;
 
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.local.get(["settings"]);
@@ -53,10 +58,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "AGENTX_CONNECTOR_AGENTX_PAGE_READY") {
+    synchronizeEndpointFromAgentXTab(sender)
+      .then((endpoint) => sendResponse({ ok: Boolean(endpoint), endpoint }))
+      .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
+    return true;
+  }
+
+  if (message.type === "AGENTX_CONNECTOR_SYNC_ENDPOINT") {
+    synchronizeEndpointFromAgentXTab(sender)
+      .then((endpoint) => sendResponse({ ok: Boolean(endpoint), endpoint }))
+      .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
+    return true;
+  }
+
   if (message.type === "AGENTX_CONNECTOR_SET_CAPTURE_JOB") {
-    const job = rememberCaptureJob(message.captureJob);
-    sendResponse({ ok: Boolean(job), captureJob: job ? captureJobSummary(job) : null });
-    return false;
+    Promise.all([
+      synchronizeEndpointFromAgentXTab(sender),
+      rememberCaptureJob(message.captureJob)
+    ])
+      .then(([, job]) => sendResponse({ ok: Boolean(job), captureJob: job ? captureJobSummary(job) : null }))
+      .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
+    return true;
   }
 
   if (message.type === "AGENTX_CONNECTOR_GET_CAPTURE_JOBS") {
@@ -68,9 +91,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "AGENTX_CONNECTOR_SELECT_CAPTURE_JOB") {
     const id = Number(message.captureJobId);
-    activeCaptureJobId = captureJobs.has(id) ? id : null;
-    sendResponse({ ok: activeCaptureJobId !== null, activeCaptureJobId });
-    return false;
+    selectCaptureJob(id)
+      .then(() => sendResponse({ ok: activeCaptureJobId !== null, activeCaptureJobId }))
+      .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
+    return true;
   }
 
   if (message.type !== "AGENTX_CONNECTOR_CAPTURE") {
@@ -254,7 +278,7 @@ async function handleCapture(capture, sender) {
       deliveredAt
     });
   }
-  const captureJob = getActiveCaptureJob();
+  const captureJob = await getActiveCaptureJob();
   if (captureJob && !captureMatchesJob(capture, sender, captureJob)) {
     return recordDelivery({
       ok: false,
@@ -298,6 +322,7 @@ async function handleCapture(capture, sender) {
     if (response.ok && captureJob) {
       captureJobs.delete(captureJob.id);
       if (activeCaptureJobId === captureJob.id) activeCaptureJobId = null;
+      await persistCaptureJobs();
     }
     return delivery;
   } catch (error) {
@@ -406,7 +431,7 @@ function validateEndpoint(endpoint) {
   if (!isLocalHttp && !isHttps) {
     return { ok: false, error: "endpoint must use https, except local development hosts" };
   }
-  if (!endpointMatchesHostPermission(parsed)) {
+  if (!endpointMatchesHostPermission(parsed) && !isTrustedAgentXEndpoint(parsed)) {
     return { ok: false, error: "endpoint origin is not granted by the extension manifest" };
   }
 
@@ -530,20 +555,23 @@ function normalizeSettings(rawSettings) {
   };
 }
 
-function rememberCaptureJob(rawJob) {
+async function rememberCaptureJob(rawJob) {
+  await ensureCaptureJobsLoaded();
   const job = normalizeCaptureJob(rawJob);
   if (!job) return null;
   captureJobs.set(job.id, job);
   activeCaptureJobId = job.id;
+  await persistCaptureJobs();
   return job;
 }
 
 async function getCaptureJobsForPopup() {
-  pruneExpiredCaptureJobs();
-  if (!getActiveCaptureJob()) {
+  await ensureCaptureJobsLoaded();
+  await pruneExpiredCaptureJobs();
+  if (!(await getActiveCaptureJob())) {
     await requestCaptureJobsFromAgentXTab();
   }
-  pruneExpiredCaptureJobs();
+  await pruneExpiredCaptureJobs();
   return {
     ok: true,
     activeCaptureJobId,
@@ -558,27 +586,69 @@ async function requestCaptureJobsFromAgentXTab() {
     if (!tab || !Number.isInteger(tab.id) || !tab.url || !isAgentXAppPage(tab.url)) continue;
     try {
       const result = await chrome.tabs.sendMessage(tab.id, { type: "AGENTX_CONNECTOR_GET_CAPTURE_JOB" });
-      if (result && result.captureJob) rememberCaptureJob(result.captureJob);
+      if (result && result.captureJob) await rememberCaptureJob(result.captureJob);
     } catch (_error) {
       // Tabs without the connector content script are ignored.
     }
   }
 }
 
-function getActiveCaptureJob() {
-  pruneExpiredCaptureJobs();
+async function getActiveCaptureJob() {
+  await ensureCaptureJobsLoaded();
+  await pruneExpiredCaptureJobs();
   return activeCaptureJobId ? captureJobs.get(activeCaptureJobId) || null : null;
 }
 
-function pruneExpiredCaptureJobs() {
+async function selectCaptureJob(id) {
+  await ensureCaptureJobsLoaded();
+  activeCaptureJobId = captureJobs.has(id) ? id : null;
+  await persistCaptureJobs();
+}
+
+async function ensureCaptureJobsLoaded() {
+  if (captureJobsLoaded) return;
+  if (!captureJobsLoadPromise) {
+    captureJobsLoadPromise = chrome.storage.session
+      .get([CAPTURE_JOBS_SESSION_KEY, ACTIVE_CAPTURE_JOB_SESSION_KEY])
+      .then(async (stored) => {
+        const savedJobs = Array.isArray(stored[CAPTURE_JOBS_SESSION_KEY])
+          ? stored[CAPTURE_JOBS_SESSION_KEY]
+          : [];
+        for (const rawJob of savedJobs) {
+          const job = normalizeCaptureJob(rawJob);
+          if (job) captureJobs.set(job.id, job);
+        }
+        const savedActiveId = Number(stored[ACTIVE_CAPTURE_JOB_SESSION_KEY]);
+        activeCaptureJobId = captureJobs.has(savedActiveId) ? savedActiveId : null;
+        captureJobsLoaded = true;
+        await pruneExpiredCaptureJobs();
+      })
+      .finally(() => {
+        captureJobsLoadPromise = null;
+      });
+  }
+  await captureJobsLoadPromise;
+}
+
+async function persistCaptureJobs() {
+  await chrome.storage.session.set({
+    [CAPTURE_JOBS_SESSION_KEY]: Array.from(captureJobs.values()),
+    [ACTIVE_CAPTURE_JOB_SESSION_KEY]: activeCaptureJobId
+  });
+}
+
+async function pruneExpiredCaptureJobs() {
   const now = Date.now();
+  let changed = false;
   for (const [id, job] of captureJobs.entries()) {
-    const expiresAt = Date.parse(job.expires_at || "");
+    const expiresAt = Date.parse(job.ticket_expires_at || job.expires_at || "");
     if (!Number.isFinite(expiresAt) || expiresAt <= now) {
       captureJobs.delete(id);
       if (activeCaptureJobId === id) activeCaptureJobId = null;
+      changed = true;
     }
   }
+  if (changed) await persistCaptureJobs();
 }
 
 function normalizeCaptureJob(rawJob) {
@@ -588,7 +658,8 @@ function normalizeCaptureJob(rawJob) {
   const targetHost = String(rawJob.target_host || "").toLowerCase();
   const targetPathPrefix = String(rawJob.target_path_prefix || "/");
   const expiresAt = Date.parse(rawJob.expires_at || "");
-  if (!Number.isInteger(id) || id < 1 || !ticket || !targetHost || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+  const ticketExpiresAt = Date.parse(rawJob.ticket_expires_at || rawJob.expires_at || "");
+  if (!Number.isInteger(id) || id < 1 || !ticket || !targetHost || !Number.isFinite(expiresAt) || !Number.isFinite(ticketExpiresAt) || ticketExpiresAt <= Date.now()) {
     return null;
   }
   return {
@@ -597,6 +668,7 @@ function normalizeCaptureJob(rawJob) {
     target_host: targetHost,
     target_path_prefix: targetPathPrefix,
     expires_at: rawJob.expires_at,
+    ticket_expires_at: rawJob.ticket_expires_at || rawJob.expires_at,
     capability_ticket: ticket
   };
 }
@@ -607,7 +679,8 @@ function captureJobSummary(job) {
     purpose: job.purpose,
     target_host: job.target_host,
     target_path_prefix: job.target_path_prefix,
-    expires_at: job.expires_at
+    expires_at: job.expires_at,
+    ticket_expires_at: job.ticket_expires_at
   };
 }
 
@@ -623,12 +696,48 @@ function captureMatchesJob(capture, sender, job) {
 }
 
 function normalizeEndpointInput(endpoint) {
-  const value = String(endpoint || "").trim() || DEFAULT_SETTINGS.endpoint;
+  const value = String(endpoint || "").trim();
+  if (!value) {
+    throw new Error("endpoint is required");
+  }
   const parsed = new URL(value);
   if (parsed.pathname === "/" && !parsed.search && !parsed.hash) {
     parsed.pathname = INGEST_PATH;
   }
   return parsed;
+}
+
+function isTrustedAgentXEndpoint(parsedEndpoint) {
+  return parsedEndpoint.protocol === "https:" &&
+    AGENTX_VERCEL_HOST_PATTERN.test(parsedEndpoint.hostname);
+}
+
+async function synchronizeEndpointFromAgentXTab(sender) {
+  let tab = sender && sender.tab && isAgentXAppPage(sender.tab.url) ? sender.tab : null;
+  if (!tab) {
+    const tabs = await chrome.tabs.query({});
+    tab = tabs.find((item) => item && isAgentXAppPage(item.url)) || null;
+  }
+  if (!tab || !tab.url) return null;
+
+  const page = new URL(tab.url);
+  const endpoint = new URL(INGEST_PATH, page.origin).href;
+  const parsedEndpoint = new URL(endpoint);
+  if (!isTrustedAgentXEndpoint(parsedEndpoint)) return null;
+
+  const stored = await chrome.storage.local.get(["settings"]);
+  const settings = { ...DEFAULT_SETTINGS, ...(stored.settings || {}) };
+  let current = null;
+  try {
+    current = settings.endpoint ? new URL(settings.endpoint) : null;
+  } catch (_error) {
+    current = null;
+  }
+  if (current && !isTrustedAgentXEndpoint(current)) return null;
+  if (settings.endpoint !== endpoint) {
+    await chrome.storage.local.set({ settings: { ...settings, endpoint } });
+  }
+  return endpoint;
 }
 
 function endpointMatchesHostPermission(parsedEndpoint) {

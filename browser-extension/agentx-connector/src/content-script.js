@@ -41,6 +41,7 @@
   if (isAgentXAppPage()) {
     announceConnectorStatus();
     installCaptureJobBridge();
+    announceAgentXPageReady();
     return;
   }
 
@@ -283,6 +284,12 @@
     }
   }
 
+  function announceAgentXPageReady() {
+    chrome.runtime.sendMessage({ type: "AGENTX_CONNECTOR_AGENTX_PAGE_READY" }).catch(() => {
+      // Endpoint synchronization is opportunistic and must not affect the host page.
+    });
+  }
+
   function installCaptureJobBridge() {
     let currentCaptureJob = null;
     window.addEventListener(CAPTURE_JOB_EVENT, async (event) => {
@@ -314,6 +321,7 @@
       target_host: String(job.target_host || "").toLowerCase(),
       target_path_prefix: String(job.target_path_prefix || "/"),
       expires_at: job.expires_at || null,
+      ticket_expires_at: job.ticket_expires_at || job.expires_at || null,
       capability_ticket: ticket
     };
   }
