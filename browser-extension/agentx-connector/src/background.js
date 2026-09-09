@@ -715,8 +715,14 @@ function isTrustedAgentXEndpoint(parsedEndpoint) {
 async function synchronizeEndpointFromAgentXTab(sender) {
   let tab = sender && sender.tab && isAgentXAppPage(sender.tab.url) ? sender.tab : null;
   if (!tab) {
+    const activeTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    tab = activeTabs.find((item) => item && isAgentXAppPage(item.url)) || null;
+  }
+  if (!tab) {
     const tabs = await chrome.tabs.query({});
-    tab = tabs.find((item) => item && isAgentXAppPage(item.url)) || null;
+    const agentXTabs = tabs.filter((item) => item && isAgentXAppPage(item.url));
+    agentXTabs.sort((left, right) => (right.lastAccessed || 0) - (left.lastAccessed || 0));
+    tab = agentXTabs[0] || null;
   }
   if (!tab || !tab.url) return null;
 

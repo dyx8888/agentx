@@ -439,6 +439,52 @@ test.describe('AgentX browser connector endpoint synchronization', () => {
       await fs.rm(userDataDir, { recursive: true, force: true });
     }
   });
+
+  test('prefers the most recently used AgentX Preview when multiple Preview tabs are open', async () => {
+    test.setTimeout(60_000);
+
+    const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'agentx-connector-preview-selection-'));
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: process.env.PLAYWRIGHT_EXTENSION_CHANNEL || 'msedge',
+      headless: false,
+      args: [
+        `--disable-extensions-except=${extensionPath}`,
+        `--load-extension=${extensionPath}`
+      ]
+    });
+    const oldPreviewUrl = 'https://agentx-old-dyx8888s-projects.vercel.app/';
+    const latestPreviewUrl = 'https://agentx-latest-dyx8888s-projects.vercel.app/';
+    const expectedEndpoint = `${latestPreviewUrl}api/browser-connector/ingest`;
+
+    try {
+      const worker = await waitForExtensionWorker(context);
+      await context.route('https://agentx-*-dyx8888s-projects.vercel.app/**', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: '<!doctype html><title>AgentX test</title><main>AgentX</main>'
+        });
+      });
+      const oldPage = await context.newPage();
+      await oldPage.goto(oldPreviewUrl, { waitUntil: 'domcontentloaded' });
+      const latestPage = await context.newPage();
+      await latestPage.goto(latestPreviewUrl, { waitUntil: 'domcontentloaded' });
+      await latestPage.bringToFront();
+
+      const popup = await context.newPage();
+      await popup.goto(`chrome-extension://${new URL(worker.url()).hostname}/popup.html`, {
+        waitUntil: 'domcontentloaded'
+      });
+      await expect.poll(async () => worker.evaluate(async () => {
+        const { settings } = await chrome.storage.local.get(['settings']);
+        return settings?.endpoint || '';
+      })).toBe(expectedEndpoint);
+      await popup.close();
+    } finally {
+      await context.close();
+      await fs.rm(userDataDir, { recursive: true, force: true });
+    }
+  });
 });
 
 async function waitForExtensionWorker(context) {
