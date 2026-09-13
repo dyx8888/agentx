@@ -83,4 +83,51 @@ describe('streamChat API routing', () => {
       expect.objectContaining({ credentials: 'include' }),
     );
   });
+
+  it('notifies completion when the SSE stream reaches EOF without a done marker', async () => {
+    const onDone = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: vi.fn()
+            .mockResolvedValueOnce({
+              done: false,
+              value: new TextEncoder().encode('data: {"type":"content","content":"answer"}'),
+            })
+            .mockResolvedValueOnce({ done: true }),
+        }),
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const streamChat = await loadStreamChat();
+
+    streamChat({ message: 'hello' }, { onDone });
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+  });
+  it('processes multiple final SSE lines and CRLF before completing at EOF', async () => {
+    const onContent = vi.fn();
+    const onDone = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: vi.fn()
+            .mockResolvedValueOnce({
+              done: false,
+              value: new TextEncoder().encode(
+                'data: {"type":"content","content":"answer"}\r\ndata: [DONE]',
+              ),
+            })
+            .mockResolvedValueOnce({ done: true }),
+        }),
+      },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const streamChat = await loadStreamChat();
+
+    streamChat({ message: 'hello' }, { onContent, onDone });
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(onContent).toHaveBeenCalledWith({ type: 'content', content: 'answer' });
+  });
 });

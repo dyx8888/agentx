@@ -63,6 +63,36 @@ export function streamChat(params, callbacks) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let completionNotified = false;
+
+      const notifyDone = (event) => {
+        if (completionNotified) return;
+        completionNotified = true;
+        callbacks.onDone?.(event);
+      };
+
+      const processLine = (line) => {
+        line = line.endsWith('\r') ? line.slice(0, -1) : line;
+        if (!line.startsWith('data: ')) return false;
+
+        const data = line.slice(6);
+        if (data === '[DONE]') {
+          notifyDone();
+          return true;
+        }
+
+        try {
+          const event = JSON.parse(data);
+          if (event.type === 'done') {
+            notifyDone(event);
+          } else {
+            _dispatchEvent(event, callbacks);
+          }
+        } catch {
+          // 跳过格式不正确的数据
+        }
+        return false;
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -73,22 +103,20 @@ export function streamChat(params, callbacks) {
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            callbacks.onDone?.();
-            return;
-          }
-
-          try {
-            const event = JSON.parse(data);
-            _dispatchEvent(event, callbacks);
-          } catch {
-            // 跳过格式不正确的数据
-          }
+          if (processLine(line)) return;
         }
       }
+
+      // Some reverse proxies close a valid SSE response without appending a
+      // final newline or an explicit [DONE] marker. Process the final partial
+      // event, then close the UI stream state at EOF instead of leaving the
+      // chat input stuck in "streaming" mode.
+      if (buffer) {
+        for (const line of buffer.split('\n')) {
+          if (processLine(line)) break;
+        }
+      }
+      notifyDone();
     })
     .catch((err) => {
       if (err.name === 'AbortError') return;

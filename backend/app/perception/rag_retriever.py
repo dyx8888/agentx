@@ -7,6 +7,7 @@
 import os
 import re
 import socket
+import time
 from dataclasses import dataclass, field  # dataclass 承载多字段检索结果
 
 from app.core.logging import get_logger
@@ -46,6 +47,30 @@ class RagRetriever:
 
     def __init__(self):
         self._available = True
+        self._last_failure_at = 0.0
+        try:
+            self._retry_interval_seconds = max(
+                0.0, float(os.getenv("RAG_RETRY_INTERVAL_SECONDS", "5"))
+            )
+        except (TypeError, ValueError):
+            self._retry_interval_seconds = 5.0
+
+    def _ready_for_retry(self) -> bool:
+        """Allow a bounded retry after a transient backend failure."""
+        if self._available:
+            return True
+
+        elapsed = time.monotonic() - self._last_failure_at
+        if elapsed < self._retry_interval_seconds:
+            return False
+
+        self._available = True
+        logger.info("rag_retriever_retrying", elapsed_seconds=round(elapsed, 3))
+        return True
+
+    def _mark_failure(self) -> None:
+        self._available = False
+        self._last_failure_at = time.monotonic()
 
     @staticmethod
     def _build_reference(result: dict) -> dict:
@@ -177,11 +202,16 @@ class RagRetriever:
         """
         if not query or not company_id:  # 两个必要条件缺一则检索无意义，直接返回空结果
             return RagResult(query=query, intent_type=intent_type)
-        if not self._available:
-            logger.warning("rag_retriever_unavailable", agent=agent_name, company_id=company_id)
+        if not self._ready_for_retry():
+            logger.warning(
+                "rag_retriever_unavailable",
+                agent=agent_name,
+                company_id=company_id,
+                retry_interval_seconds=self._retry_interval_seconds,
+            )
             return RagResult(query=query, intent_type=intent_type)
         if not self._external_backend_available():
-            self._available = False
+            self._mark_failure()
             logger.warning("rag_backend_unreachable", agent=agent_name, company_id=company_id)
             return RagResult(query=query, intent_type=intent_type)
 
@@ -189,13 +219,17 @@ class RagRetriever:
             from app.rag.agentic_rag import get_agentic_rag  # noqa: I001  # 延迟导入，RAG 初始化开销大且可能有循环依赖
 
             rag = get_agentic_rag(company_id)  # 按公司 ID 获取专属 RAG 实例，实现租户数据隔离
-            rag_context = rag.retrieve(
-                query=query, agent_name=agent_name, top_k=top_k
-            )  # 获取拼接好的上下文文本
-
             structured = rag.retrieve_structured(
                 query=query, agent_name=agent_name, top_k=top_k
-            )  # 结构化结果用于生成引用
+            )  # 结构化结果同时携带上下文和引用，避免重复检索
+            rag_context = structured.get("context")
+            if rag_context is None:
+                # Compatibility for older retrieval implementations that do
+                # not yet include context in their structured response.
+                rag_context = rag.retrieve(
+                    query=query, agent_name=agent_name, top_k=top_k
+                )
+            rag_context = rag_context or ""
 
             knowledge_results = structured.get("knowledge_results", []) or []
             refs = [
@@ -213,6 +247,8 @@ class RagRetriever:
                 reference_count=len(refs),
                 intent_type=intent_type,
             )
+            self._available = True
+            self._last_failure_at = 0.0
 
             return RagResult(
                 context=rag_context,
@@ -224,7 +260,7 @@ class RagRetriever:
                 intent_type=intent_type,
             )
         except Exception as e:
-            self._available = False
+            self._mark_failure()
             logger.warning(
                 "rag_retrieve_failed", error=str(e), agent=agent_name, company_id=company_id
             )  # 包含上下文信息便于排查
