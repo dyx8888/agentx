@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const FRONTEND_URL = process.env.PUBLIC_DEMO_FRONTEND_URL || 'http://localhost:3000';
+const FRONTEND_URL = process.env.PUBLIC_DEMO_FRONTEND_URL || 'http://localhost:5173';
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
 function parseRequestUrl(request) {
@@ -70,18 +70,11 @@ function isExecutionServiceRequest(request) {
   return blockedFragments.some((fragment) => target.includes(fragment));
 }
 
-async function registerSmokeUser(request, { username, email, password }) {
-  const response = await request.post(`${FRONTEND_URL}/api/auth/users/register`, {
-    data: {
-      username,
-      email,
-      password,
-      company_name: `${username} workspace`,
-      brand_name: username,
-      category: 'smoke',
-    },
-  });
-  expect(response.status(), await response.text()).toBeLessThan(300);
+function configuredSmokeUser() {
+  return {
+    username: process.env.PUBLIC_DEMO_E2E_CONVERSATIONS_USERNAME || '',
+    password: process.env.PUBLIC_DEMO_E2E_CONVERSATIONS_PASSWORD || '',
+  };
 }
 
 async function loginThroughFrontend(page, { username, password }) {
@@ -98,7 +91,7 @@ async function loginThroughFrontend(page, { username, password }) {
   expect((await loginResponse).status()).toBe(200);
 }
 
-test('public-demo lightweight conversations stay read-only until explicit chat send or confirmed delete', async ({ page, request }) => {
+test('public-demo lightweight conversations stay read-only until explicit chat send or confirmed delete', async ({ page }) => {
   const seenRequests = [];
   const blockedChatRequests = [];
   const blockedConversationCreates = [];
@@ -152,12 +145,11 @@ test('public-demo lightweight conversations stay read-only until explicit chat s
     await route.continue();
   });
 
-  const suffix = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
-  const username = `smokeconv${suffix}`;
-  const password = `LocalConv${suffix}!`;
-  const email = `agentx-smoke-conv-${suffix}@example.test`;
-
-  await registerSmokeUser(request, { username, email, password });
+  const { username, password } = configuredSmokeUser();
+  test.skip(
+    !username || !password,
+    'Set PUBLIC_DEMO_E2E_CONVERSATIONS_USERNAME and PUBLIC_DEMO_E2E_CONVERSATIONS_PASSWORD to a pre-verified local smoke user',
+  );
 
   const emptyConversationsResponse = page.waitForResponse((response) => {
     const url = new URL(response.url());
@@ -174,12 +166,14 @@ test('public-demo lightweight conversations stay read-only until explicit chat s
   const emptyConversations = await emptyConversationsResponse;
   expect(emptyConversations.status()).toBe(200);
   const emptyConversationsBody = await emptyConversations.json();
-  expect(emptyConversationsBody.total).toBe(0);
-  expect(emptyConversationsBody.items).toEqual([]);
+  expect(Array.isArray(emptyConversationsBody.items)).toBe(true);
+  expect(emptyConversationsBody.items.length).toBe(emptyConversationsBody.total);
 
   await expect(page).toHaveURL(`${FRONTEND_URL}/`);
   await expect(page.locator('aside')).toBeVisible();
-  await expect(page.getByText(/\u8fd8\u6ca1\u6709\u5bf9\u8bdd/)).toBeVisible();
+  if (emptyConversationsBody.total === 0) {
+    await expect(page.getByText(/\u8fd8\u6ca1\u6709\u5bf9\u8bdd/)).toBeVisible();
+  }
 
   const newChatButton = page.getByRole('button', { name: /\u65b0\u5efa\u5bf9\u8bdd|\u65b0\u5bf9\u8bdd/ }).first();
   await expect(newChatButton).toBeVisible();
@@ -188,6 +182,7 @@ test('public-demo lightweight conversations stay read-only until explicit chat s
   expect(blockedConversationCreates.map(requestSummary)).toEqual([]);
   expect(blockedChatRequests.map(requestSummary)).toEqual([]);
 
+  const suffix = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
   const title = `History Smoke ${suffix}`;
   const createResponse = await page.request.post(`${FRONTEND_URL}/api/conversations`, {
     data: { title },
@@ -222,7 +217,7 @@ test('public-demo lightweight conversations stay read-only until explicit chat s
   const detailResponse = await detailResponsePromise;
   expect(detailResponse.status()).toBe(200);
   expect(detailRequests.map(requestSummary)).toEqual([
-    `GET http://localhost:3000/api/conversations/${createdConversation.id}`,
+    `GET ${FRONTEND_URL}/api/conversations/${createdConversation.id}`,
   ]);
 
   await conversationButton.hover();

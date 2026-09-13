@@ -7,12 +7,41 @@ const BASE_URL = 'http://localhost:5173';
 // 注意: 在页面加载后再设置 mock，避免影响页面渲染
 // 不要拦截 /api/auth/me！LoginPage 通过 setUser() 直接设置用户
 // ============================================================
-async function loginUser(page) {
-  await page.goto(`${BASE_URL}/login`);
-  await page.waitForLoadState('networkidle');
-  await expect(page.getByPlaceholder('用户名')).toBeVisible({ timeout: 5000 });
+async function mockAuxiliaryApi(page) {
+  await page.route('**/*', async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (!pathname.startsWith('/api/')) {
+      await route.fallback();
+      return;
+    }
 
-  // 设置 mock（页面加载后再设置，避免影响页面渲染）
+    const handledBySpecificMock =
+      pathname === '/api/auth/token' ||
+      pathname === '/api/auth/users/me' ||
+      pathname === '/api/chat' ||
+      pathname === '/api/conversations' ||
+      pathname.startsWith('/api/conversations/') ||
+      pathname.startsWith('/api/browser-connector/capture-jobs');
+
+    if (handledBySpecificMock) {
+      await route.fallback();
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: '{}',
+    });
+  });
+}
+
+async function loginUser(page) {
+  // ChatPage requests several protected auxiliary resources on startup. Keep
+  // this UI-only test deterministic while allowing specific mocks below to run.
+  await mockAuxiliaryApi(page);
+
+  // 先注册 mock，避免 AuthProvider 初始 getMe 请求触发本地后端重试。
   await page.route('**/api/auth/token', async (route) => {
     await route.fulfill({
       status: 200,
@@ -25,7 +54,15 @@ async function loginUser(page) {
     });
   });
 
-  await page.route(/\/api\/conversations/, async (route) => {
+  await page.route('**/api/auth/users/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 1, username: 'testuser', company_id: 1 }),
+    });
+  });
+
+    await page.route(/\/api\/conversations(?:\?.*)?$/, async (route) => {
     const method = route.request().method();
     if (method === 'GET') {
       await route.fulfill({
@@ -35,6 +72,12 @@ async function loginUser(page) {
           items: [{ id: 'c1', title: 'Test', updated_at: new Date().toISOString() }],
         }),
       });
+    } else if (method === 'POST') {
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'c-new', title: '测试消息' }),
+      });
     } else if (method === 'DELETE') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
     } else {
@@ -42,11 +85,26 @@ async function loginUser(page) {
     }
   });
 
-  await page.getByPlaceholder('用户名').fill('testuser');
-  await page.getByPlaceholder('密码').fill('testpass123');
-  await page.locator('button[type="submit"]').first().click();
-  await page.waitForURL('**/chat', { timeout: 15000 });
-  await page.waitForTimeout(2000);
+  await page.route('**/api/browser-connector/capture-jobs**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    });
+  });
+
+  await page.route('**/api/chat', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: 'data: {"type":"content","content":"测试回复"}\n\ndata: {"type":"done"}\n\ndata: [DONE]\n\n',
+    });
+  });
+
+  await page.goto(`${BASE_URL}/`);
+  await expect(page.getByRole('textbox', { name: '消息输入框' })).toBeVisible({
+    timeout: 15000,
+  });
 }
 
 // ============================================================
@@ -58,15 +116,15 @@ test.describe('登录流程', () => {
     await page.waitForLoadState('networkidle');
 
     // 验证品牌面板
-    await expect(page.getByText('AgentX')).toBeVisible();
-    await expect(page.getByText('数字员工')).toBeVisible();
-    await expect(page.getByText('已有超过 10,000+ 企业信赖我们')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'AgentX', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '用真实数据驱动电商运营对话' })).toBeVisible();
+    await expect(page.getByText('达人搜索与建联')).toBeVisible();
 
     // 验证登录表单
     await expect(page.getByText('欢迎回来')).toBeVisible();
-    await expect(page.getByPlaceholder('用户名')).toBeVisible();
-    await expect(page.getByPlaceholder('密码')).toBeVisible();
-    await expect(page.getByText('演示账号登录')).toBeVisible();
+    await expect(page.locator('#email')).toBeVisible();
+    await expect(page.locator('#password')).toBeVisible();
+    await expect(page.getByRole('tab', { name: '登录' })).toBeVisible();
   });
 
   test('表单验证 - 空用户名提交', async ({ page }) => {
@@ -76,20 +134,20 @@ test.describe('登录流程', () => {
     const submitBtn = page.locator('button[type="submit"]').first();
     await submitBtn.click();
 
-    await expect(page.getByText('请输入用户名')).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveText('请输入用户名');
   });
 
   test('表单验证 - 密码太短', async ({ page }) => {
     await page.goto(`${BASE_URL}/login`);
     await page.waitForLoadState('networkidle');
 
-    await page.getByPlaceholder('用户名').fill('testuser');
-    await page.getByPlaceholder('密码').fill('123');
+    await page.locator('#email').fill('testuser');
+    await page.locator('#password').fill('123');
 
     const submitBtn = page.locator('button[type="submit"]').first();
     await submitBtn.click();
 
-    await expect(page.getByText('密码至少 8 位')).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveText('密码长度至少为 6 位');
   });
 });
 
@@ -102,7 +160,7 @@ test.describe('路由保护', () => {
     await page.waitForLoadState('networkidle');
 
     await expect(page.getByText('欢迎回来')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByPlaceholder('用户名')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('#email')).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -113,15 +171,12 @@ test.describe('路由保护', () => {
 // ============================================================
 test.describe('Mock 登录 API', () => {
   test('Mock 登录成功跳转到聊天页', async ({ page }) => {
-    // 先导航到登录页，确认页面加载正常
-    await page.goto(`${BASE_URL}/login`);
-    await page.waitForLoadState('networkidle');
+    await mockAuxiliaryApi(page);
+    let authenticated = false;
 
-    // 确认登录表单存在
-    await expect(page.getByPlaceholder('用户名')).toBeVisible({ timeout: 5000 });
-
-    // 然后设置 mock（在导航后设置，避免影响页面加载）
+    // 先注册 mock，避免 AuthProvider 初始 getMe 请求触发本地后端重试。
     await page.route('**/api/auth/token', async (route) => {
+      authenticated = true;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -133,7 +188,23 @@ test.describe('Mock 登录 API', () => {
       });
     });
 
-    await page.route(/\/api\/conversations/, async (route) => {
+    await page.route('**/api/auth/users/me', async (route) => {
+      if (!authenticated) {
+        await route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail: 'Not authenticated' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 1, username: 'testuser', company_id: 1 }),
+      });
+    });
+
+  await page.route(/\/api\/conversations(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -141,19 +212,31 @@ test.describe('Mock 登录 API', () => {
       });
     });
 
+    await page.route('**/api/browser-connector/capture-jobs**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [] }),
+      });
+    });
+
+    await page.goto(`${BASE_URL}/login`);
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('#email')).toBeVisible({ timeout: 5000 });
+
     // 填写表单
-    await page.getByPlaceholder('用户名').fill('testuser');
-    await page.getByPlaceholder('密码').fill('testpass123');
+    await page.locator('#email').fill('testuser');
+    await page.locator('#password').fill('testpass123');
 
     // 提交
     await page.locator('button[type="submit"]').first().click();
 
     // 等待跳转
-    await page.waitForURL('**/chat', { timeout: 15000 });
+    await page.waitForURL(`${BASE_URL}/`, { timeout: 15000 });
     await page.waitForTimeout(2000);
 
     // 验证在聊天页
-    await expect(page.locator('text=新对话').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: '新对话' })).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -164,24 +247,25 @@ test.describe('对话管理 Mock API', () => {
   test('新建对话', async ({ page }) => {
     await loginUser(page);
 
-    await page.getByTestId('new-chat-btn').click();
-    await page.waitForTimeout(500);
+    const input = page.getByRole('textbox', { name: '消息输入框' });
+    await page.getByRole('button', { name: '新建对话' }).dispatchEvent('click');
 
-    await expect(page.getByTestId('message-count')).toHaveText('0', { timeout: 5000 });
+    await expect(input).toHaveValue('', { timeout: 5000 });
+    await expect(page.getByRole('button', { name: '发送' })).toBeDisabled();
   });
 
   test('发送消息', async ({ page }) => {
     await loginUser(page);
 
     // 在聊天输入框中输入消息
-    const input = page.getByTestId('chat-input');
+    const input = page.getByRole('textbox', { name: '消息输入框' });
     await expect(input).toBeVisible({ timeout: 5000 });
     await input.fill('测试消息');
-    await page.getByTestId('send-btn').click();
-    await page.waitForTimeout(500);
+    await page.getByRole('button', { name: '发送' }).click();
+    await expect(page.getByText('测试回复')).toBeVisible({ timeout: 5000 });
 
     // 验证消息已发送（输入框清空，消息计数增加）
     await expect(input).toHaveValue('');
-    await expect(page.getByTestId('message-count')).not.toHaveText('0', { timeout: 5000 });
+    await expect(page.getByText('测试消息')).toBeVisible({ timeout: 5000 });
   });
 });
