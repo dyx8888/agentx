@@ -213,11 +213,14 @@ class PostgresAdapter:
             logger.error("postgres_get_agent", resource_id=agent_id, error=str(e))
             return None
 
-    def get_agent_by_name(self, name: str) -> Agent | None:
-        """Get agent by name"""
+    def get_agent_by_name(self, name: str, company_id: int | None = None) -> Agent | None:
+        """Get an agent by name, optionally constrained to one tenant."""
         try:
             with self.get_session() as session:
-                return session.query(Agent).filter(Agent.name == name).first()
+                query = session.query(Agent).filter(Agent.name == name)
+                if company_id is not None:
+                    query = query.filter(Agent.company_id == company_id)
+                return query.first()
         except SQLAlchemyError as e:
             logger.error("postgres_get_agent_by_name", resource_id=name, error=str(e))
             return None
@@ -531,6 +534,7 @@ class PostgresAdapter:
         task_type: str,
         company_id: int,
         payload: dict = None,
+        message_id: str | None = None,
     ) -> str:
         """Create an A2A message"""
         import json
@@ -538,7 +542,7 @@ class PostgresAdapter:
 
         from .models import A2AMessage
 
-        message_id = uuid.uuid4().hex
+        message_id = message_id or uuid.uuid4().hex
         try:
             with self.get_session() as session:
                 msg = A2AMessage(
@@ -559,7 +563,13 @@ class PostgresAdapter:
         except SQLAlchemyError as e:
             raise RuntimeError(f"Failed to create A2A message: {e}")
 
-    def update_a2a_message_status(self, message_id: str, status: str, result: str = None) -> bool:
+    def update_a2a_message_status(
+        self,
+        message_id: str,
+        status: str,
+        result: str = None,
+        result_json: str = None,
+    ) -> bool:
         """Update A2A message status"""
         from .models import A2AMessage
 
@@ -569,8 +579,9 @@ class PostgresAdapter:
                 if not msg:
                     return False
                 msg.status = status
-                if result:
-                    msg.result = result
+                stored_result = result if result is not None else result_json
+                if stored_result is not None:
+                    msg.result = stored_result
                 if status in ("completed", "failed"):
                     msg.completed_at = datetime.utcnow()
                 session.commit()
@@ -579,15 +590,46 @@ class PostgresAdapter:
             logger.error("postgres_update_a2a_message", resource_id=message_id, error=str(e))
             return False
 
-    def get_pending_a2a_messages(self) -> list[dict]:
-        """Get all pending A2A messages"""
+    def get_a2a_message_status(self, message_id: str) -> dict | None:
+        """Return one persisted A2A task status using the ORM schema contract."""
+        from .models import A2AMessage
+
+        try:
+            with self.get_session() as session:
+                msg = (
+                    session.query(A2AMessage)
+                    .filter(A2AMessage.message_id == message_id)
+                    .first()
+                )
+                if not msg:
+                    return None
+                return {
+                    "task_id": msg.message_id,
+                    "status": msg.status,
+                    "result": msg.result,
+                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                    "completed_at": msg.completed_at.isoformat() if msg.completed_at else None,
+                }
+        except SQLAlchemyError as e:
+            logger.error("postgres_get_a2a_message", resource_id=message_id, error=str(e))
+            return None
+
+    def get_pending_a2a_messages(self, company_id: int) -> list[dict]:
+        """Get pending A2A messages for one tenant."""
         import json
 
         from .models import A2AMessage
 
         try:
             with self.get_session() as session:
-                msgs = session.query(A2AMessage).filter(A2AMessage.status == "pending").all()
+                msgs = (
+                    session.query(A2AMessage)
+                    .filter(
+                        A2AMessage.status == "pending",
+                        A2AMessage.company_id == company_id,
+                    )
+                    .all()
+                )
                 return [
                     {
                         "message_id": m.message_id,

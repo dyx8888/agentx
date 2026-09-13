@@ -1,185 +1,82 @@
-"""Test multi-tenant data isolation functionality."""
+"""Current multi-tenant knowledge isolation contracts."""
 
-import os
-
-from app.mcp_servers.knowledge_retrieval_server import (
-    KnowledgeRetrieval,
-    add_knowledge,
-    search_knowledge,
-)
-from app.platforms.douyin_star import DouyinStarAdapter
+from app.rag import hybrid_retriever as hybrid_module
+from app.rag.company_context_bus import CompanyContextBus
+from app.rag.hybrid_retriever import HybridRetriever
 
 
-class TestMultiTenantIsolation:
-    """Test multi-tenant data isolation between different companies."""
+class _Embedding:
+    def encode(self, texts):
+        return [[1.0, 0.0] for _ in texts]
 
-    def setup_method(self):
-        """Set up test environment"""
-        # Set up test environment variables
-        os.environ['DEEPSEEK_API_KEY'] = 'test-deepseek-key'
-        os.environ['DEEPSEEK_VOLC_API_KEY'] = 'test-volc-key'
-
-    def test_knowledge_isolation_by_company(self):
-        """正常场景1：知识库按公司隔离添加和检索"""
-        # Add knowledge to company_A
-        result_a = add_knowledge(
-            text="Company A secret knowledge",
-            metadata={'category': 'test', 'scenario': 'isolation'},
-            company_id='company_A'
-        )
-        assert "Successfully added" in result_a
-
-        # Add knowledge to company_B
-        result_b = add_knowledge(
-            text="Company B secret knowledge",
-            metadata={'category': 'test', 'scenario': 'isolation'},
-            company_id='company_B'
-        )
-        assert "Successfully added" in result_b
-
-        # Search in company_A should only return company_A data
-        results_a = search_knowledge("secret knowledge", company_id='company_A')
-        assert len(results_a) > 0
-        assert any("Company A secret knowledge" in result['content'] for result in results_a)
-        assert not any("Company B secret knowledge" in result['content'] for result in results_a)
-
-        # Search in company_B should only return company_B data
-        results_b = search_knowledge("secret knowledge", company_id='company_B')
-        assert len(results_b) > 0
-        assert any("Company B secret knowledge" in result['content'] for result in results_b)
-        assert not any("Company A secret knowledge" in result['content'] for result in results_b)
-
-        print("✓ Knowledge isolation between companies working correctly")
-
-    def test_platform_adapter_company_credentials(self):
-        """正常场景2：平台适配器按公司加载不同凭证"""
-        # Mock database with different company credentials
-        import sys
-        sys.path.insert(0, '.')
-
-        # Test with company_id A
-        try:
-            adapter_a = DouyinStarAdapter(company_id=1)
-            # Should try to load company-specific credentials
-            assert hasattr(adapter_a, 'company_id')
-            assert adapter_a.company_id == 1
-        except Exception as e:
-            # Expected to fail gracefully if database not available
-            assert "Failed to load company credentials" in str(e) or "falling back" in str(e)
-
-        # Test with company_id B
-        try:
-            adapter_b = DouyinStarAdapter(company_id=2)
-            # Should try to load company-specific credentials
-            assert hasattr(adapter_b, 'company_id')
-            assert adapter_b.company_id == 2
-        except Exception as e:
-            # Expected to fail gracefully if database not available
-            assert "Failed to load company credentials" in str(e) or "falling back" in str(e)
-
-        # Test without company_id (fallback to env)
-        adapter_default = DouyinStarAdapter()
-        assert hasattr(adapter_default, 'company_id')
-        assert adapter_default.company_id is None
-
-        print("✓ Platform adapter company credential loading working correctly")
-
-    def test_nonexistent_company_search(self):
-        """异常场景1：查询不存在的公司知识库"""
-        # Search for knowledge in a non-existent company
-        results = search_knowledge("any query", company_id='non_exist_company')
-
-        # Should return list without crashing (may have sample data)
-        assert isinstance(results, list)
-        # Note: New collections get sample data, so we just check it doesn't crash
-        print("✓ Non-existent company search handled correctly")
-
-    def test_invalid_company_id_adapter(self):
-        """异常场景2：传入无效 company_id 给平台适配器"""
-        # Test with invalid company_id
-        adapter = DouyinStarAdapter(company_id=99999)
-
-        # Should handle gracefully - either load fallback credentials or raise clear error
-        assert hasattr(adapter, 'company_id')
-        assert adapter.company_id == 99999
-
-        # Should have attempted to load credentials (either company-specific or fallback)
-        # The key point is it doesn't crash with KeyError
-        if hasattr(adapter, 'api_key'):
-            # Either has credentials (fallback worked) or None (credentials missing)
-            assert adapter.api_key is None or isinstance(adapter.api_key, str)
-
-        print("✓ Invalid company_id handled with graceful fallback")
-
-    def teardown_method(self):
-        """Clean up after tests"""
-        # Clean up environment variables
-        test_keys = ['DEEPSEEK_API_KEY', 'DEEPSEEK_VOLC_API_KEY']
-        for key in test_keys:
-            if key in os.environ and os.environ[key].startswith('test-'):
-                del os.environ[key]
+    def encode_single(self, text):
+        return [1.0, 0.0]
 
 
-class TestKnowledgeRetrievalDirect:
-    """Test KnowledgeRetrieval class directly for isolation."""
+def _retriever(company_id):
+    retriever = HybridRetriever(company_id)
+    retriever._get_embedding_service = lambda: _Embedding()
+    retriever.vector.insert_documents = lambda rows, embeddings: True
+    retriever.vector.search = lambda query_vector, top_k=20: []
+    retriever.reranker.rerank = lambda query, documents, top_k=10: [
+        (index, 0.0) for index in range(min(top_k, len(documents)))
+    ]
+    return retriever
 
-    def test_collection_isolation(self):
-        """Test that different companies use different collections"""
-        # Create instances for different companies
-        kr_a = KnowledgeRetrieval('company_A')
-        kr_b = KnowledgeRetrieval('company_B')
 
-        # Check that they have different collections
-        assert kr_a.collection.name != kr_b.collection.name
-        assert 'company_A' in kr_a.collection.name
-        assert 'company_B' in kr_b.collection.name
+def test_company_context_bus_forces_company_id_on_write(monkeypatch):
+    captured = {}
 
-        # Check that collections are properly isolated by name
-        assert kr_a.collection.name == 'brand_scripts_company_A'
-        assert kr_b.collection.name == 'brand_scripts_company_B'
+    class StubRetriever:
+        def index_documents(self, documents):
+            captured["documents"] = documents
 
-        print("✓ Collection isolation working correctly")
+    def get_stub(company_id):
+        captured["company_id"] = company_id
+        return StubRetriever()
 
-    def test_knowledge_cross_contamination_prevention(self):
-        """正常场景3：公司A新增知识不会污染公司B的检索结果"""
-        add_knowledge(
-            text="Company A marketing strategy Q3 2025",
-            metadata={'category': 'strategy', 'scenario': 'cross_contamination'},
-            company_id='company_A'
-        )
-        add_knowledge(
-            text="Company B product launch plan",
-            metadata={'category': 'strategy', 'scenario': 'cross_contamination'},
-            company_id='company_B'
-        )
+    monkeypatch.setattr(hybrid_module, "get_hybrid_retriever", get_stub)
+    monkeypatch.setattr(
+        CompanyContextBus,
+        "_schedule_graph_entity_extraction",
+        lambda self, content: None,
+    )
 
-        results_a = search_knowledge("marketing strategy", company_id='company_A', top_k=10)
-        results_b = search_knowledge("product launch", company_id='company_B', top_k=10)
+    CompanyContextBus("company_A").add_knowledge(
+        "A-only knowledge", {"company_id": "company_B"}, doc_id="doc_A"
+    )
 
-        assert len(results_a) > 0, "Company A should have results"
-        assert len(results_b) > 0, "Company B should have results"
+    assert captured["company_id"] == "company_A"
+    assert captured["documents"][0]["metadata"]["company_id"] == "company_A"
 
-        a_contents = [r['content'] for r in results_a]
-        b_contents = [r['content'] for r in results_b]
 
-        assert not any("Company B" in c for c in a_contents), "Company A should not see Company B data"
-        assert not any("Company A" in c for c in b_contents), "Company B should not see Company A data"
+def test_company_context_bus_search_cannot_cross_contaminate(monkeypatch):
+    retrievers = {"company_A": _retriever("company_A"), "company_B": _retriever("company_B")}
+    monkeypatch.setattr(hybrid_module, "get_hybrid_retriever", retrievers.__getitem__)
 
-        print("✓ Cross-contamination prevention working correctly")
+    retrievers["company_A"].index_documents(
+        [{"id": "doc_A", "content": "Company A marketing plan", "metadata": {}}]
+    )
+    retrievers["company_B"].index_documents(
+        [{"id": "doc_B", "content": "Company B launch plan", "metadata": {}}]
+    )
 
-    def test_empty_query_graceful_handling(self):
-        """异常场景3：空查询字符串时优雅处理"""
-        results = search_knowledge("", company_id='company_A')
+    results_a = CompanyContextBus("company_A").search_knowledge("plan", top_k=5)
+    results_b = CompanyContextBus("company_B").search_knowledge("plan", top_k=5)
 
-        assert isinstance(results, list), "Should return list even for empty query"
-        print("✓ Empty query handled gracefully")
+    assert [item["content"] for item in results_a] == ["Company A marketing plan"]
+    assert [item["content"] for item in results_b] == ["Company B launch plan"]
+    assert all(item["metadata"]["company_id"] == "company_A" for item in results_a)
+    assert all(item["metadata"]["company_id"] == "company_B" for item in results_b)
 
-    def test_same_company_id_multiple_instances_share_cache(self):
-        """正常场景4：同一公司多次创建 KnowledgeRetrieval 实例共享底层缓存"""
-        kr1 = KnowledgeRetrieval('company_A')
-        kr2 = KnowledgeRetrieval('company_A')
 
-        assert kr1.collection.name == kr2.collection.name
-        assert kr1 is not kr2, "Different instances should be separate objects"
-        assert kr1.collection.name == 'brand_scripts_company_A'
-        print("✓ Same company cache sharing verified")
+def test_company_context_bus_instances_are_scoped_by_id(monkeypatch):
+    retrievers = {"company_A": _retriever("company_A"), "company_B": _retriever("company_B")}
+    monkeypatch.setattr(hybrid_module, "get_hybrid_retriever", retrievers.__getitem__)
+
+    bus_a = CompanyContextBus("company_A")
+    bus_b = CompanyContextBus("company_B")
+
+    assert bus_a.company_id != bus_b.company_id
+    assert retrievers[bus_a.company_id].company_id == "company_A"
+    assert retrievers[bus_b.company_id].company_id == "company_B"

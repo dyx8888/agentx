@@ -202,8 +202,9 @@ class MixedModeDispatcher:
     9C.2: 实现混合模式支持
     """
 
-    def __init__(self):
+    def __init__(self, company_id: int | None = None):
         self._pipeline_tracker = PipelineTracker()  # 复用流水线追踪器
+        self._company_id = company_id
 
     async def execute_hybrid(self, plan: dict[str, list[dict]]) -> dict:
         """
@@ -241,7 +242,7 @@ class MixedModeDispatcher:
                     )
                     for t in group
                 ]
-                dispatcher = get_parallel_dispatcher()
+                dispatcher = get_parallel_dispatcher(company_id=self._company_id)
                 parallel_result = await dispatcher.dispatch(parallel_tasks)
                 for r in parallel_result.tasks:
                     results.append(
@@ -288,7 +289,7 @@ class MixedModeDispatcher:
                     )
                     for t in stage.get("tasks", [])
                 ]
-                dispatcher = get_parallel_dispatcher()
+                dispatcher = get_parallel_dispatcher(company_id=self._company_id)
                 stage_result = await dispatcher.dispatch(tasks)
                 results.append(
                     {
@@ -330,6 +331,7 @@ class MixedModeDispatcher:
                 target_agent_name=task.get("agent", ""),
                 task_message=task.get("task", ""),
                 task_type=task.get("type", "general"),
+                company_id=self._company_id,
             )
         except Exception as e:
             return {"success": False, "error": str(e)}  # 失败时返回错误信息而非抛异常

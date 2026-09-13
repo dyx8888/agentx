@@ -123,9 +123,9 @@ REVIEW_LEVEL_RULES = {
         "timeout_minutes": 240,  # 4 小时超时：平衡审核及时性和人工响应时间
         "timeout_action": "escalate",  # 超时后自动升级通知，避免无限期等待
         "applies_to": [  # 白名单：哪些 agent+task_type 组合需要强制审核
-            "customer_servicereview_management",
-            "customer_serviceafter_sales_handling",
-            "smart_ad_deliverycampaign_create",
+            "customer_service review_management",
+            "customer_service after_sales_handling",
+            "smart_ad_delivery campaign_create",
         ],
     },
     "recommended": {
@@ -206,6 +206,15 @@ class CollaborationEngine:
         from app.database import db  # 延迟导入数据库模块
 
         try:
+            # 先确认公司内存在目标 Agent，再创建接力任务，避免留下无法执行的孤儿任务。
+            agents = db.get_agents_by_company(company_id)
+            agent_names = [getattr(agent, "name", None) for agent in agents]
+            if next_agent not in agent_names:
+                logger.warning(
+                    "collaboration_target_not_found", next_agent=next_agent, company_id=company_id
+                )
+                return None
+
             task_description = (
                 f"协作任务：承接来自 {completed_agent_name} 的工作，请继续执行后续流程。"
             )
@@ -215,15 +224,6 @@ class CollaborationEngine:
                 target_agent_name=next_agent,
                 task_description=task_description,
             )
-
-            # 校验目标 Agent 是否存在于公司内，避免为不存在的 Agent 创建孤儿任务
-            agents = db.get_agents_by_company(company_id)
-            agent_names = [getattr(a, "name", None) for a in agents]
-            if next_agent not in agent_names:
-                logger.warning(
-                    "collaboration_target_not_found", next_agent=next_agent, company_id=company_id
-                )
-                return None
 
             logger.info(
                 "collaboration_triggered",

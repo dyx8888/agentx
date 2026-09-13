@@ -2,7 +2,8 @@ import pytest
 
 from app.communication.hierarchical import HierarchicalOrchestrator
 from app.communication.hierarchical import SubTask as HierarchicalSubTask
-from app.communication.master_dispatcher import MasterDispatcher, SubTask as MasterSubTask
+from app.communication.master_dispatcher import MasterDispatcher
+from app.communication.master_dispatcher import SubTask as MasterSubTask
 from app.communication.parallel import ParallelAgentDispatcher, ParallelTask
 from app.communication.pipeline_tracker import MixedModeDispatcher
 from app.perception.context_package import ContextPackage
@@ -18,6 +19,7 @@ class StrictA2AAdapter:
         task_message,
         task_type="general",
         payload=None,
+        company_id=None,
     ):
         self.calls.append(
             {
@@ -25,6 +27,7 @@ class StrictA2AAdapter:
                 "task_message": task_message,
                 "task_type": task_type,
                 "payload": payload,
+                "company_id": company_id,
             }
         )
         return {
@@ -37,7 +40,11 @@ class StrictA2AAdapter:
 @pytest.mark.asyncio
 async def test_parallel_dispatcher_uses_task_message_keyword():
     adapter = StrictA2AAdapter()
-    dispatcher = ParallelAgentDispatcher(a2a_adapter=adapter, global_timeout=5)
+    dispatcher = ParallelAgentDispatcher(
+        a2a_adapter=adapter,
+        global_timeout=5,
+        company_id=239,
+    )
 
     result = await dispatcher.dispatch(
         [ParallelTask(target_agent="brand_bd", task_description="find KOLs")]
@@ -50,6 +57,7 @@ async def test_parallel_dispatcher_uses_task_message_keyword():
             "task_message": "find KOLs",
             "task_type": "general",
             "payload": None,
+            "company_id": 239,
         }
     ]
 
@@ -57,7 +65,7 @@ async def test_parallel_dispatcher_uses_task_message_keyword():
 @pytest.mark.asyncio
 async def test_hierarchical_orchestrator_uses_task_message_keyword():
     adapter = StrictA2AAdapter()
-    orchestrator = HierarchicalOrchestrator(a2a_adapter=adapter)
+    orchestrator = HierarchicalOrchestrator(a2a_adapter=adapter, company_id=239)
     task = HierarchicalSubTask(
         id="h1",
         description="prepare subtask",
@@ -74,6 +82,7 @@ async def test_hierarchical_orchestrator_uses_task_message_keyword():
             "task_message": "prepare subtask",
             "task_type": "subtask",
             "payload": None,
+            "company_id": 239,
         }
     ]
 
@@ -85,7 +94,7 @@ async def test_mixed_mode_dispatcher_uses_task_message_keyword(monkeypatch):
     import app.communication.a2a_adapter as a2a_adapter_module
 
     monkeypatch.setattr(a2a_adapter_module, "get_a2a_adapter", lambda: adapter)
-    dispatcher = MixedModeDispatcher()
+    dispatcher = MixedModeDispatcher(company_id=239)
 
     result = await dispatcher._execute_single(
         {"agent": "warehouse", "task": "check inventory", "type": "lookup"}
@@ -98,6 +107,7 @@ async def test_mixed_mode_dispatcher_uses_task_message_keyword(monkeypatch):
             "task_message": "check inventory",
             "task_type": "lookup",
             "payload": None,
+            "company_id": 239,
         }
     ]
 
@@ -106,6 +116,11 @@ async def test_mixed_mode_dispatcher_uses_task_message_keyword(monkeypatch):
 async def test_master_dispatcher_delegate_uses_task_message_keyword():
     adapter = StrictA2AAdapter()
     dispatcher = MasterDispatcher(a2a_adapter=adapter)
+    dispatcher._context = ContextPackage(
+        raw_input="summarize campaign",
+        company_id="239",
+        intent_entities={"company_id": "999"},
+    )
     task = MasterSubTask(
         task_id="m1",
         description="summarize campaign",
@@ -121,6 +136,7 @@ async def test_master_dispatcher_delegate_uses_task_message_keyword():
                 "task_message": "summarize campaign",
                 "task_type": "subtask",
                 "payload": None,
+                "company_id": 239,
             }
         ]
 

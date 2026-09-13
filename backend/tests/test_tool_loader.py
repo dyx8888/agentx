@@ -92,7 +92,7 @@ class TestSchemaCacheIsolation:
         loader = ToolLoader(config_path="/nonexistent/path.yaml")
         # 模拟缓存已有数据
         cached_tools = ["tool_a", "tool_b"]
-        loader._schema_cache["fake_provider"] = cached_tools
+        loader._schema_cache[("fake_provider", "c1")] = cached_tools
 
         provider = _ProviderMeta(name="fake_provider", type="mcp_stdio", command="fake")
         ctx = ToolLoadContext(company_id="c1", agent_name="a1", trace_id="t1")
@@ -109,9 +109,63 @@ class TestSchemaCacheIsolation:
         returned.clear()
 
         # 验证缓存未被污染
-        assert loader._schema_cache["fake_provider"] == ["tool_a", "tool_b"], (
+        assert loader._schema_cache[("fake_provider", "c1")] == ["tool_a", "tool_b"], (
             "调用方修改返回值不应污染缓存"
         )
+
+
+class TestMcpTenantIsolation:
+    def test_mcp_clients_and_schemas_are_isolated_by_company(self, monkeypatch):
+        loader = ToolLoader(config_path="/nonexistent/path.yaml")
+        provider = _ProviderMeta(
+            name="knowledge_retrieval",
+            type="mcp_stdio",
+            command="python",
+            args=["-m", "fake_server"],
+            multi_tenant=True,
+        )
+        created_configs = []
+
+        class FakeTool:
+            name = "retrieve"
+            description = "Return tenant-scoped knowledge reference content"
+            args_schema = None
+            metadata = {}
+
+        class FakeClient:
+            def __init__(self, config):
+                created_configs.append(config)
+
+            async def get_tools(self):
+                return [FakeTool()]
+
+        import langchain_mcp_adapters.client as client_module
+
+        monkeypatch.setattr(client_module, "MultiServerMCPClient", FakeClient)
+        monkeypatch.setattr(loader, "_validate_tool_description", lambda *_args: (True, ""))
+
+        asyncio.run(
+            loader._load_mcp_stdio(
+                provider,
+                ToolLoadContext(company_id="company-a", agent_name="master", trace_id="t1"),
+            )
+        )
+        asyncio.run(
+            loader._load_mcp_stdio(
+                provider,
+                ToolLoadContext(company_id="company-b", agent_name="master", trace_id="t2"),
+            )
+        )
+
+        assert len(created_configs) == 2
+        assert set(loader._mcp_client_pool) == {
+            ("knowledge_retrieval", "company-a"),
+            ("knowledge_retrieval", "company-b"),
+        }
+        assert set(loader._schema_cache) == {
+            ("knowledge_retrieval", "company-a"),
+            ("knowledge_retrieval", "company-b"),
+        }
 
 
 class TestEnhanceDescriptionNoBlocking:

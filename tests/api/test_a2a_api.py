@@ -26,13 +26,16 @@ class FakeA2AAdapter:
             }
         ]
 
-    def send_task(self, *, target_agent_name, task_message, task_type, payload):
+    def send_task(
+        self, *, target_agent_name, task_message, task_type, payload, company_id
+    ):
         self.sent_tasks.append(
             {
                 "target_agent_name": target_agent_name,
                 "task_message": task_message,
                 "task_type": task_type,
                 "payload": payload,
+                "company_id": company_id,
             }
         )
         return {
@@ -129,5 +132,6 @@ def test_a2a_delegate_uses_adapter_for_valid_local_contract(a2a_client):
             "task_message": "draft outreach",
             "task_type": "general",
             "payload": None,
+            "company_id": 239,
         }
     ]

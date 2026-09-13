@@ -224,3 +224,50 @@ def test_agent_runtime_uses_selected_company_model_key(monkeypatch):
 
     assert gateway.calls == [{}, {"model_key": "custom_proxy", "company_id": 42}]
     assert result["success"] is True
+
+
+def test_agent_runtime_reinitializes_tools_when_tenant_changes(monkeypatch):
+    import app.runtime.orchestrator as orchestrator
+
+    runtime = orchestrator.AgentRuntime()
+    initialized = []
+
+    async def fake_initialize(ctx):
+        initialized.append((ctx.company_id, ctx.agent_name, tuple(ctx.capabilities or [])))
+        runtime._initialized = True
+        runtime._initialized_context_key = runtime._context_key(ctx)
+
+    monkeypatch.setattr(runtime, "initialize", fake_initialize)
+
+    async def exercise():
+        await runtime._ensure_runtime_context(
+            orchestrator.ToolLoadContext(
+                company_id="company-a",
+                agent_name="master",
+                trace_id="t1",
+                capabilities=["core"],
+            )
+        )
+        await runtime._ensure_runtime_context(
+            orchestrator.ToolLoadContext(
+                company_id="company-a",
+                agent_name="master",
+                trace_id="t2",
+                capabilities=["core"],
+            )
+        )
+        await runtime._ensure_runtime_context(
+            orchestrator.ToolLoadContext(
+                company_id="company-b",
+                agent_name="master",
+                trace_id="t3",
+                capabilities=["core"],
+            )
+        )
+
+    asyncio.run(exercise())
+
+    assert initialized == [
+        ("company-a", "master", ("core",)),
+        ("company-b", "master", ("core",)),
+    ]

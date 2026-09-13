@@ -510,7 +510,7 @@ def test_a2a_delegate_accepts_configured_registry_agent(monkeypatch):
     adapter = A2AAdapter(EmptyDB())
     monkeypatch.setattr(adapter, "_get_redis", lambda: None)
 
-    result = adapter.send_task("brand_bd", "find kols")
+    result = adapter.send_task("brand_bd", "find kols", company_id=239)
 
     assert result["success"] is True
     assert result["task_id"].startswith("task_")

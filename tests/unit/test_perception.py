@@ -136,3 +136,10 @@ class TestIntentExtractor:
         assert intent.intent_type == IntentType.KNOWLEDGE
         assert intent.confidence >= 0.9
         assert intent.raw_response == "heuristic_direct_knowledge_query"
+
+    def test_company_id_is_normalized_before_model_gateway_lookup(self):
+        from app.perception.intent_extractor import _normalize_company_id
+
+        assert _normalize_company_id("42") == 42
+        assert _normalize_company_id(42) == 42
+        assert _normalize_company_id("not-a-company") is None

@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.database import User, db
+from app.auth import get_current_active_user
 from app.main import app
 
 
@@ -35,11 +36,16 @@ class TestTaskHumanLoop:
         self.test_user = self._create_test_user()
         self.test_company_id = self.test_user.company_id
 
+        # 当前应用只接受正式认证依赖；测试用 dependency override 注入测试用户，
+        # 不再使用应用并不识别的 X-User-ID 等伪认证头。
+        app.dependency_overrides[get_current_active_user] = lambda: self.test_user
+
         # 创建测试任务
         self.test_task_id = self._create_test_task()
 
     def teardown_method(self):
         """每个测试方法后的清理"""
+        app.dependency_overrides.pop(get_current_active_user, None)
         if self.test_task_id:
             with contextlib.suppress(Exception):
                 pass
@@ -148,7 +154,7 @@ class TestTaskHumanLoop:
 
             # 测试获取任务步骤
             headers = self._get_auth_headers()
-            response = self.client.get(f'/tasks/{self.test_task_id}/steps', headers=headers)
+            response = self.client.get(f'/api/tasks/{self.test_task_id}/steps', headers=headers)
 
             # 验证响应
             assert response.status_code == 200, f"Expected 200, got {response.status_code}"
@@ -173,7 +179,7 @@ class TestTaskHumanLoop:
         except Exception:
             # 如果数据库操作失败，至少验证 API 端点存在
             headers = self._get_auth_headers()
-            response = self.client.get(f'/tasks/{self.test_task_id}/steps', headers=headers)
+            response = self.client.get(f'/api/tasks/{self.test_task_id}/steps', headers=headers)
             # 即使没有数据，端点也应该存在
             assert response.status_code in [200, 404, 500], f"Endpoint should exist, got {response.status_code}"
 
@@ -200,7 +206,7 @@ class TestTaskHumanLoop:
             }
 
             response = self.client.post(
-                f'/tasks/{self.test_task_id}/confirm',
+                f'/api/tasks/{self.test_task_id}/confirm',
                 json=confirm_data,
                 headers=headers
             )
@@ -221,7 +227,7 @@ class TestTaskHumanLoop:
             }
 
             response = self.client.post(
-                f'/tasks/{self.test_task_id}/confirm',
+                f'/api/tasks/{self.test_task_id}/confirm',
                 json=confirm_data,
                 headers=headers
             )
@@ -242,6 +248,7 @@ class TestTaskHumanLoop:
         )
 
         # 使用其他公司的用户尝试确认任务
+        app.dependency_overrides[get_current_active_user] = lambda: other_user
         headers = self._get_auth_headers(other_user)
         confirm_data = {
             'step_id': 2,
@@ -249,7 +256,7 @@ class TestTaskHumanLoop:
         }
 
         response = self.client.post(
-            f'/tasks/{self.test_task_id}/confirm',
+            f'/api/tasks/{self.test_task_id}/confirm',
             json=confirm_data,
             headers=headers
         )
@@ -258,8 +265,8 @@ class TestTaskHumanLoop:
         assert response.status_code == 403, f"Expected 403, got {response.status_code}"
 
         response_data = response.json()
-        assert 'detail' in response_data, "Response should contain error detail"
-        assert 'Access denied' in response_data['detail'], "Should indicate access denied"
+        assert 'message' in response_data, "Response should contain error message"
+        assert 'Access denied' in response_data['message'], "Should indicate access denied"
 
     def test_4_confirm_non_confirm_required_step_error(self):
         """异常场景 2：确认一个不在 confirm_required 状态的任务时报错"""
@@ -284,7 +291,7 @@ class TestTaskHumanLoop:
             }
 
             response = self.client.post(
-                f'/tasks/{self.test_task_id}/confirm',
+                f'/api/tasks/{self.test_task_id}/confirm',
                 json=confirm_data,
                 headers=headers
             )
@@ -293,8 +300,8 @@ class TestTaskHumanLoop:
             assert response.status_code == 400, f"Expected 400, got {response.status_code}"
 
             response_data = response.json()
-            assert 'detail' in response_data, "Response should contain error detail"
-            assert 'confirm_required' in response_data['detail'], "Should indicate step is not in confirm_required status"
+            assert 'message' in response_data, "Response should contain error message"
+            assert 'confirm_required' in response_data['message'], "Should indicate step is not in confirm_required status"
 
         except Exception:
             headers = self._get_auth_headers()
@@ -304,7 +311,7 @@ class TestTaskHumanLoop:
             }
 
             response = self.client.post(
-                f'/tasks/{self.test_task_id}/confirm',
+                f'/api/tasks/{self.test_task_id}/confirm',
                 json=confirm_data,
                 headers=headers
             )
@@ -332,7 +339,7 @@ class TestTaskHumanLoop:
             }
 
             response = self.client.post(
-                f'/tasks/{self.test_task_id}/confirm',
+                f'/api/tasks/{self.test_task_id}/confirm',
                 json=confirm_data,
                 headers=headers
             )
@@ -350,7 +357,7 @@ class TestTaskHumanLoop:
                 'reason': '达人画像不符合品牌调性'
             }
             response = self.client.post(
-                f'/tasks/{self.test_task_id}/confirm',
+                f'/api/tasks/{self.test_task_id}/confirm',
                 json=confirm_data,
                 headers=headers
             )
@@ -358,13 +365,29 @@ class TestTaskHumanLoop:
 
     def test_6_missing_confirm_action_error(self):
         """异常场景 3：缺少 action 字段时返回校验错误"""
+        # 先准备一个可确认步骤，确保请求能进入 action 校验，而不是在
+        # 找不到步骤时提前返回 404。
+        mock_steps = [
+            {
+                'step_id': 2,
+                'name': '搜索匹配达人',
+                'status': 'confirm_required',
+                'result': None
+            }
+        ]
+        db.update_task_status(
+            self.test_task_id,
+            'waiting_confirmation',
+            json.dumps({'steps': mock_steps})
+        )
+
         headers = self._get_auth_headers()
         confirm_data = {
             'step_id': 2
         }
 
         response = self.client.post(
-            f'/tasks/{self.test_task_id}/confirm',
+            f'/api/tasks/{self.test_task_id}/confirm',
             json=confirm_data,
             headers=headers
         )
@@ -373,7 +396,9 @@ class TestTaskHumanLoop:
 
     def test_7_task_list_without_auth_headers(self):
         """异常场景 4：缺少认证头时获取任务列表返回错误"""
-        response = self.client.get('/tasks/')
+        # 本测试明确覆盖未认证路径，不能继承 setup_method 的认证 override。
+        app.dependency_overrides.pop(get_current_active_user, None)
+        response = self.client.get('/api/tasks/')
 
         assert response.status_code in [401, 403, 422], f"Expected auth error, got {response.status_code}"
 

@@ -1,79 +1,52 @@
-"""
-向量数据库切换测试
-测试 ChromaDB 和 Milvus 向量后端的切换和基本增删查功能
-"""
+"""Contract tests for the working knowledge retrieval MCP wrapper."""
 
-import os
-import sys
-from unittest.mock import MagicMock, patch
+import json
 
-import pytest
-
-sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-from app.mcp_servers.knowledge_retrieval_server import KnowledgeRetrieval
+import app.mcp_servers.knowledge_retrieval_server as knowledge_server
 
 
-class TestVectorBackend:
-    """向量后端测试类"""
+def test_search_wrapper_maps_structured_hybrid_result(monkeypatch):
+    class StubBus:
+        def search_knowledge(self, query, top_k=5):
+            return [
+                {
+                    "content": "retrieved content",
+                    "metadata": {"company_id": "company_A"},
+                    "score": 0.8,
+                    "source": "hybrid",
+                    "bm25_score": 1.2,
+                    "vector_score": 0.9,
+                    "rrf_score": 0.02,
+                    "rerank_score": 0.8,
+                    "source_file": "manual.txt",
+                    "chunk_index": 1,
+                    "source_page": 2,
+                }
+            ]
 
-    def test_1_default_chromadb_success(self):
-        """正常场景1：默认使用 ChromaDB"""
-        with patch.dict(os.environ, {"VECTOR_DB": None}, clear=True):
-            with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient') as mock_chroma:
-                with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient.get_collection') as mock_get_collection:
-                    with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient.create_collection') as mock_create_collection:
-                        mock_get_collection.return_value = None
-                        mock_create_collection.return_value = MagicMock()
+    monkeypatch.setattr(knowledge_server, "_get_bus_for_company", lambda company_id: StubBus())
 
-                        retrieval = KnowledgeRetrieval("test_chroma")
+    result = json.loads(
+        knowledge_server.search_knowledge("query", n_results=1, company_id="company_A")
+    )
 
-                        assert retrieval.vector_db == "chromadb"
-                        assert mock_chroma.called
-                        assert mock_get_collection.called
-                        assert mock_create_collection.called
-
-    def test_2_explicit_chromadb_success(self):
-        """正常场景2：显式设置 ChromaDB"""
-        with patch.dict(os.environ, {"VECTOR_DB": "chromadb"}, clear=True):
-            with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient') as mock_chroma:
-                with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient.get_collection') as mock_get_collection:
-                    with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient.create_collection') as mock_create_collection:
-                        mock_get_collection.return_value = MagicMock()
-                        mock_create_collection.return_value = MagicMock()
-
-                        retrieval = KnowledgeRetrieval("test_chroma")
-
-                        assert retrieval.vector_db == "chromadb"
-                        assert mock_chroma.called
-                        assert mock_get_collection.called
-                        assert not mock_create_collection.called
-
-    def test_3_milvus_unavailable_graceful_fallback(self):
-        """异常场景1：Milvus 不可用时优雅降级"""
-        with patch.dict(os.environ, {"VECTOR_DB": "milvus"}, clear=True):
-            with patch('app.mcp_servers.knowledge_retrieval_server.pymilvus', side_effect=ImportError("pymilvus not available")):
-                with pytest.raises(ImportError) as exc_info:
-                    retrieval = KnowledgeRetrieval("test_milvus")
-
-                    assert retrieval.vector_db == "chromadb"
-                    assert "pymilvus is not installed" in str(exc_info.value)
-
-    def test_4_milvus_connection_failure_handling(self):
-        """异常场景2：Milvus 连接失败时的处理"""
-        with patch.dict(os.environ, {"VECTOR_DB": "milvus"}, clear=True):
-            with patch('app.mcp_servers.knowledge_retrieval_server.pymilvus') as mock_pymilvus:
-                with patch('app.mcp_servers.knowledge_retrieval_server.pymilvus.connections.connect') as mock_connect:
-                    mock_connect.side_effect = Exception("Connection failed")
-
-                    with patch('app.mcp_servers.knowledge_retrieval_server.pymilvus.Collection') as mock_collection:
-                        mock_collection.return_value = MagicMock()
-
-                        retrieval = KnowledgeRetrieval("test_milvus")
-
-                        assert mock_connect.called
-                        assert mock_collection.called
+    assert result["status"] == "ok"
+    item = result["data"][0]
+    assert item["content"] == "retrieved content"
+    assert item["metadata"]["company_id"] == "company_A"
+    assert item["source"] == "hybrid"
+    assert item["source_file"] == "manual.txt"
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+def test_search_wrapper_returns_error_result_when_backend_fails(monkeypatch):
+    def fail(_company_id):
+        raise RuntimeError("backend unavailable")
+
+    monkeypatch.setattr(knowledge_server, "_get_bus_for_company", fail)
+
+    result = json.loads(
+        knowledge_server.search_knowledge("query", n_results=1, company_id="company_A")
+    )
+
+    assert result["status"] == "error"
+    assert result["error_code"] == "CONNECTION_ERROR"

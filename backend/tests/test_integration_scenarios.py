@@ -14,7 +14,7 @@ class TestCompanyIsolation:
     """多公司数据隔离测试"""
 
     @pytest.fixture(autouse=True)
-    async def setup(self):
+    def setup(self):
         self.company_a_id = 1
         self.company_b_id = 2
 
@@ -32,26 +32,25 @@ class TestCompanyIsolation:
         l1_a = bus_a.get_layer1_context()
         l1_b = bus_b.get_layer1_context()
         if l1_a and l1_b:
-            assert self.company_a_id not in l1_b or l1_a != l1_b, \
+            assert str(self.company_a_id) not in l1_b or l1_a != l1_b, \
                 "Layer 1 context should be company-scoped"
 
     async def test_agent_context_injection_respects_company(self):
         """Agent 上下文注入仅包含当前公司的知识库数据"""
         from app.rag.data_injector import DataInjector
 
-        with patch('app.rag.data_injector.CompanyContextBus') as mock_bus_class:
-            mock_bus_a = MagicMock()
-            mock_bus_a.get_layer1_context.return_value = "公司A基础资料"
-            mock_bus_a.get_layer2_context.return_value = "公司A知识库内容"
-            mock_bus_a.get_layer3_context.return_value = "公司A经验记忆"
+        mock_bus_a = MagicMock()
+        mock_bus_a.get_layer1_context.return_value = "公司A基础资料"
+        mock_bus_a.get_layer2_context.return_value = "公司A知识库内容"
+        mock_bus_a.get_layer3_context.return_value = "公司A经验记忆"
 
-            mock_bus_b = MagicMock()
-            mock_bus_b.get_layer1_context.return_value = "公司B基础资料"
-            mock_bus_b.get_layer2_context.return_value = "公司B知识库内容"
+        mock_bus_b = MagicMock()
+        mock_bus_b.get_layer1_context.return_value = "公司B基础资料"
+        mock_bus_b.get_layer2_context.return_value = "公司B知识库内容"
+        mock_bus_b.get_layer3_context.return_value = "公司B经验记忆"
 
-            mock_bus_class.side_effect = lambda company_id: {
-                '1': mock_bus_a, '2': mock_bus_b
-            }.get(company_id, MagicMock())
+        with patch('app.rag.data_injector.DataInjector._get_bus',
+                   side_effect=[mock_bus_a, mock_bus_b]):
 
             injector_a = DataInjector('1')
             injector_b = DataInjector('2')
@@ -102,7 +101,7 @@ class TestAgentCollaboration:
     """8 Agent 协同工作测试"""
 
     @pytest.fixture(autouse=True)
-    async def setup(self):
+    def setup(self):
         self.company_id = 1
 
     async def test_new_product_launch_collaboration_chain(self):
@@ -183,10 +182,10 @@ class TestAgentCollaboration:
 
         engine = CollaborationEngine()
 
-        with patch('app.communication.collaboration.CompanyContextBus') as mock_bus_class:
+        with patch.object(engine, '_get_context_bus') as mock_bus_factory:
             mock_bus = MagicMock()
             mock_bus.add_experience = AsyncMock()
-            mock_bus_class.return_value = mock_bus
+            mock_bus_factory.return_value = MagicMock(return_value=mock_bus)
 
             await engine._write_to_context_bus(
                 agent_key="brand_bd",
@@ -195,7 +194,7 @@ class TestAgentCollaboration:
                 agent_output={"kol_names": ["达人A", "达人B", "达人C"]}
             )
 
-            mock_bus_class.assert_called_once_with("1")
+            mock_bus_factory.assert_called_once_with()
             mock_bus.add_experience.assert_called_once()
             call_args = mock_bus.add_experience.call_args
             assert call_args[1]["experience_type"] == "brand_bd"
@@ -221,7 +220,7 @@ class TestThreeLevelReview:
     """三级审核流程测试"""
 
     @pytest.fixture(autouse=True)
-    async def setup(self):
+    def setup(self):
         self.company_id = 1
         self.task_id = 1001
 
@@ -239,7 +238,7 @@ class TestThreeLevelReview:
         assert level == ReviewLevel.MANDATORY, \
             "smart_ad_delivery campaign_create should be MANDATORY"
 
-        with patch('app.communication.review_workflow.db') as mock_db:
+        with patch('app.database.db') as mock_db:
             mock_db.create_review.return_value = 99
 
             review_id = await engine.submit_for_review(
@@ -267,7 +266,7 @@ class TestThreeLevelReview:
         assert level in (ReviewLevel.RECOMMENDED, ReviewLevel.AUTO), \
             "brand_bd generate_outreach should not be mandatory"
 
-        with patch('app.communication.review_workflow.db') as mock_db:
+        with patch('app.database.db') as mock_db:
             mock_db.create_review.return_value = 100
 
             review_id = await engine.submit_for_review(
@@ -291,7 +290,7 @@ class TestThreeLevelReview:
         assert level in (ReviewLevel.AUTO, ReviewLevel.RECOMMENDED), \
             "data_analysis should be auto or recommended"
 
-        with patch('app.communication.review_workflow.db') as mock_db:
+        with patch('app.database.db') as mock_db:
             mock_db.create_review.return_value = 101
 
             review_id = await engine.submit_for_review(
@@ -311,7 +310,7 @@ class TestThreeLevelReview:
 
         engine = ReviewWorkflowEngine()
 
-        with patch('app.communication.review_workflow.db') as mock_db:
+        with patch('app.database.db') as mock_db:
             mock_db.create_review.return_value = 200
             mock_db.update_review_status.return_value = True
 
@@ -333,7 +332,7 @@ class TestThreeLevelReview:
 
         engine = ReviewWorkflowEngine()
 
-        with patch('app.communication.review_workflow.db') as mock_db:
+        with patch('app.database.db') as mock_db:
             mock_db.create_review.return_value = 300
             mock_db.update_review_status.return_value = True
 
@@ -360,7 +359,7 @@ class TestThreeLevelReview:
 
         engine = ReviewWorkflowEngine()
 
-        with patch('app.communication.review_workflow.db') as mock_db:
+        with patch('app.database.db') as mock_db:
             mock_db.create_review.return_value = 400
             mock_db.update_review_status.return_value = True
 
@@ -389,7 +388,7 @@ class TestThreeLevelReview:
 
         engine = ReviewWorkflowEngine()
 
-        with patch('app.communication.review_workflow.db') as mock_db:
+        with patch('app.database.db') as mock_db:
             mock_db.create_review.return_value = 500
             mock_db.update_review_status.return_value = True
             mock_db.get_review_status.return_value = ReviewStatus.PENDING.value
@@ -413,7 +412,7 @@ class TestThreeLevelReview:
 
         engine = ReviewWorkflowEngine()
 
-        with patch('app.communication.review_workflow.db') as mock_db:
+        with patch('app.database.db') as mock_db:
             mock_db.get_pending_reviews.return_value = [
                 {"id": 1, "agent_key": "brand_bd", "status": "pending"},
                 {"id": 2, "agent_key": "content_operation", "status": "pending"},
@@ -432,7 +431,7 @@ class TestSleepConsolidation:
     """睡眠巩固引擎测试"""
 
     @pytest.fixture(autouse=True)
-    async def setup(self):
+    def setup(self):
         self.company_id = "1"
 
     async def test_episodic_to_semantic_consolidation(self):
@@ -475,11 +474,19 @@ class TestSleepConsolidation:
             {"content": "达人A报价过高", "agent_name": "brand_bd"},
             {"content": "达人A报价过高需要谈判", "agent_name": "brand_bd"},
             {"content": "达人B粉丝画像匹配", "agent_name": "brand_bd"},
+            {"content": "达人C内容风格匹配", "agent_name": "brand_bd"},
+            {"content": "达人D互动率稳定", "agent_name": "brand_bd"},
         ]), \
-             patch('app.rag.company_context_bus.get_hybrid_retriever') as mock_retriever, \
-             patch('app.rag.company_context_bus.get_embedding_service') as mock_emb:
+             patch('app.rag.hybrid_retriever.get_hybrid_retriever') as mock_retriever, \
+             patch('app.rag.embedding_service.get_embedding_service') as mock_emb:
 
-            mock_emb.return_value.encode.return_value = [[0.1] * 384, [0.15] * 384, [0.9] * 384]
+            mock_emb.return_value.encode.return_value = [
+                [0.1] * 384,
+                [0.15] * 384,
+                [0.9] * 384,
+                [0.8] * 384,
+                [0.7] * 384,
+            ]
             mock_retriever.return_value.index_documents.return_value = None
 
             bus.sleep_consolidate(agent_name="brand_bd", max_per_agent=10)
@@ -539,16 +546,17 @@ class TestSleepConsolidation:
         )
 
         with patch.object(manager, '_milvus_connected', True), \
-             patch('app.runtime.memory.Collection') as mock_collection:
-
-            mock_col_instance = MagicMock()
-            mock_collection.return_value = mock_col_instance
-
-            hit = MagicMock()
-            hit.entity.get.return_value = "品牌营销经验：优先选择抖音平台达人"
-            hit.score = 0.92
-
-            mock_col_instance.search.return_value = [[hit]]
+             patch.object(manager, '_get_embedding', return_value=[0.1] * 384):
+            manager._milvus = MagicMock()
+            manager._milvus.has_collection.return_value = True
+            manager._milvus.search.return_value = [[{
+                "id": "memory-1",
+                "entity": {
+                    "content": "品牌营销经验：优先选择抖音平台达人",
+                    "category": "brand_bd",
+                },
+                "distance": 0.92,
+            }]]
 
             results = manager.retrieve_semantic("品牌营销", self.company_id, top_k=3)
 
@@ -560,23 +568,26 @@ class TestFeedbackDrivenEvolution:
     """反馈驱动进化测试"""
 
     @pytest.fixture(autouse=True)
-    async def setup(self):
+    def setup(self):
         self.company_id = 1
         self.agent_key = "brand_bd"
 
     async def test_few_shot_cache_generation(self):
         """阶段一: 从审核决策生成 Few-shot 缓存"""
-        from app.runtime.memory import ThreeLayerMemoryManager
+        from app.runtime.memory import EpisodicMemory, ThreeLayerMemoryManager
 
         manager = ThreeLayerMemoryManager()
 
         manager._few_shot_cache = {}
-        manager.store_few_shot_example(
-            agent_key=self.agent_key,
-            example_type="kol_selection",
-            task="找3个美妆博主",
-            outcome="选择了粉丝10万+的高互动达人",
-            company_id=str(self.company_id)
+        manager.store_episodic(
+            EpisodicMemory(
+                agent_key=self.agent_key,
+                task_summary="找3个美妆博主",
+                key_decisions=["选择高互动达人"],
+                tools_used=["search_kols"],
+                outcome="选择了高互动达人",
+                company_id=str(self.company_id),
+            )
         )
 
         examples = manager.retrieve_few_shot_examples(
@@ -671,34 +682,38 @@ class TestFeedbackDrivenEvolution:
 class TestPlatformIntegration:
     """平台对接集成测试"""
 
-    async def test_api_degradation_to_mock(self):
-        """平台 API 不可用时自动降级到 Mock 数据"""
+    async def test_api_degradation_fails_closed(self, monkeypatch):
+        """平台 API 不可用时不返回未经验证的 Mock 数据"""
+        from app.platforms.base import PlatformAdapterUnavailable
         from app.platforms.douyin_star import DouyinStarAdapter
 
-        adapter = DouyinStarAdapter(company_id=99999)
+        monkeypatch.setenv("ENV", "production")
+        adapter = DouyinStarAdapter(api_key="test-key", api_secret="test-secret")
 
-        with patch.object(adapter, '_call_api', side_effect=ConnectionError("API unavailable")):
-            result = await adapter._safe_api_call(
-                endpoint="/star/v1/kol/search",
-                params={"keyword": "美妆"}
-            )
+        with patch(
+            "app.platforms.douyin_star.requests.get",
+            side_effect=ConnectionError("API unavailable"),
+        ), pytest.raises(PlatformAdapterUnavailable) as exc_info:
+            adapter.search_creators("beauty", 1)
 
-            assert result is not None
-            assert adapter._use_mock is True or result.get("source") == "mock" or True
+        assert exc_info.value.to_payload()["code"] == "mock_fallback_blocked"
 
-    async def test_api_recovery_from_mock(self):
-        """平台 API 恢复后从 Mock 切回真实 API"""
+    async def test_api_recovery_returns_verified_response(self):
+        """平台 API 恢复后返回经过解析的真实响应"""
         from app.platforms.douyin_star import DouyinStarAdapter
 
-        adapter = DouyinStarAdapter(company_id=99999)
+        class Response:
+            status_code = 200
 
-        with patch.object(adapter, '_call_api', return_value={"data": [{"name": "真实达人"}]}):
-            result = await adapter._safe_api_call(
-                endpoint="/star/v1/kol/search",
-                params={"keyword": "美妆"}
-            )
+            def json(self):
+                return {"data": {"creators": [{"name": "verified creator"}]}}
 
-            assert result is not None
+        adapter = DouyinStarAdapter(api_key="test-key", api_secret="test-secret")
+
+        with patch("app.platforms.douyin_star.requests.get", return_value=Response()):
+            result = adapter.search_creators("beauty", 1)
+
+        assert result == [{"name": "verified creator"}]
 
     async def test_credential_encryption_at_rest(self):
         """平台凭证存储加密"""

@@ -49,6 +49,30 @@ def test_kol_search_server_blocks_mock_fallback_in_prod(monkeypatch):
     assert "mock fallback is disabled" in result["message"]
 
 
+@pytest.mark.parametrize("adapter_kind", ["sync", "async"])
+def test_kol_search_server_accepts_sync_and_async_adapters(monkeypatch, adapter_kind):
+    class Adapter:
+        def is_available(self):
+            return True
+
+        if adapter_kind == "async":
+
+            async def search_creators(self, category, count):
+                return [{"category": category, "count": count, "adapter": adapter_kind}]
+
+        else:
+
+            def search_creators(self, category, count):
+                return [{"category": category, "count": count, "adapter": adapter_kind}]
+
+    monkeypatch.setattr(platforms, "get_platform_adapter", lambda *_args, **_kwargs: Adapter())
+
+    result = json.loads(asyncio.run(search_kols(" Beauty ", count=2)))
+
+    assert result["status"] == "ok"
+    assert result["data"] == [{"category": "beauty", "count": 2, "adapter": adapter_kind}]
+
+
 @pytest.mark.parametrize(
     ("adapter_factory", "operation"),
     [

@@ -2,8 +2,7 @@
 16.2.5 集成测试：A2A并行分派 → 3个Agent → 汇总结果
 验证并行Agent分派的完整链路：任务创建 → 并行执行 → 结果汇总 → 去重 → 冲突检测
 """
-import asyncio
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -16,7 +15,13 @@ class TestA2AParallelFlow:
         """创建 mock A2A adapter"""
         adapter = MagicMock()
 
-        def send_task_side_effect(target_agent_name, task_description, task_type="general"):
+        def send_task_side_effect(
+            target_agent_name,
+            task_description,
+            task_type="general",
+            company_id=None,
+        ):
+            assert company_id == 239
             results = {
                 "brand_bd": {"success": True, "task_id": "task_bd_001", "result": {"品牌": "A", "竞品": ["B", "C"]}},
                 "product_selector": {"success": True, "task_id": "task_ps_001", "result": {"推荐产品": "P1", "价格": 99}},
@@ -31,7 +36,11 @@ class TestA2AParallelFlow:
     def dispatcher(self, mock_a2a):
         """创建并行分派器"""
         from app.communication.parallel import ParallelAgentDispatcher
-        return ParallelAgentDispatcher(a2a_adapter=mock_a2a, global_timeout=10)
+        return ParallelAgentDispatcher(
+            a2a_adapter=mock_a2a,
+            global_timeout=10,
+            company_id=239,
+        )
 
     # ── 场景1: 3个Agent并行分派，全部成功 ────────────────────────
 

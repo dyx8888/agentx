@@ -50,9 +50,15 @@ class SubTaskResult:
 class HierarchicalOrchestrator:
     """分层编排器 - 支持多层嵌套的Agent协作"""
 
-    def __init__(self, a2a_adapter=None, max_depth: int = MAX_HIERARCHY_DEPTH):
+    def __init__(
+        self,
+        a2a_adapter=None,
+        max_depth: int = MAX_HIERARCHY_DEPTH,
+        company_id: int | None = None,
+    ):
         self._a2a = a2a_adapter  # A2A 适配器用于 Agent 间通信，可选注入便于测试
         self._max_depth = max_depth  # 最大嵌套深度，从全局常量获取
+        self._company_id = company_id
         self._layer_timeouts: dict[int, float] = {}  # 每层可独立配置超时，深层次可设更短超时
 
     def set_layer_timeout(self, depth: int, timeout: float):
@@ -179,6 +185,7 @@ class HierarchicalOrchestrator:
                     target_agent_name=task.assigned_agent,
                     task_message=task.description,
                     task_type="subtask",  # 标记为子任务类型，便于 Agent 区分处理
+                    company_id=self._company_id,
                 )
 
                 if a2a_result.get("success"):

@@ -9,6 +9,7 @@ langchain-openai>=0.2.0
 python-dotenv>=1.0.0
 PyYAML>=6.0
 fastmcp>=2.0.0
+websockets>=15.0.1
 mcp>=1.0.0
 langchain-mcp-adapters>=0.1.0
 mcp-server-time

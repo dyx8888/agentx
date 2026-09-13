@@ -232,6 +232,7 @@ class PerceptionPipeline:
             )
             return ContextPackage(
                 raw_input=raw_input,
+                company_id=company_id,
                 cache_hit=True,
                 direct_return=memory_result.direct_return,
                 cache_key=memory_result.cache_key,

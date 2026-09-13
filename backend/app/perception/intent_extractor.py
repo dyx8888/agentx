@@ -15,7 +15,12 @@ logger = get_logger(__name__)
 
 
 def _normalize_company_id(company_id: str | int | None) -> int | None:
+    """Normalize an optional tenant id before passing it to the model gateway."""
     if company_id in (None, ""):
+        return None
+    try:
+        return int(company_id)
+    except (TypeError, ValueError):
         return None
 
 
@@ -29,12 +34,6 @@ def _looks_like_direct_knowledge_query(text: str) -> bool:
     return "知识库" in normalized and any(
         marker in normalized for marker in ("唯一标记", "只根据", "根据知识")
     )
-    try:
-        return int(company_id)
-    except (TypeError, ValueError):
-        return None
-
-
 class IntentType(
     StrEnum
 ):  # 用 StrEnum 而非 Enum 是为了 intent_type.value 直接返回字符串，无需额外转换

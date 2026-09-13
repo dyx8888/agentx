@@ -320,9 +320,7 @@ class MasterAgentRouter:
 
     @staticmethod
     def _context_company_id(context: ContextPackage) -> int | None:
-        company_id = getattr(context, "company_id", None) or (
-            getattr(context, "intent_entities", {}) or {}
-        ).get("company_id", "")
+        company_id = getattr(context, "company_id", None)
         try:
             return int(company_id) if company_id else None
         except (TypeError, ValueError):
@@ -596,7 +594,7 @@ class MasterAgentRouter:
                 "status": "pending_delegation",
             }
 
-        company_id = context.intent_entities.get("company_id", "")
+        company_id = self._context_company_id(context)
         # 节点任务消息：action 为主，description 为辅
         task_message = (
             f"{node_action}: {node_desc}" if node_desc and node_desc != node_action else node_action
@@ -894,16 +892,17 @@ class MasterAgentRouter:
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
 
-            from app.agent import build_reaction_graph, get_core_tools
+            from app.agent import (
+                bind_tenant_core_tools,
+                build_reaction_graph,
+                get_tenant_core_tools,
+            )
             from app.agents.master import MASTER_SYSTEM_PROMPT
 
             mg = self._get_model_gateway()
             if mg is None:
                 return {"answer": query, "intermediate": "model_gateway 不可用，ReAct 降级"}
 
-            company_id = getattr(context, "company_id", None) or context.intent_entities.get(
-                "company_id", ""
-            )
             company_id_int = self._context_company_id(context)
             llm = mg.get_llm(
                 model_key=self._selected_model_key(context),
@@ -913,9 +912,11 @@ class MasterAgentRouter:
             # 工具：优先用 master 专属工具集（从 tool_providers.yaml 加载），
             # 加载失败或为空时降级到 get_core_tools() 兜底
             tools = self._load_master_tools()
-            if not tools:
+            if tools:
+                tools = bind_tenant_core_tools(tools, company_id_int)
+            else:
                 try:
-                    tools = get_core_tools()
+                    tools = get_tenant_core_tools(company_id_int) if company_id_int else []
                     logger.info("react_tools_fallback_core", count=len(tools))
                 except Exception as tool_err:
                     logger.warning("react_tools_unavailable", error=str(tool_err))
@@ -941,7 +942,7 @@ class MasterAgentRouter:
                 "messages": [HumanMessage(content=query)],
                 "company_context": {
                     "agent_name": "master",
-                    "company_id": str(company_id) if company_id else "",
+                    "company_id": str(company_id_int) if company_id_int else "",
                 },
             }
             result_state = await react_app.ainvoke(state)
@@ -1005,11 +1006,11 @@ class MasterAgentRouter:
                 yield {"type": "plan", "data": f"master 拆解任务: {query[:50]}..."}
                 runtime = self._get_agent_runtime()
                 if runtime is not None:
-                    company_id = context.intent_entities.get("company_id", "")
+                    company_id = self._context_company_id(context)
                     async for event in runtime.run_stream(
                         message=query,
                         agent_name="master",
-                        company_id=company_id,
+                        company_id=str(company_id) if company_id else "",
                         model_key=self._selected_model_key(context),
                     ):
                         yield event

@@ -484,7 +484,7 @@ class WorkflowEngine:
                 return None
 
             # Get related A2A messages
-            messages = db.get_pending_a2a_messages()
+            messages = db.get_pending_a2a_messages(workflow.company_id)
             workflow_messages = [
                 msg
                 for msg in messages

@@ -5,15 +5,16 @@ Enhanced with task lifecycle management, Redis state storage, and capability neg
 """
 
 import json  # A2A 协议传输层使用 JSON 作为标准序列化格式，跨语言兼容
-import logging  # 结构化日志用于追踪 Agent 间通信的完整链路
 from contextlib import suppress
 from datetime import datetime  # 所有任务状态变更都需精确时间戳，便于审计和超时判断
 from typing import (  # Any 用于灵活处理不同 Agent 返回的异构数据；Optional 用于可空字段的显式声明
     Any,
 )
 
-# 使用模块级 logger 而非 root logger，便于按通信模块过滤和分级查看日志
-logger = logging.getLogger(__name__)
+from app.core.logging import get_logger
+
+# 使用项目统一的结构化 logger，确保关键字事件字段不会传给标准 Logger._log()
+logger = get_logger(__name__)
 
 
 # 使用字符串常量而非 IntEnum，因为 A2A 协议规范要求字符串状态码，便于跨系统序列化
@@ -112,31 +113,34 @@ class A2AAdapter:
         now = datetime.utcnow().isoformat()  # 使用 UTC 时间避免时区问题，A2A 协议要求 UTC
 
         redis = self._get_redis()
-        if redis:  # Redis 优先：高性能状态读写，适合高频轮询场景
+        current = None
+        if redis:
             try:
-                # 获取当前状态，校验流转
                 current = redis.hget(
                     self._make_task_key(task_id), "status"
-                )  # 先读后写，确保状态流转合法性
-                if current and status not in TASK_STATUS_TRANSITIONS.get(
-                    current, []
-                ):  # 白名单校验，拒绝非法跳跃
-                    logger.warning(
-                        "a2a_invalid_status_transition",
-                        task_id=task_id,
-                        from_status=current,
-                        to_status=status,
-                    )
-                    return False  # 返回 False 而非抛异常，让调用方可以优雅处理
+                )
+            except Exception as e:
+                logger.warning("a2a_redis_status_read_failed", error=str(e))
 
-                task_data = {
-                    "status": status,
-                    "updated_at": now,
-                }
+        if not current:
+            current = self._get_task_status_db(task_id).get("status")
+        if current in TASK_STATUS_TRANSITIONS and status not in TASK_STATUS_TRANSITIONS[current]:
+            logger.warning(
+                "a2a_invalid_status_transition",
+                task_id=task_id,
+                from_status=current,
+                to_status=status,
+            )
+            return False
+
+        if not self._update_task_status_db(task_id, status, result=result, error=error):
+            return False
+
+        if redis:
+            try:
+                task_data = {"status": status, "updated_at": now}
                 if result is not None:
-                    task_data["result"] = json.dumps(
-                        result, ensure_ascii=False
-                    )  # ensure_ascii=False 保留中文可读性
+                    task_data["result"] = json.dumps(result, ensure_ascii=False)
                 if error is not None:
                     task_data["error"] = error
                 if status in (
@@ -144,19 +148,17 @@ class A2AAdapter:
                     A2ATaskStatus.FAILED,
                     A2ATaskStatus.TIMEOUT,
                     A2ATaskStatus.CANCELLED,
-                ):  # 终态统一记录完成时间
+                ):
                     task_data["completed_at"] = now
-
-                redis.hset(
-                    self._make_task_key(task_id), mapping=task_data
-                )  # HSET 原子操作，避免并发覆盖
-                logger.info("a2a_task_status_updated", task_id=task_id, status=status)
-                return True
+                redis.hset(self._make_task_key(task_id), mapping=task_data)
             except Exception as e:
                 logger.warning("a2a_redis_status_update_failed", error=str(e))
+                if hasattr(redis, "delete"):
+                    with suppress(Exception):
+                        redis.delete(self._make_task_key(task_id))
 
-        # Fallback: 更新数据库
-        return self._update_task_status_db(task_id, status)
+        logger.info("a2a_task_status_updated", task_id=task_id, status=status)
+        return True
 
     def get_task_status(self, task_id: str) -> dict:
         """
@@ -187,13 +189,27 @@ class A2AAdapter:
 
     def _store_task(self, task_data: dict[str, Any]) -> str:
         """Store task and initialize Redis state"""
-        task_id = task_data.get(
-            "id", f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        )  # 如果没有提供 id，自动生成带时间戳的唯一 ID
+        company_id = task_data.get("company_id")
+        if company_id is None:
+            raise ValueError("company_id is required to store an A2A task")
 
-        # 初始化 Redis 状态
+        create_kwargs = {
+            "sender": task_data["sender"],
+            "recipients": task_data["recipient"],
+            "task": task_data["description"],
+            "task_type": task_data["type"],
+            "company_id": company_id,
+            "payload": task_data.get("payload", {}),
+        }
+        if task_data.get("id"):
+            create_kwargs["message_id"] = task_data["id"]
+        task_id = self.db.create_a2a_message(
+            **create_kwargs,
+        )
+
+        # 数据库是持久化事实源，成功后再刷新 Redis 缓存。
         redis = self._get_redis()
-        if redis:  # Redis 写入失败不影响数据库存储，两者独立执行
+        if redis:
             try:
                 initial_data = {
                     "status": A2ATaskStatus.PENDING,  # 新任务初始状态统一为 PENDING
@@ -204,6 +220,7 @@ class A2AAdapter:
                     "payload": json.dumps(
                         task_data.get("payload", {}), ensure_ascii=False
                     ),  # 保存原始 payload 以便后续步骤回溯
+                    "company_id": str(company_id),
                     "created_at": datetime.utcnow().isoformat(),
                     "updated_at": datetime.utcnow().isoformat(),
                 }
@@ -214,50 +231,24 @@ class A2AAdapter:
             except Exception as e:
                 logger.warning("a2a_redis_state_init_failed", error=str(e))
 
-        # 数据库存储：作为持久化兜底，Redis 过期后数据仍可查询
-        try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO a2a_messages (
-                    message_id, sender_agent_name, recipient_agent_name,
-                    task_description, task_type, payload,
-                    company_id, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    task_id,
-                    task_data["sender"],
-                    task_data["recipient"],
-                    task_data["description"],
-                    task_data["type"],
-                    json.dumps(task_data["payload"]),
-                    1,
-                    A2ATaskStatus.PENDING,
-                    datetime.utcnow().isoformat(),
-                ),
-            )
-            conn.commit()
-            conn.close()  # 显式关闭连接，避免连接池耗尽
-        except Exception as e:
-            logger.error(f"Failed to store task in DB: {e}")
-
         return task_id
 
-    def _update_task_status_db(self, task_id: str, status: str) -> bool:
+    def _update_task_status_db(
+        self,
+        task_id: str,
+        status: str,
+        result: dict = None,
+        error: str = None,
+    ) -> bool:
         """Fallback: 更新数据库中的任务状态"""
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            now = datetime.utcnow().isoformat()
-            cursor.execute(
-                "UPDATE a2a_messages SET status = ?, completed_at = ? WHERE message_id = ?",
-                (status, now, task_id),
-            )
-            conn.commit()
-            conn.close()
-            return True
+            stored_result = None
+            if result is not None or error is not None:
+                payload = dict(result or {})
+                if error is not None:
+                    payload["error"] = error
+                stored_result = json.dumps(payload, ensure_ascii=False)
+            return self.db.update_a2a_message_status(task_id, status, stored_result)
         except Exception as e:
             logger.error(f"Failed to update task status in DB: {e}")
             return False  # 数据库更新失败时返回 False，让调用方知道状态未持久化
@@ -265,21 +256,9 @@ class A2AAdapter:
     def _get_task_status_db(self, task_id: str) -> dict:
         """Fallback: 从数据库读取任务状态"""
         try:
-            conn = self.db.get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT status, created_at, completed_at FROM a2a_messages WHERE message_id = ?",
-                (task_id,),
-            )
-            row = cursor.fetchone()
-            conn.close()
-            if row:
-                return {
-                    "task_id": task_id,
-                    "status": row[0],
-                    "created_at": row[1],
-                    "completed_at": row[2],
-                }
+            result = self.db.get_a2a_message_status(task_id)
+            if result:
+                return result
         except Exception as e:
             logger.error(f"Failed to read task status from DB: {e}")
         return {"task_id": task_id, "status": "unknown"}  # 兜底返回 unknown，避免前端因空返回而崩溃
@@ -482,6 +461,7 @@ class A2AAdapter:
         task_message: str,
         task_type: str = "general",
         payload: dict = None,
+        company_id: int | None = None,
     ) -> dict:
         """
         创建任务并委派给目标 Agent，初始状态为 pending。
@@ -489,13 +469,25 @@ class A2AAdapter:
         """
         # 校验目标 Agent 是否存在，避免向不存在的 Agent 委派任务
         try:
-            agent = self.db.get_agent_by_name(target_agent_name)
+            try:
+                agent = self.db.get_agent_by_name(
+                    target_agent_name,
+                    company_id=company_id,
+                )
+            except TypeError:
+                agent = self.db.get_agent_by_name(target_agent_name)
         except Exception as e:
             logger.warning("a2a_agent_lookup_failed", target=target_agent_name, error=str(e))
             agent = None
         registry_agent_key = self._resolve_registry_agent_key(target_agent_name)
         if not agent and not registry_agent_key:
             return {"success": False, "error": "Agent not found"}
+        agent_company_id = getattr(agent, "company_id", None) if agent else None
+        if company_id is not None and agent_company_id is not None and agent_company_id != company_id:
+            return {"success": False, "error": "Agent not found"}
+        resolved_company_id = company_id if company_id is not None else agent_company_id
+        if resolved_company_id is None:
+            return {"success": False, "error": "company_id is required"}
         recipient = agent.name if agent else registry_agent_key
 
         # 构建任务数据字典，_store_task 期望 sender/recipient/description/type/payload 等键
@@ -505,10 +497,15 @@ class A2AAdapter:
             "description": task_message,
             "type": task_type,
             "payload": payload or {},
+            "company_id": resolved_company_id,
         }
 
         # 复用 _store_task 创建任务记录，内部已将 Redis/DB 状态初始化为 pending
-        task_id = self._store_task(task_data)
+        try:
+            task_id = self._store_task(task_data)
+        except Exception as e:
+            logger.error("a2a_task_persistence_failed", error=str(e))
+            return {"success": False, "error": "Task persistence failed"}
 
         return {
             "success": True,

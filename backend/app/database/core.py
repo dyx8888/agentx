@@ -3,9 +3,8 @@ Database Core - SQLAlchemy Session Management
 Provides database session management and engine configuration
 """
 
+import ast
 import os  # 閫氳繃鐜鍙橀噺娉ㄥ叆鏁版嵁搴撹繛鎺ヤ俊鎭紝閬垮厤纭紪鐮侊紝鏀寔涓嶅悓閮ㄧ讲鐜鐏垫椿鍒囨崲
-
-import re
 from pathlib import Path
 
 from sqlalchemy import (
@@ -21,9 +20,13 @@ from sqlalchemy.pool import (
     QueuePool,  # SQLite 涔熺敤 QueuePool锛歞ef 璺敱璧?threadpool 鏃讹紝姣忎釜绾跨▼鐨?Session 闇€鐙崰杩炴帴锛孲taticPool 鍗曡繛鎺ヤ細瀵艰嚧 Session 绾跨▼瀹夊叏闂
 )
 
-from app.core.logging import get_logger  # 缁撴瀯鍖栨棩蹇楋紝鏂逛究鍦ㄥ垎甯冨紡鐜涓寜妯″潡杩借釜鏁版嵁搴撳垵濮嬪寲鐘舵€?
+from app.core.logging import (
+    get_logger,  # 缁撴瀯鍖栨棩蹇楋紝鏂逛究鍦ㄥ垎甯冨紡鐜涓寜妯″潡杩借釜鏁版嵁搴撳垵濮嬪寲鐘舵€?
+)
 
-from .models import Base  # 鎵€鏈?ORM 妯″瀷鍏变韩鍚屼竴涓?declarative_base锛屽缓琛ㄦ椂鍙渶閬嶅巻涓€娆?metadata
+from .models import (
+    Base,  # 鎵€鏈?ORM 妯″瀷鍏变韩鍚屼竴涓?declarative_base锛屽缓琛ㄦ椂鍙渶閬嶅巻涓€娆?metadata
+)
 
 logger = get_logger(__name__)  # 妯″潡绾?logger锛屾寜 __name__ 鑷姩鐢熸垚灞傜骇鍛藉悕绌洪棿锛屼究浜庢棩蹇楄繃婊?
 
@@ -166,21 +169,29 @@ def _ensure_runtime_schema_compatibility(engine) -> None:
 def _detect_alembic_head_revision() -> str | None:
     """Return the single Alembic head revision from local migration files."""
     versions_dir = Path(__file__).resolve().parents[2] / "alembic" / "versions"
-    revisions: dict[str, str | None] = {}
+    revisions: dict[str, str | tuple[str, ...] | None] = {}
 
     for path in versions_dir.glob("*.py"):
-        text_value = path.read_text(encoding="utf-8-sig")
-        revision_match = re.search(r'^revision:\s*str\s*=\s*["\']([^"\']+)["\']', text_value, re.M)
-        if not revision_match:
-            continue
-        down_match = re.search(
-            r'^down_revision:\s*str\s*\|\s*None\s*=\s*(?:["\']([^"\']+)["\']|None)',
-            text_value,
-            re.M,
-        )
-        revisions[revision_match.group(1)] = down_match.group(1) if down_match else None
+        values = {}
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+        for node in tree.body:
+            target = node.target if isinstance(node, ast.AnnAssign) else None
+            value = node.value if isinstance(node, ast.AnnAssign) else None
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target = node.targets[0]
+                value = node.value
+            if isinstance(target, ast.Name) and target.id in {"revision", "down_revision"}:
+                values[target.id] = ast.literal_eval(value)
+        revision = values.get("revision")
+        if isinstance(revision, str):
+            revisions[revision] = values.get("down_revision")
 
-    referenced = {down for down in revisions.values() if down}
+    referenced = set()
+    for down_revision in revisions.values():
+        if isinstance(down_revision, str):
+            referenced.add(down_revision)
+        elif isinstance(down_revision, (tuple, list)):
+            referenced.update(down_revision)
     heads = sorted(set(revisions) - referenced)
     if len(heads) != 1:
         logger.warning("alembic_head_detection_failed", heads=heads)

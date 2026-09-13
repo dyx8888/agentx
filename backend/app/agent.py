@@ -3,8 +3,13 @@ Agent 核心引擎
 支持 MCP 协议 + Skill 机制 + 三大范式 (ReAct / Plan-and-Solve / Reflection)
 """
 
+# ruff: noqa: E402  # 内部 app 导入必须位于 backend_path 注入之后
+
 # ---- 异步支持：create_agent 为 async 函数，asyncio 是其基础依赖 ----
 import asyncio
+
+# ---- importlib 用于按注册表提供的模块路径懒加载 Agent，兼容 key 与文件名不同的条目 ----
+import importlib
 
 # ---- 文件系统操作：用于计算 backend 根目录路径 ----
 import os
@@ -23,7 +28,7 @@ from typing import Annotated
 from langchain_core.messages import SystemMessage
 
 # ---- @tool 装饰器将普通函数转为 LangChain 工具，LLM 才能识别并调用 ----
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool, tool
 
 # ---- StateGraph：构建有状态 Agent 图的核心类；END/START 是图入口出口常量 ----
 from langgraph.graph import END, START, StateGraph
@@ -44,6 +49,7 @@ if backend_path not in sys.path:
     sys.path.insert(0, backend_path)
 
 # ---- 以下导入必须在 sys.path 注入之后，因为 app 包位于 backend 目录下 ----
+from app.agents import AGENT_REGISTRY
 from app.core.agent_robustness import enrich_system_prompt  # 注入反注入/防越狱等鲁棒性增强
 from app.core.instruction_boundary import (
     wrap_system_instructions,  # 用分隔标记包裹指令，防止 prompt 注入
@@ -83,32 +89,124 @@ def get_current_time() -> str:
     return datetime.utcnow().isoformat()
 
 
-@tool
-def schedule_task(target_agent_name: str, task: str) -> str:
+def _resolve_registered_agent_key(name: str) -> str | None:
+    """Resolve a registry key from a key, display name, or legacy module name."""
+    normalized = str(name or "").strip().casefold()
+    if not normalized:
+        return None
+
+    for key, info in AGENT_REGISTRY.items():
+        aliases = {
+            key,
+            str(info.get("name_display", "")),
+            str(info.get("module", "")).rsplit(".", 1)[-1],
+        }
+        if normalized in {alias.strip().casefold() for alias in aliases if alias.strip()}:
+            return key
+    return None
+
+
+def _load_legacy_agent_config(module) -> tuple[str, list[str]] | None:
+    """Read the common Agent contract, with a safe fallback for legacy modules."""
+    prompt_loader = getattr(module, "get_system_prompt", None)
+    tools_loader = getattr(module, "get_default_tools", None)
+    if callable(prompt_loader) and callable(tools_loader):
+        return prompt_loader(), tools_loader()
+
+    prompt = next(
+        (
+            value
+            for key, value in vars(module).items()
+            if key.endswith("_SYSTEM_PROMPT") and isinstance(value, str) and value.strip()
+        ),
+        None,
+    )
+    if prompt is None:
+        return None
+
+    tools = tools_loader() if callable(tools_loader) else []
+    return prompt, tools
+
+
+def _get_company_agent(db, target_agent_name: str, company_id: int):
+    """Resolve an Agent inside the authenticated tenant when the adapter supports it."""
+    try:
+        agent = db.get_agent_by_name(target_agent_name, company_id=company_id)
+    except TypeError:
+        agent = db.get_agent_by_name(target_agent_name)
+    if agent and getattr(agent, "company_id", None) == company_id:
+        return agent
+    return None
+
+
+def _get_unscoped_agent(db, target_agent_name: str):
+    """Read an exact-name Agent only to reject an unsafe cross-tenant fallback."""
+    try:
+        return db.get_agent_by_name(target_agent_name)
+    except (AttributeError, TypeError):
+        return None
+
+
+def _schedule_task_for_company(
+    target_agent_name: str,
+    task: str,
+    company_id: int,
+) -> str:
     """Schedule a task for asynchronous execution by another agent."""
     try:
         # ---- 延迟导入 db：避免循环导入；agent.py 被多处引用，延迟导入打破依赖环 ----
         from app.database import db
 
-        # ---- 先查目标 Agent 是否存在：防止向不存在的 Agent 派发任务导致孤立任务记录 ----
-        target_agent = db.get_agent_by_name(target_agent_name)
+        # ---- 先解析注册表别名，再查询公司级 Agent；注册表键与模块文件名可能不同 ----
+        registry_key = _resolve_registered_agent_key(target_agent_name)
+        target_agent = _get_company_agent(db, target_agent_name, company_id)
+        if not target_agent and registry_key:
+            target_agent = _get_company_agent(db, registry_key, company_id)
+
         if not target_agent:
+            for candidate_name in dict.fromkeys((target_agent_name, registry_key)):
+                if not candidate_name:
+                    continue
+                existing_agent = _get_unscoped_agent(db, candidate_name)
+                if existing_agent and getattr(existing_agent, "company_id", None) != company_id:
+                    return f"Agent '{target_agent_name}' not found."
+
+        if target_agent:
+            task_company_id = target_agent.company_id
+            task_target_name = target_agent.name
+        elif registry_key:
+            if not db.get_company(company_id):
+                return f"Company '{company_id}' not found."
+            task_company_id = company_id
+            task_target_name = registry_key
+        else:
             return f"Agent '{target_agent_name}' not found."
+
         # ---- source_agent_id=None：调度型任务没有明确的源 Agent，由系统触发 ----
         task_id = db.create_task(
-            company_id=target_agent.company_id,
+            company_id=task_company_id,
             source_agent_id=None,
-            target_agent_name=target_agent_name,
+            target_agent_name=task_target_name,
             task_description=task,
         )
-        return f"Task scheduled for {target_agent_name}. Task ID: {task_id}"
+        return f"Task scheduled for {task_target_name}. Task ID: {task_id}"
     except Exception as e:
         # ---- 捕获所有异常并返回友好消息：工具函数抛出未捕获异常会导致 LangGraph 图执行中断 ----
         return f"Error scheduling task: {str(e)}"
 
 
 @tool
-def a2a_delegate_task(target_agent_name: str, task: str, task_type: str = "general") -> str:
+def schedule_task(target_agent_name: str, task: str) -> str:
+    """Schedule a task for another agent using server-bound tenant identity."""
+    return "Error scheduling task: trusted company context is required."
+
+
+def _a2a_delegate_task_for_company(
+    target_agent_name: str,
+    task: str,
+    task_type: str,
+    company_id: int,
+) -> str:
     """Delegate task to another agent using Google A2A protocol"""
     try:
         # ---- 延迟导入 a2a_adapter：A2A 协议非核心路径，延迟导入避免模块未安装时崩溃 ----
@@ -116,7 +214,12 @@ def a2a_delegate_task(target_agent_name: str, task: str, task_type: str = "gener
 
         # ---- 每次调用获取 adapter 实例：adapter 可能持有连接状态，按需创建避免连接泄漏 ----
         adapter = get_a2a_adapter()
-        result = adapter.send_task(target_agent_name, task, task_type)
+        result = adapter.send_task(
+            target_agent_name,
+            task,
+            task_type,
+            company_id=company_id,
+        )
         if result["success"]:
             return f"Task sent to {target_agent_name} via A2A. Task ID: {result['task_id']}"
         else:
@@ -124,6 +227,16 @@ def a2a_delegate_task(target_agent_name: str, task: str, task_type: str = "gener
             return f"A2A delegation failed: {result['error']}"
     except Exception as e:
         return f"Error using A2A protocol: {str(e)}"
+
+
+@tool
+def a2a_delegate_task(
+    target_agent_name: str,
+    task: str,
+    task_type: str = "general",
+) -> str:
+    """Delegate a task using server-bound tenant identity."""
+    return "A2A delegation failed: trusted company context is required."
 
 
 def get_core_tools() -> list:
@@ -137,6 +250,55 @@ def get_core_tools() -> list:
     a2a_delegate_task.metadata["side_effect"] = True
     # ---- get_current_time 不放首位：它是纯查询工具无副作用，放中间不特殊，调用频率最高的 schedule_task 在索引 1 ----
     return [get_current_time, schedule_task, a2a_delegate_task]
+
+
+def get_tenant_core_tools(company_id: int | str) -> list:
+    """Build core tools whose tenant identity is fixed outside the model schema."""
+    normalized_company_id = int(company_id)
+
+    def tenant_schedule_task(target_agent_name: str, task: str) -> str:
+        """Schedule a task for asynchronous execution by another agent."""
+        return _schedule_task_for_company(target_agent_name, task, normalized_company_id)
+
+    def tenant_a2a_delegate_task(
+        target_agent_name: str,
+        task: str,
+        task_type: str = "general",
+    ) -> str:
+        """Delegate task to another agent using Google A2A protocol."""
+        return _a2a_delegate_task_for_company(
+            target_agent_name,
+            task,
+            task_type,
+            normalized_company_id,
+        )
+
+    bound_schedule = StructuredTool.from_function(
+        func=tenant_schedule_task,
+        name="schedule_task",
+        description=schedule_task.description,
+    )
+    bound_delegate = StructuredTool.from_function(
+        func=tenant_a2a_delegate_task,
+        name="a2a_delegate_task",
+        description=a2a_delegate_task.description,
+    )
+    for bound, original in (
+        (bound_schedule, schedule_task),
+        (bound_delegate, a2a_delegate_task),
+    ):
+        bound.metadata = dict(getattr(original, "metadata", {}) or {})
+        bound.metadata["side_effect"] = True
+
+    return [get_current_time, bound_schedule, bound_delegate]
+
+
+def bind_tenant_core_tools(tools: list, company_id: int | str | None) -> list:
+    """Replace unbound core tools without adding tools a provider did not select."""
+    if company_id is None or not str(company_id).strip():
+        return list(tools)
+    replacements = {tool.name: tool for tool in get_tenant_core_tools(company_id)}
+    return [replacements.get(getattr(tool, "name", ""), tool) for tool in tools]
 
 
 def build_reaction_graph(agent_node, tools: list, model_gateway):
@@ -295,19 +457,32 @@ def get_agent_by_name(name: str):
     # ---- name 为空时直接返回默认：避免后续 __import__ 尝试加载空模块名导致 ImportError ----
     if not name:
         return build_system_message(), []
-    try:
-        # ---- 用 f-string 拼接模块路径：遵循项目约定，每个 Agent 在 app.agents 下独立模块 ----
-        module_name = f"app.agents.{name}"
-        # ---- __import__ 而非 importlib：兼容 Python 3.7+，且 fromlist=[''] 保证返回最顶层包 ----
-        module = __import__(module_name, fromlist=[""])
-        # ---- 所有 agent 模块统一使用 get_system_prompt / get_default_tools 命名 ----
-        system_prompt = module.get_system_prompt()
-        default_tools = module.get_default_tools()
-        return system_prompt, default_tools
-    except (ImportError, AttributeError) as e:
-        # ---- 同时捕获 ImportError 和 AttributeError：模块不存在或函数命名不规范都能被兜底 ----
-        logger.warning("agent_load_failed", agent_name=name, error=str(e))
-        return build_system_message(), []
+    registry_key = _resolve_registered_agent_key(name)
+    module_names = []
+    if registry_key:
+        module_names.append(AGENT_REGISTRY[registry_key]["module"])
+    module_names.append(f"app.agents.{str(name).strip()}")
+
+    last_error = None
+    seen_modules = set()
+    for module_name in module_names:
+        if module_name in seen_modules:
+            continue
+        seen_modules.add(module_name)
+        try:
+            module = importlib.import_module(module_name)
+            config = _load_legacy_agent_config(module)
+            if config is not None:
+                return config
+            last_error = AttributeError(
+                f"Agent module '{module_name}' does not expose a supported config contract"
+            )
+        except (ImportError, AttributeError, TypeError) as exc:
+            last_error = exc
+
+    if last_error:
+        logger.warning("agent_load_failed", agent_name=name, error=str(last_error))
+    return build_system_message(), []
 
 
 def get_agent_for_tools(agent_name: str):

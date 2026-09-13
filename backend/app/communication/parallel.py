@@ -56,9 +56,15 @@ class ParallelExecutionResult:
 class ParallelAgentDispatcher:
     """并行Agent分派器 - 使用 asyncio.gather 并行执行多个任务"""
 
-    def __init__(self, a2a_adapter=None, global_timeout: float = DEFAULT_PARALLEL_TIMEOUT):
+    def __init__(
+        self,
+        a2a_adapter=None,
+        global_timeout: float = DEFAULT_PARALLEL_TIMEOUT,
+        company_id: int | None = None,
+    ):
         self._a2a = a2a_adapter  # A2A 适配器，用于 Agent 间通信
         self._global_timeout = global_timeout  # 全局超时，防止某个慢任务拖垮整体
+        self._company_id = company_id
 
     async def dispatch(self, tasks: list[ParallelTask]) -> ParallelExecutionResult:
         """
@@ -151,6 +157,7 @@ class ParallelAgentDispatcher:
                     task.target_agent,
                     task.task_description,
                     task_type=task.task_type,
+                    company_id=self._company_id,
                 )
 
                 if result.get("success"):
@@ -259,18 +266,27 @@ class ParallelAgentDispatcher:
 
 # ── 全局实例 ──────────────────────────────────────
 
-_parallel_dispatcher: ParallelAgentDispatcher | None = None  # 模块级单例，延迟初始化
+_parallel_dispatchers: dict[int | None, ParallelAgentDispatcher] = {}
 
 
-def get_parallel_dispatcher(a2a_adapter=None) -> ParallelAgentDispatcher:
+def get_parallel_dispatcher(
+    a2a_adapter=None,
+    company_id: int | None = None,
+) -> ParallelAgentDispatcher:
     """获取全局并行分派器实例"""
-    global _parallel_dispatcher
-    if _parallel_dispatcher is None:
-        _parallel_dispatcher = ParallelAgentDispatcher(a2a_adapter=a2a_adapter)  # 首次调用时创建
-    return _parallel_dispatcher
+    dispatcher = _parallel_dispatchers.get(company_id)
+    if dispatcher is None:
+        dispatcher = ParallelAgentDispatcher(
+            a2a_adapter=a2a_adapter,
+            company_id=company_id,
+        )
+        _parallel_dispatchers[company_id] = dispatcher
+    elif a2a_adapter is not None:
+        dispatcher._a2a = a2a_adapter
+    return dispatcher
 
 
-def a2a_delegate_parallel(tasks: list[dict]) -> list[dict]:
+def a2a_delegate_parallel(tasks: list[dict], company_id: int | None = None) -> list[dict]:
     """
     并行委派工具函数 - 供Agent调用
 
@@ -301,7 +317,10 @@ def a2a_delegate_parallel(tasks: list[dict]) -> list[dict]:
         from app.communication.a2a_adapter import get_a2a_adapter  # 延迟导入避免循环依赖
 
         adapter = get_a2a_adapter()
-        dispatcher = get_parallel_dispatcher(a2a_adapter=adapter)
+        dispatcher = get_parallel_dispatcher(
+            a2a_adapter=adapter,
+            company_id=company_id,
+        )
 
         loop = asyncio.get_event_loop()
         if loop.is_running():  # 已在事件循环中（如 FastAPI 请求处理），通过线程安全方式调度

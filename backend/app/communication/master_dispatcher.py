@@ -118,12 +118,7 @@ class MasterDispatcher:
         return value or None
 
     def _context_company_id(self) -> int | None:
-        company_id = ""
-        if self._context:
-            company_id = (
-                self._context.intent_entities.get("company_id", "")
-                or getattr(self._context, "company_id", "")
-            )
+        company_id = getattr(self._context, "company_id", "") if self._context else ""
         try:
             return int(company_id) if company_id else None
         except (TypeError, ValueError):
@@ -409,6 +404,7 @@ class MasterDispatcher:
                     target_agent_name=task.agent_name,
                     task_message=description,
                     task_type=DELEGATION_TASK_TYPE,
+                    company_id=self._context_company_id(),
                 ),
             )
             if isinstance(result, dict):

@@ -55,10 +55,11 @@ class TestCollaboration:
 
         # Mock 数据库操作
         with patch('app.database.db') as mock_db:
-            mock_db.get_agents_by_company.return_value = [
-                MagicMock(name="BrandBD", tools_json='["generate_script"]'),
-                MagicMock(name="CC", tools_json='["edit_content"]')
-            ]
+            brand_bd = MagicMock(tools_json='["generate_script"]')
+            brand_bd.name = "BrandBD"
+            cc = MagicMock(tools_json='["edit_content"]')
+            cc.name = "CC"
+            mock_db.get_agents_by_company.return_value = [brand_bd, cc]
 
             mock_db.create_task.return_value = 12345
 
@@ -123,10 +124,11 @@ class TestCollaboration:
 
         # Mock 数据库操作
         with patch('app.database.db') as mock_db:
-            mock_db.get_agents_by_company.return_value = [
-                MagicMock(name="BrandBD", tools_json='["generate_script"]'),
-                MagicMock(name="CC", tools_json='["edit_content"]')
-            ]
+            brand_bd = MagicMock(tools_json='["generate_script"]')
+            brand_bd.name = "BrandBD"
+            cc = MagicMock(tools_json='["edit_content"]')
+            cc.name = "CC"
+            mock_db.get_agents_by_company.return_value = [brand_bd, cc]
 
             # Mock 数据库创建失败
             mock_db.create_task.side_effect = Exception("Database connection failed")
@@ -157,9 +159,9 @@ class TestCollaboration:
 
         # Mock 数据库操作
         with patch('app.database.db') as mock_db:
-            mock_db.get_agents_by_company.return_value = [
-                MagicMock(name="BrandBD", tools_json='["generate_script"]')
-            ]
+            brand_bd = MagicMock(tools_json='["generate_script"]')
+            brand_bd.name = "BrandBD"
+            mock_db.get_agents_by_company.return_value = [brand_bd]
 
             # 移除 CC Agent
             mock_db.create_task.return_value = 12347
@@ -173,7 +175,7 @@ class TestCollaboration:
 
             # 验证没有创建任务
             assert new_task_id is None
-            assert mock_db.create_task.called
+            mock_db.create_task.assert_not_called()
             assert mock_db.get_agents_by_company.called
 
     def test_6_singleton_behavior(self):

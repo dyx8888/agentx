@@ -182,13 +182,13 @@ def test_list_platform_credentials_returns_masked_status_only(monkeypatch, compa
     assert "alpha-access-token" not in serialized
 
 
-def test_verify_unbound_platform_credentials_returns_404(monkeypatch, companies_db):
+def test_verify_platform_credentials_is_paused(monkeypatch, companies_db):
     client = _client(monkeypatch, companies_db, _user(company_id=2, is_admin=False))
 
     response = client.post("/api/admin/companies/2/credentials/douyin_star/verify")
 
-    assert response.status_code == 404
-    assert "No credentials bound" in response.json()["detail"]
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "platform_api_paused"
 
 
 def test_bind_platform_credentials_write_failure_is_not_success(monkeypatch, companies_db):

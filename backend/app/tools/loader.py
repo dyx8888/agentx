@@ -133,9 +133,9 @@ class ToolLoader:
         )
         self._providers: list[_ProviderMeta] = []
         self._loaded = False
-        self._schema_cache: dict[str, list] = {}
-        # MCP 连接池: {provider_name: MultiServerMCPClient}
-        self._mcp_client_pool: dict[str, Any] = {}
+        self._schema_cache: dict[tuple[str, str], list] = {}
+        # MCP 进程环境包含租户身份，因此连接和工具 schema 都必须按租户隔离。
+        self._mcp_client_pool: dict[tuple[str, str], Any] = {}
         # MCP 健康状态: {provider_name: bool}
         self._mcp_health: dict[str, bool] = {}
 
@@ -417,12 +417,13 @@ class ToolLoader:
         multi_tenant=true 时自动注入 X-Company-Id 和 X-Trace-Id header。
         """
         name = provider.name
+        cache_key = (name, str(ctx.company_id or ""))
 
         # Schema 缓存
-        if name in self._schema_cache:
-            logger.debug("tool_schema_cache_hit", provider=name)
+        if cache_key in self._schema_cache:
+            logger.debug("tool_schema_cache_hit", provider=name, company_id=ctx.company_id)
             # 返回列表浅拷贝，避免调用方 append/clear 污染缓存
-            return list(self._schema_cache[name])
+            return list(self._schema_cache[cache_key])
 
         # 构建 client 配置
         client_config = {
@@ -443,13 +444,13 @@ class ToolLoader:
             from langchain_mcp_adapters.client import MultiServerMCPClient
 
             # 连接池复用
-            if name in self._mcp_client_pool:
-                client = self._mcp_client_pool[name]
-                logger.debug("mcp_client_pool_hit", provider=name)
+            if cache_key in self._mcp_client_pool:
+                client = self._mcp_client_pool[cache_key]
+                logger.debug("mcp_client_pool_hit", provider=name, company_id=ctx.company_id)
             else:
                 client = MultiServerMCPClient(client_config)
-                self._mcp_client_pool[name] = client
-                logger.info("mcp_client_pool_created", provider=name)
+                self._mcp_client_pool[cache_key] = client
+                logger.info("mcp_client_pool_created", provider=name, company_id=ctx.company_id)
 
             tools = await client.get_tools()
 
@@ -482,7 +483,7 @@ class ToolLoader:
                     await self._enhance_tool_description(t)
 
             # 缓存
-            self._schema_cache[name] = tools
+            self._schema_cache[cache_key] = tools
             logger.info("mcp_tools_loaded", provider=name, count=len(tools))
             return tools
 
@@ -596,8 +597,9 @@ class ToolLoader:
                 from langchain_mcp_adapters.client import MultiServerMCPClient
 
                 # 复用连接池，避免重复创建 stdio 子进程（与 _load_mcp_stdio 一致）
-                if name in self._mcp_client_pool:
-                    client = self._mcp_client_pool[name]
+                cache_key = (name, "")
+                if cache_key in self._mcp_client_pool:
+                    client = self._mcp_client_pool[cache_key]
                     logger.debug("mcp_health_check_pool_hit", provider=name)
                 else:
                     client_config = {
@@ -610,7 +612,7 @@ class ToolLoader:
                         }
                     }
                     client = MultiServerMCPClient(client_config)
-                    self._mcp_client_pool[name] = client
+                    self._mcp_client_pool[cache_key] = client
                     logger.info("mcp_health_check_pool_created", provider=name)
                 await client.get_tools()
                 self._mcp_health[name] = True
@@ -633,7 +635,17 @@ class ToolLoader:
 
     # ── MCP 资源/提示支持 ─────────────────────────────
 
-    async def list_resources(self, provider_name: str) -> list:
+    def _pooled_client(self, provider_name: str, company_id: str | None = None):
+        if company_id is not None:
+            return self._mcp_client_pool.get((provider_name, str(company_id)))
+        matches = [
+            client
+            for (name, _tenant), client in self._mcp_client_pool.items()
+            if name == provider_name
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    async def list_resources(self, provider_name: str, company_id: str | None = None) -> list:
         """
         扩展 MCP Server 支持资源(resources)暴露。
         调用 MCP Server 的 list_resources() 方法。
@@ -644,16 +656,21 @@ class ToolLoader:
         Returns:
             资源列表
         """
-        if provider_name in self._mcp_client_pool:
+        client = self._pooled_client(provider_name, company_id)
+        if client is not None:
             try:
-                client = self._mcp_client_pool[provider_name]
                 if hasattr(client, "list_resources"):
                     return await client.list_resources()
             except Exception as e:
                 logger.warning("mcp_list_resources_failed", provider=provider_name, error=str(e))
         return []
 
-    async def read_resource(self, provider_name: str, uri: str) -> dict:
+    async def read_resource(
+        self,
+        provider_name: str,
+        uri: str,
+        company_id: str | None = None,
+    ) -> dict:
         """
         扩展 MCP Server 支持资源读取。
         调用 MCP Server 的 read_resource() 方法。
@@ -665,9 +682,9 @@ class ToolLoader:
         Returns:
             资源内容
         """
-        if provider_name in self._mcp_client_pool:
+        client = self._pooled_client(provider_name, company_id)
+        if client is not None:
             try:
-                client = self._mcp_client_pool[provider_name]
                 if hasattr(client, "read_resource"):
                     return await client.read_resource(uri)
             except Exception as e:
@@ -676,7 +693,7 @@ class ToolLoader:
                 )
         return {}
 
-    async def list_prompts(self, provider_name: str) -> list:
+    async def list_prompts(self, provider_name: str, company_id: str | None = None) -> list:
         """
         扩展 MCP Server 支持数据提示(prompts)暴露。
         调用 MCP Server 的 list_prompts() 方法。
@@ -687,16 +704,22 @@ class ToolLoader:
         Returns:
             提示模板列表
         """
-        if provider_name in self._mcp_client_pool:
+        client = self._pooled_client(provider_name, company_id)
+        if client is not None:
             try:
-                client = self._mcp_client_pool[provider_name]
                 if hasattr(client, "list_prompts"):
                     return await client.list_prompts()
             except Exception as e:
                 logger.warning("mcp_list_prompts_failed", provider=provider_name, error=str(e))
         return []
 
-    async def get_prompt(self, provider_name: str, name: str, arguments: dict = None) -> dict:
+    async def get_prompt(
+        self,
+        provider_name: str,
+        name: str,
+        arguments: dict = None,
+        company_id: str | None = None,
+    ) -> dict:
         """
         扩展 MCP Server 支持获取提示。
         调用 MCP Server 的 get_prompt() 方法。
@@ -709,9 +732,9 @@ class ToolLoader:
         Returns:
             提示内容
         """
-        if provider_name in self._mcp_client_pool:
+        client = self._pooled_client(provider_name, company_id)
+        if client is not None:
             try:
-                client = self._mcp_client_pool[provider_name]
                 if hasattr(client, "get_prompt"):
                     return await client.get_prompt(name, arguments or {})
             except Exception as e:

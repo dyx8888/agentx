@@ -3,6 +3,7 @@ KOL Search MCP Server
 Provides search functionality for Key Opinion Leaders (KOLs) in Chinese e-commerce market.
 """
 
+import inspect
 import os
 import sys
 
@@ -71,8 +72,8 @@ async def search_kols(category: str, count: int = 3, company_id: int = None) -> 
         platform_adapter = get_platform_adapter("douyin_star", resolved_company_id)
         if platform_adapter and platform_adapter.is_available():
             try:
-                # 适配器数据方法已改为 async（真实 HTTP 调用）
-                creators = await platform_adapter.search_creators(category_normalized, count)
+                result = platform_adapter.search_creators(category_normalized, count)
+                creators = await result if inspect.isawaitable(result) else result
                 if creators:
                     logger.info("kol_creators_retrieved", count=len(creators))
                     return ToolResult.ok(

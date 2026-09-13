@@ -1,62 +1,35 @@
-"""
-向量数据库切换测试
-测试 ChromaDB 和 Milvus 向量后端的切换和基本增删查功能
-"""
+"""Offline retrieval tests for the lightweight/local part of HybridRetriever."""
 
-import sys
-import os
-import pytest
-from unittest.mock import patch, MagicMock
-
-sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from app.mcp_servers.knowledge_retrieval_server import KnowledgeRetrieval
-
-class TestVectorBackend:
-    """向量后端测试类"""
-    
-    def test_1_default_chromadb_success(self):
-        """正常场景1：默认使用 ChromaDB"""
-        with patch.dict(os.environ, {"VECTOR_DB": None}, clear=True):
-            with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient') as mock_chroma:
-                with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient.get_collection') as mock_get_collection:
-                    with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient.create_collection') as mock_create_collection:
-                        mock_get_collection.return_value = None
-                        mock_create_collection.return_value = MagicMock()
-                        
-                        retrieval = KnowledgeRetrieval("test_chroma")
-                        
-                        assert retrieval.vector_db == "chromadb"
-                        assert mock_chroma.called
-                        assert mock_get_collection.called
-                        assert mock_create_collection.called
-    
-    def test_2_explicit_chromadb_success(self):
-        """正常场景2：显式设置 ChromaDB"""
-        with patch.dict(os.environ, {"VECTOR_DB": "chromadb"}, clear=True):
-            with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient') as mock_chroma:
-                with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient.get_collection') as mock_get_collection:
-                    with patch('app.mcp_servers.knowledge_retrieval_server.chromadb.PersistentClient.create_collection') as mock_create_collection:
-                        mock_get_collection.return_value = MagicMock()
-                        mock_create_collection.return_value = MagicMock()
-                        
-                        retrieval = KnowledgeRetrieval("test_chroma")
-                        
-                        assert retrieval.vector_db == "chromadb"
-                        assert mock_chroma.called
-                        assert mock_get_collection.called
-                        assert not mock_create_collection.called
-    
-    def test_3_milvus_unavailable_graceful_fallback(self):
-        """异常场景1：Milvus 不可用时优雅降级"""
-        with patch.dict(os.environ, {"VECTOR_DB": "milvus"}, clear=True):
-            with patch('app.mcp_servers.knowledge_retrieval_server.pymilvus', side_effect=ImportError("pymilvus not available")):
-                with pytest.raises(ImportError) as exc_info:
-                    retrieval = KnowledgeRetrieval("test_milvus")
-                    
-                    assert retrieval.vector_db == "chromadb"
-                    assert "pymilvus is not installed" in str(exc_info.value)
+from app.rag.hybrid_retriever import BM25Retriever, HybridRetriever
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+def test_bm25_supports_chinese_without_external_vector_service():
+    retriever = BM25Retriever()
+    retriever.index(["本品牌主推轻薄防晒衣，核心卖点是冰感透气。"], ["doc_A"])
+
+    results = retriever.search("防晒衣 冰感", top_k=3)
+
+    assert results
+    assert results[0][0] == 0
+    assert results[0][1] > 0
+
+
+def test_hybrid_index_keeps_document_id_and_tenant_metadata(monkeypatch):
+    retriever = HybridRetriever(company_id="company_A")
+    retriever._get_embedding_service = lambda: type(
+        "Embedding", (), {"encode": lambda self, texts: [[1.0, 0.0] for _ in texts]}
+    )()
+    inserted = []
+    monkeypatch.setattr(
+        retriever.vector,
+        "insert_documents",
+        lambda rows, embeddings: inserted.extend(rows) or True,
+    )
+
+    retriever.index_documents(
+        [{"id": "doc_A", "content": "A-only content", "metadata": {"category": "test"}}]
+    )
+
+    assert retriever._documents["doc_A"]["metadata"]["company_id"] == "company_A"
+    assert inserted[0]["id"] == "doc_A"
+    assert inserted[0]["metadata"]["company_id"] == "company_A"

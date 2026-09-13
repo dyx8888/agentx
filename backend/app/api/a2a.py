@@ -191,6 +191,7 @@ async def a2a_delegate_task(
             task_message=task_message,
             task_type=request.task_type,
             payload=request.payload,  # 透传结构化负载
+            company_id=current_user.company_id,
         )
 
         return TaskResponse(

@@ -247,6 +247,7 @@ class AgentRuntime:
         self.memory_manager = None  # 三层记忆在 initialize 中创建，因为可能依赖 LLM 做语义理解
         self.validator = None  # 校验器同样需要 LLM，所以延迟到 initialize 中实例化
         self._ctx: ToolLoadContext = None  # 缓存最后一次初始化上下文，方便调试和恢复时回看
+        self._initialized_context_key: tuple[str, str, tuple[str, ...]] | None = None
         self.model_status = {"status": "not_initialized"}
         self._execution_lock = asyncio.Lock()
         # Token消耗追踪 - 文档依据: 3.docx
@@ -301,6 +302,12 @@ class AgentRuntime:
             try:
                 # ToolLoader.load() 内部会根据 ctx.capabilities 过滤和配置工具，实现按租户/Agent 的差异化工具集
                 self.mcp_tools = await self.tool_loader.load(ctx)
+                from app.agent import bind_tenant_core_tools
+
+                self.mcp_tools = bind_tenant_core_tools(
+                    self.mcp_tools,
+                    getattr(ctx, "company_id", ""),
+                )
                 logger.info(
                     "agent_runtime_tool_loader_complete",
                     tool_count=len(self.mcp_tools),
@@ -317,6 +324,12 @@ class AgentRuntime:
 
                 tool_names = registry.list_registered_tools()
                 self.mcp_tools = registry.get_tools_by_names(tool_names)
+                from app.agent import bind_tenant_core_tools
+
+                self.mcp_tools = bind_tenant_core_tools(
+                    self.mcp_tools,
+                    getattr(ctx, "company_id", ""),
+                )
                 logger.info("agent_runtime_registry_fallback", tool_count=len(self.mcp_tools))
         else:
             # ctx 为 None 时也走 registry 降级——适用于不需要租户隔离的简单场景
@@ -332,7 +345,23 @@ class AgentRuntime:
 
         # 标记已初始化，后续 run() 以此判断是否需要先调 initialize()
         self._initialized = True
+        self._initialized_context_key = self._context_key(ctx)
         logger.info("agent_runtime_init_complete")
+
+    @staticmethod
+    def _context_key(ctx: ToolLoadContext | None) -> tuple[str, str, tuple[str, ...]]:
+        if ctx is None:
+            return ("", "", ())
+        return (
+            str(getattr(ctx, "company_id", "") or ""),
+            str(getattr(ctx, "agent_name", "") or ""),
+            tuple(sorted(getattr(ctx, "capabilities", None) or [])),
+        )
+
+    async def _ensure_runtime_context(self, ctx: ToolLoadContext) -> None:
+        """Rebuild tenant-bound tools and graph whenever execution context changes."""
+        if not self._initialized or self._initialized_context_key != self._context_key(ctx):
+            await self.initialize(ctx)
 
     def _build_graph(self):
         # 文档依据: 3.docx - Agent Loop 安全兜底
@@ -728,16 +757,15 @@ class AgentRuntime:
         if request_llm is None:
             return await self.graph.ainvoke(initial_state, config)
 
-        async with self._execution_lock:
-            original_llm = self.llm
-            original_validator = self.validator
-            try:
-                self.llm = request_llm
-                self.validator = DynamicValidator(self.skill_registry, request_llm)
-                return await self.graph.ainvoke(initial_state, config)
-            finally:
-                self.llm = original_llm
-                self.validator = original_validator
+        original_llm = self.llm
+        original_validator = self.validator
+        try:
+            self.llm = request_llm
+            self.validator = DynamicValidator(self.skill_registry, request_llm)
+            return await self.graph.ainvoke(initial_state, config)
+        finally:
+            self.llm = original_llm
+            self.validator = original_validator
 
     async def _stream_graph_events(
         self, initial_state: dict[str, Any], trace_id: str, request_llm: Any | None = None
@@ -748,17 +776,16 @@ class AgentRuntime:
                 yield event
             return
 
-        async with self._execution_lock:
-            original_llm = self.llm
-            original_validator = self.validator
-            try:
-                self.llm = request_llm
-                self.validator = DynamicValidator(self.skill_registry, request_llm)
-                async for event in self.graph.astream(initial_state, config):
-                    yield event
-            finally:
-                self.llm = original_llm
-                self.validator = original_validator
+        original_llm = self.llm
+        original_validator = self.validator
+        try:
+            self.llm = request_llm
+            self.validator = DynamicValidator(self.skill_registry, request_llm)
+            async for event in self.graph.astream(initial_state, config):
+                yield event
+        finally:
+            self.llm = original_llm
+            self.validator = original_validator
 
     async def run(
         self,
@@ -788,30 +815,24 @@ class AgentRuntime:
             )
             return _build_high_risk_guard_result(sop_decision, message, agent_name)
 
-        # 惰性初始化：首次 run() 时自动初始化，让调用方无需关心初始化时机
-        if not self._initialized:
-            ctx = ToolLoadContext(
-                company_id=company_id,
-                agent_name=agent_name,
-                trace_id=trace_id,
-                capabilities=_default_tool_capabilities(agent_name),
-            )
-            await self.initialize(ctx)
-
-        model_config_error, request_llm = self._resolve_request_llm_or_error(
-            company_id,
-            model_key=model_key,
+        ctx = ToolLoadContext(
+            company_id=company_id,
+            agent_name=agent_name,
+            trace_id=trace_id,
+            capabilities=_default_tool_capabilities(agent_name),
         )
-        if model_config_error:
-            return _build_model_config_required_result(model_config_error, message, agent_name)
+        async with self._execution_lock:
+            await self._ensure_runtime_context(ctx)
+            model_config_error, request_llm = self._resolve_request_llm_or_error(
+                company_id,
+                model_key=model_key,
+            )
+            if model_config_error:
+                return _build_model_config_required_result(model_config_error, message, agent_name)
 
-        # 将整个执行包裹在 trace_span 中，使得 tracing 系统能按 agent_runtime 维度聚合
-        with trace_span("agent_runtime", {"trace_id": trace_id}):
-            initial_state = self._build_initial_state(message, agent_name, company_id, trace_id)
-
-            # ainvoke 是异步的图执行方法：内部会按图的拓扑结构依次（或必要时并行）调用各节点
-            # thread_id 作为 checkpoint 的隔离键：同 trace_id 的多次调用共享状态，不同 trace_id 完全隔离
-            result = await self._invoke_graph(initial_state, trace_id, request_llm)
+            with trace_span("agent_runtime", {"trace_id": trace_id}):
+                initial_state = self._build_initial_state(message, agent_name, company_id, trace_id)
+                result = await self._invoke_graph(initial_state, trace_id, request_llm)
 
         # 从结果中解包各字段：用 .get() 而非 [] 取值，防止节点异常时 KeyError
         final_messages = result.get("messages", [])
@@ -858,59 +879,47 @@ class AgentRuntime:
             yield {"type": "done"}
             return
 
-        if not self._initialized:
-            ctx = ToolLoadContext(
-                company_id=company_id,
-                agent_name=agent_name,
-                trace_id=trace_id,
-                capabilities=_default_tool_capabilities(agent_name),
-            )
-            await self.initialize(ctx)
-
-        model_config_error, request_llm = self._resolve_request_llm_or_error(
-            company_id,
-            model_key=model_key,
+        ctx = ToolLoadContext(
+            company_id=company_id,
+            agent_name=agent_name,
+            trace_id=trace_id,
+            capabilities=_default_tool_capabilities(agent_name),
         )
-        if model_config_error:
-            yield model_config_error
-            yield {"type": "done"}
-            return
+        async with self._execution_lock:
+            await self._ensure_runtime_context(ctx)
+            model_config_error, request_llm = self._resolve_request_llm_or_error(
+                company_id,
+                model_key=model_key,
+            )
+            if model_config_error:
+                yield model_config_error
+                yield {"type": "done"}
+                return
 
-        with trace_span("agent_runtime_stream", {"trace_id": trace_id}):
-            initial_state = self._build_initial_state(message, agent_name, company_id, trace_id)
+            with trace_span("agent_runtime_stream", {"trace_id": trace_id}):
+                initial_state = self._build_initial_state(message, agent_name, company_id, trace_id)
 
-        # astream 是异步生成器，每走完一个节点就 yield 一次中间状态——
-        # 这样前端可以实时看到 planner 产出的计划、executor 每步的结果，而不是等到全部完成后一次性返回
-        async for event in self._stream_graph_events(initial_state, trace_id, request_llm):
-            # LangGraph astream 的事件格式是 {node_name: node_output}，取第一个 key 作为节点名
-            node_name = list(event.keys())[0]
-            node_output = event[node_name]
+            async for event in self._stream_graph_events(initial_state, trace_id, request_llm):
+                node_name = list(event.keys())[0]
+                node_output = event[node_name]
 
-            # 按节点类型分发不同格式的事件，前端根据 type 字段渲染不同的 UI 组件
-            if node_name == "planner":
-                plan = node_output.get("plan", {})
-                yield {"type": "plan", "data": plan}
-
-            elif node_name == "executor":
-                step_results = node_output.get("step_results", [])
-                if step_results:
-                    # 只推送最新的那一步结果，避免重复推送历史步骤
-                    latest = step_results[-1]
-                    yield {
-                        "type": "step_executed",
-                        "step": latest.get("step"),
-                        "description": latest.get("description"),
-                        "tool_used": latest.get("tool_used"),
-                        "result": latest.get("result"),
-                    }
-
-            elif node_name == "reflector":
-                reflection = node_output.get("reflection", {})
-                yield {"type": "reflection", "data": reflection}
-
-            elif node_name == "increment_retry":
-                # 重试事件让前端知道 Agent 正在重新尝试，显示加载状态
-                yield {"type": "retry", "count": node_output.get("retry_count")}
+                if node_name == "planner":
+                    yield {"type": "plan", "data": node_output.get("plan", {})}
+                elif node_name == "executor":
+                    step_results = node_output.get("step_results", [])
+                    if step_results:
+                        latest = step_results[-1]
+                        yield {
+                            "type": "step_executed",
+                            "step": latest.get("step"),
+                            "description": latest.get("description"),
+                            "tool_used": latest.get("tool_used"),
+                            "result": latest.get("result"),
+                        }
+                elif node_name == "reflector":
+                    yield {"type": "reflection", "data": node_output.get("reflection", {})}
+                elif node_name == "increment_retry":
+                    yield {"type": "retry", "count": node_output.get("retry_count")}
 
         # done 事件作为流结束标记，前端据此关闭 loading 动画或展示最终结果
         yield {"type": "done"}
