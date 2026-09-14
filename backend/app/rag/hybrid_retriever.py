@@ -190,6 +190,20 @@ def _env_flag(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def is_lightweight_rag_mode() -> bool:
+    """Return whether the process should avoid local ML/Milvus resources.
+
+    Production defaults to the PostgreSQL + BM25 path. Operators with a real
+    external vector service can explicitly set ``RAG_LIGHTWEIGHT_MODE=false``.
+    """
+
+    configured = os.getenv("RAG_LIGHTWEIGHT_MODE")
+    if configured is not None:
+        return configured.strip().lower() in {"1", "true", "yes", "on"}
+    environment = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "dev").strip().lower()
+    return environment in {"prod", "production"}
+
+
 def _as_string_list(value: Any) -> list[str]:
     if value is None:
         return []
@@ -376,10 +390,12 @@ def _base_rank_score(result: "SearchResult") -> float:
     return float(getattr(result, "rrf_score", 0.0) or 0.0)
 
 
-try:
-    from pymilvus.exceptions import PyMilvusDeprecationWarning
-except Exception:
-    PyMilvusDeprecationWarning = Warning
+PyMilvusDeprecationWarning = Warning
+if not is_lightweight_rag_mode():
+    try:
+        from pymilvus.exceptions import PyMilvusDeprecationWarning
+    except Exception:
+        pass
 
 warnings.filterwarnings(
     "ignore",
@@ -495,6 +511,8 @@ class VectorRetriever:
 
     def __init__(self, company_id: str = "default"):
         self.company_id = str(company_id)
+        vector_db = os.getenv("VECTOR_DB", "milvus").strip().lower()
+        self.enabled = not is_lightweight_rag_mode() and vector_db == "milvus"
         self._collection = None
         self._client = None
         self._initialized = False
@@ -555,6 +573,8 @@ class VectorRetriever:
         )
 
     def _ensure_initialized(self, dim: int | None = None) -> None:
+        if not self.enabled:
+            return
         if self._initialized:
             return
 
@@ -564,8 +584,15 @@ class VectorRetriever:
         self._last_init_attempt = now
 
         try:
-            from pymilvus import Collection, CollectionSchema, DataType, FieldSchema
-            from pymilvus import MilvusClient, connections, utility
+            from pymilvus import (
+                Collection,
+                CollectionSchema,
+                DataType,
+                FieldSchema,
+                MilvusClient,
+                connections,
+                utility,
+            )
 
             host = os.getenv("MILVUS_HOST", "localhost")
             port = int(os.getenv("MILVUS_PORT", "19530"))
@@ -610,6 +637,8 @@ class VectorRetriever:
             logger.warning("milvus_connect_failed_vector_disabled", error=str(exc))
 
     def insert_documents(self, rows: list[dict[str, Any]], embeddings: np.ndarray) -> bool:
+        if not self.enabled:
+            return False
         if not rows:
             return True
         if embeddings is None or len(embeddings) != len(rows):
@@ -659,7 +688,7 @@ class VectorRetriever:
     def search(
         self, query_vector: np.ndarray, top_k: int = 20
     ) -> list[tuple[str, str, float, str]]:
-        if query_vector is None or np.asarray(query_vector).size == 0:
+        if not self.enabled or query_vector is None or np.asarray(query_vector).size == 0:
             return []
 
         self._ensure_initialized(dim=int(np.asarray(query_vector).shape[0]))
@@ -758,6 +787,8 @@ class VectorRetriever:
         return formatted
 
     def list_documents(self) -> list[dict[str, Any]]:
+        if not self.enabled:
+            return []
         self._ensure_initialized()
         if self._collection is None:
             return []
@@ -777,6 +808,8 @@ class VectorRetriever:
             return []
 
     def delete_document(self, doc_id: str) -> bool:
+        if not self.enabled:
+            return False
         escaped_doc_id = HybridRetriever._escape_milvus_expr(doc_id)
         escaped_company = HybridRetriever._escape_milvus_expr(self.company_id)
         return self._delete_expr(
@@ -784,6 +817,8 @@ class VectorRetriever:
         )
 
     def delete_company_documents(self) -> int:
+        if not self.enabled:
+            return 0
         self._ensure_initialized()
         if self._collection is None:
             return 0
@@ -844,6 +879,7 @@ class CrossEncoderReranker:
 
     def __init__(self, model_name: str | None = None):
         self.model_name = model_name or os.getenv("RERANK_MODEL", "BAAI/bge-reranker-base")
+        self.enabled = not is_lightweight_rag_mode()
         self._model = None
         self._load_failed = False
 
@@ -860,7 +896,12 @@ class CrossEncoderReranker:
             logger.warning("reranker_load_failed_disabled", error=str(exc))
 
     def rerank(self, query: str, documents: list[str], top_k: int = 10) -> list[tuple[int, float]]:
-        if os.getenv("RERANKER_ENABLED", "true").lower() in {"0", "false", "no", "off"}:
+        if not self.enabled or os.getenv("RERANKER_ENABLED", "true").lower() in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }:
             return [(i, 0.0) for i in range(min(top_k, len(documents)))]
 
         self._load()
@@ -888,6 +929,9 @@ class HybridRetriever:
         self._embedding_service = None
         self._documents: dict[str, dict[str, Any]] = {}
         self._indexed = False
+        self._persistent_loaded = False
+        self._persistent_last_attempt = 0.0
+        self._persistent_lock = threading.RLock()
         self._last_medical_supplement_debug: dict[
             str, MedicalSupplementDebugValue
         ] | None = None
@@ -907,6 +951,8 @@ class HybridRetriever:
         if not documents:
             return
 
+        self._ensure_persistent_documents_loaded()
+
         rows: list[dict[str, Any]] = []
         for i, document in enumerate(documents):
             doc_id = str(document.get("id", i))
@@ -915,10 +961,22 @@ class HybridRetriever:
             metadata.setdefault("company_id", self.company_id)
             row = {"id": doc_id, "content": content, "metadata": metadata}
             rows.append(row)
-            self._documents[doc_id] = row
+
+        knowledge_rows = [
+            row for row in rows if str((row.get("metadata") or {}).get("layer", "")) == "knowledge"
+        ]
+        persisted = self._persist_documents(knowledge_rows) if knowledge_rows else True
+        if knowledge_rows and not persisted and is_lightweight_rag_mode() and self.company_id.isdigit():
+            raise RuntimeError("Lightweight RAG could not persist knowledge to PostgreSQL")
+
+        for row in rows:
+            self._documents[row["id"]] = row
 
         self._rebuild_bm25()
         self._indexed = True
+
+        if not getattr(self.vector, "enabled", True):
+            return
 
         try:
             emb_service = self._get_embedding_service()
@@ -928,6 +986,7 @@ class HybridRetriever:
             logger.warning("vector_index_skipped", error=str(exc))
 
     def list_documents(self) -> list[dict[str, Any]]:
+        self._ensure_persistent_documents_loaded()
         vector_docs = self.vector.list_documents()
         by_id = {str(doc["id"]): doc for doc in vector_docs if doc.get("id")}
         for doc_id, doc in self._documents.items():
@@ -951,26 +1010,41 @@ class HybridRetriever:
         return list(by_id.values())
 
     def delete_document(self, doc_id: str) -> bool:
+        self._ensure_persistent_documents_loaded()
         doc_id = str(doc_id)
-        local_hit = doc_id in self._documents
-        self._documents.pop(doc_id, None)
+        matching_ids = [
+            row_id
+            for row_id, row in self._documents.items()
+            if row_id == doc_id
+            or str((row.get("metadata") or {}).get("document_id", "")) == doc_id
+            or str((row.get("metadata") or {}).get("doc_id", "")) == doc_id
+        ]
+        local_hit = bool(matching_ids)
+        for row_id in matching_ids:
+            self._documents.pop(row_id, None)
         self._rebuild_bm25()
-        vector_deleted = self.vector.delete_document(doc_id)
+        persistent_deleted = self._delete_persistent_document(doc_id, matching_ids)
+        vector_deleted = any(
+            self.vector.delete_document(row_id) for row_id in (matching_ids or [doc_id])
+        )
         logger.info(
             "document_deleted",
             doc_id=doc_id,
             company_id=self.company_id,
             local_hit=local_hit,
+            persistent_deleted=persistent_deleted,
             vector_deleted=vector_deleted,
         )
-        return local_hit or vector_deleted
+        return local_hit or persistent_deleted or vector_deleted
 
     def delete_company_documents(self) -> int:
+        self._ensure_persistent_documents_loaded()
         local_count = len(self._documents)
         self._documents.clear()
         self._rebuild_bm25()
+        persistent_count = self._delete_persistent_company_documents()
         vector_count = self.vector.delete_company_documents()
-        count = max(local_count, vector_count)
+        count = max(local_count, persistent_count, vector_count)
         logger.info("company_documents_cleared", company_id=self.company_id, count=count)
         return count
 
@@ -982,11 +1056,14 @@ class HybridRetriever:
         bm25_weight: float = 0.3,
         vector_weight: float = 0.7,
     ) -> list[SearchResult]:
-        emb_service = self._get_embedding_service()
-        query_vector = emb_service.encode_single(query)
+        self._ensure_persistent_documents_loaded()
 
         bm25_results = self.bm25.search(query, top_k=top_k * 2)
-        vector_results = self.vector.search(query_vector, top_k=top_k * 2)
+        vector_results: list[tuple[str, str, float, str]] = []
+        if getattr(self.vector, "enabled", True):
+            emb_service = self._get_embedding_service()
+            query_vector = emb_service.encode_single(query)
+            vector_results = self.vector.search(query_vector, top_k=top_k * 2)
 
         fused = self._rrf_fuse(bm25_results, vector_results, bm25_weight, vector_weight)
         candidates = self._apply_metadata_boost(
@@ -1024,7 +1101,7 @@ class HybridRetriever:
                 "reranker_candidate_service_domain_present"
             ]
 
-        if use_reranker and candidates:
+        if use_reranker and getattr(self.reranker, "enabled", True) and candidates:
             contents = [result.content for result in candidates]
             reranked = self.reranker.rerank(query, contents, top_k=top_k)
             final: list[SearchResult] = []
@@ -1554,6 +1631,204 @@ class HybridRetriever:
     def _rebuild_bm25(self) -> None:
         docs = list(self._documents.items())
         self.bm25.index([doc["content"] for _, doc in docs], [doc_id for doc_id, _ in docs])
+
+    def _persistent_company_id(self) -> int | None:
+        try:
+            company_id = int(self.company_id)
+        except (TypeError, ValueError):
+            return None
+        return company_id if company_id > 0 else None
+
+    @staticmethod
+    def _deserialize_persistent_row(row: Any) -> dict[str, Any]:
+        raw_content = str(getattr(row, "content", "") or "")
+        payload: dict[str, Any] = {}
+        try:
+            decoded = json.loads(raw_content)
+            if isinstance(decoded, dict) and decoded.get("_agentx_knowledge_version") == 1:
+                payload = decoded
+        except (TypeError, json.JSONDecodeError):
+            payload = {}
+
+        row_id = str(payload.get("id") or getattr(row, "embedding_id", "") or f"sql:{row.id}")
+        content = str(payload.get("content") if payload else raw_content)
+        metadata = dict(payload.get("metadata") or {}) if payload else {}
+        title = str(getattr(row, "title", "") or row_id)
+        category = str(getattr(row, "category", "") or "general")
+        metadata.setdefault("company_id", str(getattr(row, "company_id", "")))
+        metadata.setdefault("layer", "knowledge")
+        metadata.setdefault("category", category)
+        metadata.setdefault("title", title)
+        metadata.setdefault("original_filename", title)
+        metadata.setdefault("source_file", title)
+        metadata.setdefault("source", "postgres_knowledge")
+        metadata.setdefault("document_id", str(payload.get("document_id") or row_id))
+        return {"id": row_id, "content": content, "metadata": metadata}
+
+    def _ensure_persistent_documents_loaded(self) -> None:
+        company_id = self._persistent_company_id()
+        if company_id is None or self._persistent_loaded:
+            return
+
+        now = time.monotonic()
+        if self._persistent_last_attempt and now - self._persistent_last_attempt < 5:
+            return
+        self._persistent_last_attempt = now
+
+        with self._persistent_lock:
+            if self._persistent_loaded:
+                return
+            try:
+                from app.database import db as db_proxy
+                from app.database.models import CompanyKnowledge
+
+                with db_proxy.get_session() as session:
+                    default_limit = "1200" if is_lightweight_rag_mode() else "10000"
+                    chunk_limit = max(
+                        1,
+                        int(os.getenv("RAG_PERSISTENT_MAX_LOADED_CHUNKS", default_limit)),
+                    )
+                    stored = (
+                        session.query(CompanyKnowledge)
+                        .filter(CompanyKnowledge.company_id == company_id)
+                        .order_by(CompanyKnowledge.id.desc())
+                        .limit(chunk_limit)
+                        .all()
+                    )
+                stored.reverse()
+                for item in stored:
+                    row = self._deserialize_persistent_row(item)
+                    self._documents[row["id"]] = row
+                self._rebuild_bm25()
+                self._indexed = bool(self._documents)
+                self._persistent_loaded = True
+                logger.info(
+                    "postgres_knowledge_loaded",
+                    company_id=self.company_id,
+                    chunks=len(stored),
+                    chunk_limit=chunk_limit,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "postgres_knowledge_load_failed",
+                    company_id=self.company_id,
+                    error_type=type(exc).__name__,
+                )
+
+    def _persist_documents(self, rows: list[dict[str, Any]]) -> bool:
+        company_id = self._persistent_company_id()
+        if company_id is None or not rows:
+            return company_id is None
+        try:
+            from app.database import db as db_proxy
+            from app.database.models import CompanyKnowledge
+
+            row_ids = [str(row["id"])[:64] for row in rows]
+            with db_proxy.get_session() as session:
+                session.query(CompanyKnowledge).filter(
+                    CompanyKnowledge.company_id == company_id,
+                    CompanyKnowledge.embedding_id.in_(row_ids),
+                ).delete(synchronize_session=False)
+                for row in rows:
+                    metadata = dict(row.get("metadata") or {})
+                    title = str(
+                        metadata.get("original_filename")
+                        or metadata.get("source_file")
+                        or metadata.get("title")
+                        or row["id"]
+                    )[:200]
+                    envelope = {
+                        "_agentx_knowledge_version": 1,
+                        "id": str(row["id"]),
+                        "document_id": str(metadata.get("document_id") or row["id"]),
+                        "content": str(row.get("content") or ""),
+                        "metadata": metadata,
+                    }
+                    session.add(
+                        CompanyKnowledge(
+                            company_id=company_id,
+                            category=str(metadata.get("category") or "general")[:50],
+                            title=title,
+                            content=json.dumps(envelope, ensure_ascii=False, default=str),
+                            embedding_id=str(row["id"])[:64],
+                        )
+                    )
+                session.commit()
+            self._persistent_loaded = True
+            logger.info(
+                "postgres_knowledge_persisted",
+                company_id=self.company_id,
+                chunks=len(rows),
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "postgres_knowledge_persist_failed",
+                company_id=self.company_id,
+                chunks=len(rows),
+                error_type=type(exc).__name__,
+            )
+            return False
+
+    def _delete_persistent_document(self, doc_id: str, row_ids: list[str]) -> bool:
+        company_id = self._persistent_company_id()
+        if company_id is None:
+            return False
+        try:
+            from app.database import db as db_proxy
+            from app.database.models import CompanyKnowledge
+
+            with db_proxy.get_session() as session:
+                stored = session.query(CompanyKnowledge).filter(
+                    CompanyKnowledge.company_id == company_id
+                ).all()
+                db_ids = []
+                targets = set(row_ids)
+                for item in stored:
+                    row = self._deserialize_persistent_row(item)
+                    metadata = row.get("metadata") or {}
+                    if (
+                        row["id"] in targets
+                        or row["id"] == doc_id
+                        or str(metadata.get("document_id", "")) == doc_id
+                        or str(metadata.get("doc_id", "")) == doc_id
+                    ):
+                        db_ids.append(item.id)
+                if db_ids:
+                    session.query(CompanyKnowledge).filter(CompanyKnowledge.id.in_(db_ids)).delete(
+                        synchronize_session=False
+                    )
+                    session.commit()
+                return bool(db_ids)
+        except Exception as exc:
+            logger.warning(
+                "postgres_knowledge_delete_failed",
+                company_id=self.company_id,
+                error_type=type(exc).__name__,
+            )
+            return False
+
+    def _delete_persistent_company_documents(self) -> int:
+        company_id = self._persistent_company_id()
+        if company_id is None:
+            return 0
+        try:
+            from app.database import db as db_proxy
+            from app.database.models import CompanyKnowledge
+
+            with db_proxy.get_session() as session:
+                count = session.query(CompanyKnowledge).filter(
+                    CompanyKnowledge.company_id == company_id
+                ).delete(synchronize_session=False)
+                session.commit()
+            return int(count or 0)
+        except Exception as exc:
+            logger.warning(
+                "postgres_knowledge_clear_failed",
+                company_id=self.company_id,
+                error_type=type(exc).__name__,
+            )
+            return 0
 
 
 _retriever_cache: dict[str, HybridRetriever] = {}

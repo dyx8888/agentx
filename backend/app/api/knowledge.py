@@ -3,12 +3,14 @@
 import json
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from pathlib import PurePath
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field, field_validator
+from starlette.concurrency import run_in_threadpool
 
 from app.auth import get_current_active_user
 from app.core.logging import get_logger
@@ -480,7 +482,9 @@ SUPPORTED_EXTENSIONS = {
     ".htm",
     ".txt",
 }  # 白名单机制：只允许安全的文档格式
-MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 限制 50MB，防止大文件导致内存溢出
+_runtime_environment = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "dev").strip().lower()
+_default_upload_mb = 5 if _runtime_environment in {"prod", "production"} else 50
+MAX_UPLOAD_SIZE = int(os.getenv("KNOWLEDGE_MAX_UPLOAD_MB", str(_default_upload_mb))) * 1024 * 1024
 SAFE_UPLOAD_FILENAME_RE = re.compile(r"[^0-9A-Za-z._ \-\u4e00-\u9fff]+")
 ALLOWED_UPLOAD_CONTENT_TYPES = {
     ".pdf": {"application/pdf", "application/octet-stream"},
@@ -559,7 +563,8 @@ async def upload_knowledge_file(
         )
     _validate_upload_content_type(suffix, file.content_type)
 
-    content = await file.read()  # 异步读取文件内容，避免阻塞事件循环
+    # 最多读取限制值 + 1 字节，避免生产实例先把超大文件完整读入内存。
+    content = await file.read(MAX_UPLOAD_SIZE + 1)
     if len(content) > MAX_UPLOAD_SIZE:
         raise HTTPException(
             status_code=413, detail=f"File size exceeds {MAX_UPLOAD_SIZE // (1024 * 1024)}MB limit"
@@ -571,7 +576,10 @@ async def upload_knowledge_file(
         from app.rag.company_context_bus import get_company_context_bus  # 延迟导入，避免循环依赖
 
         bus = get_company_context_bus(effective_company_id)
-        result = bus.ingest_document(  # 使用公司上下文总线处理文档：解析 → 切分 → 向量化 → 入库
+        # 解析、切片及索引均为同步 CPU/数据库操作，必须移出 asyncio
+        # 事件循环，否则 Render 健康检查会和上传请求一起被阻塞。
+        result = await run_in_threadpool(
+            bus.ingest_document,
             filename=safe_filename,
             content=content,
             metadata={"category": category, "source": "file_upload"},
@@ -584,10 +592,13 @@ async def upload_knowledge_file(
             chunks=result["chunks"],
             text_length=result["text_length"],
         )
-    except ValueError:
+    except ValueError as exc:
+        message = str(exc)
+        if message.startswith("Extracted document text exceeds the lightweight RAG limit"):
+            raise HTTPException(status_code=413, detail=message) from exc
         raise HTTPException(
             status_code=400, detail="文件格式不支持或处理失败"
-        )  # ValueError 通常是格式不支持，返回 400
+        ) from exc  # ValueError 通常是格式不支持，返回 400
     except Exception:
         logger.exception("file_upload_failed")
         raise HTTPException(status_code=500, detail="内部服务器错误")

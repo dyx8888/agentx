@@ -560,7 +560,7 @@ def get_rag_config(
     """获取 RAG 系统配置总览"""
     try:
         from app.rag.embedding_service import EMBEDDING_MODEL_REGISTRY, get_embedding_service
-        from app.rag.hybrid_retriever import get_hybrid_retriever
+        from app.rag.hybrid_retriever import get_hybrid_retriever, is_lightweight_rag_mode
 
         # company_id 强制从认证用户获取，防止跨租户伪造
         # hybrid_retriever 以字符串作为 key，需将 int 转为 str
@@ -583,7 +583,10 @@ def get_rag_config(
         except Exception as e:
             logger.warning("rag_evaluator_init_failed", error=str(e))
 
-        reranker_env_enabled = os.getenv("RERANKER_ENABLED", "true").lower() not in {
+        lightweight_mode = is_lightweight_rag_mode()
+        reranker_env_enabled = not lightweight_mode and os.getenv(
+            "RERANKER_ENABLED", "true"
+        ).lower() not in {
             "0",
             "false",
             "no",
@@ -600,7 +603,7 @@ def get_rag_config(
         return RagConfigResponse(
             embedding_model=emb_service.model_name,
             embedding_model_count=len(EMBEDDING_MODEL_REGISTRY),
-            retrieval_strategy="hybrid",  # BM25 + 向量 + RRF + Reranker
+            retrieval_strategy="postgres_bm25" if lightweight_mode else "hybrid",
             reranker_enabled=reranker_enabled,
             graph_rag_enabled=True,
             multimodal_enabled=False,

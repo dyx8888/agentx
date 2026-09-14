@@ -290,6 +290,13 @@ class GraphRAGRetriever:  # GraphRAG 检索引擎，对外的统一入口
             if name.lower() in query_lower or query_lower in name.lower():
                 return name
 
+        # 小内存生产模式保留精确/子串图谱匹配，但不加载本地
+        # SentenceTransformer 只为实体名称做语义兜底。
+        from app.rag.hybrid_retriever import is_lightweight_rag_mode
+
+        if is_lightweight_rag_mode():
+            return None
+
         # 嵌入相似度匹配（兜底）
         try:
             from app.rag.embedding_service import get_embedding_service

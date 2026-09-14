@@ -73,6 +73,14 @@ EMBEDDING_API_KEY: str | None = _env("EMBEDDING_API_KEY")
 
 
 # ── RAG 检索后端切换配置 ──────────────────────────────────────
+# Render 等小内存生产实例默认启用轻量模式。轻量模式使用 PostgreSQL
+# 持久化 + BM25，不加载本地 embedding/CrossEncoder，也不要求 Milvus。
+_runtime_environment = (_env("ENV") or _env("ENVIRONMENT") or "dev").strip().lower()
+RAG_LIGHTWEIGHT_MODE: bool = _env_flag(
+    "RAG_LIGHTWEIGHT_MODE",
+    default=_runtime_environment in {"prod", "production"},
+)
+
 # 检索框架选择：
 #   hybrid     —— 自研 HybridRetriever（BM25 + 向量 + RRF + Reranker 四阶段，默认）
 #   llamaindex —— LlamaIndex 标准框架（VectorStoreIndex + MilvusVectorStore，对照实现）
@@ -87,10 +95,12 @@ RAG_CHUNKER_MODE: str = (_env("RAG_CHUNKER_MODE", "recursive") or "recursive").s
 
 
 # ── 向量数据库配置 ─────────────────────────────────────────────
-# VECTOR_DB: 向量后端类型，生产默认 milvus
+# VECTOR_DB: 向量后端类型。轻量生产默认 postgres（关键词检索），
+# 明确关闭轻量模式后才默认使用 milvus。
 # 业务代码（hybrid_retriever / multimodal_retriever / runtime/memory / main）均使用 pymilvus 连接 Milvus；
 # chromadb 仅作为可选备选后端（需 pip install chromadb），生产不推荐
-VECTOR_DB: str = _env("VECTOR_DB", "milvus") or "milvus"
+_default_vector_db = "postgres" if RAG_LIGHTWEIGHT_MODE else "milvus"
+VECTOR_DB: str = _env("VECTOR_DB", _default_vector_db) or _default_vector_db
 
 # Milvus 连接参数（与 app/rag/hybrid_retriever.py、app/main.py 读取的环境变量一致）
 MILVUS_HOST: str = _env("MILVUS_HOST", "localhost") or "localhost"

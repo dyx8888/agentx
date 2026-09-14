@@ -42,6 +42,16 @@ SHORT_TERM_CONSOLIDATION_THRESHOLD = int(
     os.getenv("SHORT_TERM_CONSOLIDATION_THRESHOLD", "100")
 )  # 积累足够数据才触发巩固，确保模式提取有统计意义
 
+
+def _is_lightweight_rag_mode() -> bool:
+    """Return whether optional Redis/Milvus memory backends should be skipped."""
+
+    configured = os.getenv("RAG_LIGHTWEIGHT_MODE")
+    if configured is not None:
+        return configured.strip().lower() in {"1", "true", "yes", "on"}
+    environment = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "dev").strip().lower()
+    return environment in {"prod", "production"}
+
 # ============ 智能衰减引擎常量 ============
 # 参考 MemoryBear 遗忘引擎设计，实现三阶段衰减模型
 DECAY_DORMANT_DAYS = 30  # 30天未访问 → 标记为休眠
@@ -135,8 +145,12 @@ class ThreeLayerMemoryManager:
             threading.Lock()
         )  # 用线程锁而非 asyncio 锁，因为 store_episodic 可能在同步线程中调用
         self._lru_max_capacity = MAX_SEMANTIC_MEMORIES  # 从环境变量读取容量上限，方便不同环境调整
-        self._init_redis()  # 延迟导入 + 安全初始化，避免模块加载时 Redis 不可用导致崩溃
-        self._init_milvus()  # 同上，Milvus 连接失败不影响其他记忆层正常工作
+        self._lightweight_mode = _is_lightweight_rag_mode()
+        if self._lightweight_mode:
+            logger.info("memory_optional_backends_skipped", reason="lightweight_rag_mode")
+        else:
+            self._init_redis()  # 延迟导入 + 安全初始化，避免模块加载时 Redis 不可用导致崩溃
+            self._init_milvus()  # 同上，Milvus 连接失败不影响其他记忆层正常工作
         logger.info("three_layer_memory_manager_initialized")
 
     def _init_redis(self):

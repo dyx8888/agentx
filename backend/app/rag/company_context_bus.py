@@ -6,9 +6,9 @@ CompanyContextBus - 企业上下文总线  # "总线" 设计模式：统一的�
   Layer 3: 公司经验记忆 (Milvus, Agent 完成后自动写入摘要)  # 动态经验，自动积累，通过睡眠巩固去重
 """
 
+import hashlib
 import json  # 用于序列化 metadata 中的 tags 等复杂字段到 Milvus
 import os
-import hashlib
 import threading  # get_company_context_bus 单例锁,保护 check-then-act 免遭竞态
 from dataclasses import dataclass, field  # dataclass 减少样板代码，field 用于可变默认值避免共享引用
 from datetime import datetime  # 记录知识添加和经验记录的时间戳，用于后续的时间衰减排序
@@ -344,8 +344,8 @@ class CompanyContextBus:  # 企业上下文总线，三层架构的中央调度�
         """解析文档并入库：解析 → 切片 → 嵌入 → 索引"""  # 完整的 ETL 流水线
         import uuid  # 延迟导入
 
-        from .document_parser import DocumentParser  # 延迟导入文档解析器
         from .doc_status import get_doc_status_manager
+        from .document_parser import DocumentParser  # 延迟导入文档解析器
         from .text_splitter import TextChunker  # 延迟导入文本切片器
 
         doc_id = uuid.uuid4().hex[:12]  # 文档级 ID，供上传响应、列表和状态接口一致使用
@@ -354,6 +354,15 @@ class CompanyContextBus:  # 企业上下文总线，三层架构的中央调度�
 
         try:
             text = DocumentParser.parse(filename, content)  # 第一步：解析文档为纯文本
+            from .hybrid_retriever import is_lightweight_rag_mode
+
+            if is_lightweight_rag_mode():
+                max_text_chars = int(os.getenv("RAG_LIGHTWEIGHT_MAX_TEXT_CHARS", "500000"))
+                if len(text) > max_text_chars:
+                    raise ValueError(
+                        "Extracted document text exceeds the lightweight RAG limit "
+                        f"of {max_text_chars} characters"
+                    )
             metadata = metadata or {}  # 避免 None
             metadata["original_filename"] = filename  # 保留原始文件名，用于溯源
             metadata["company_id"] = self.company_id  # 强制注入公司 ID

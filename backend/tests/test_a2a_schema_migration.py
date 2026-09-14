@@ -80,7 +80,7 @@ def test_a2a_schema_migration_upgrades_legacy_table(tmp_path):
         assert row["company_id"] == 239
 
 
-def test_runtime_detects_merge_migration_head():
+def test_runtime_detects_current_migration_head():
     from app.database.core import _detect_alembic_head_revision
 
-    assert _detect_alembic_head_revision() == "013_align_a2a_messages"
+    assert _detect_alembic_head_revision() == "014_ensure_company_knowledge"

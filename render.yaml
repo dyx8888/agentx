@@ -28,6 +28,18 @@ services:
         value: "false"
       - key: ENABLE_EVOLUTION_API
         value: "false"
+      - key: RAG_LIGHTWEIGHT_MODE
+        value: "true"
+      - key: VECTOR_DB
+        value: "postgres"
+      - key: RERANKER_ENABLED
+        value: "false"
+      - key: KNOWLEDGE_MAX_UPLOAD_MB
+        value: "5"
+      - key: RAG_LIGHTWEIGHT_MAX_TEXT_CHARS
+        value: "500000"
+      - key: RAG_PERSISTENT_MAX_LOADED_CHUNKS
+        value: "1200"
       - key: REDIS_URL
         sync: false
       - key: MILVUS_HOST

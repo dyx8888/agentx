@@ -854,6 +854,33 @@ class EmbeddingConfig(Base):
         return f"<EmbeddingConfig(id={self.id}, company_id={self.company_id}, mode='{self.mode}')>"
 
 
+class CompanyKnowledge(Base):
+    """PostgreSQL-backed knowledge rows used by the lightweight RAG fallback.
+
+    The table already exists in the initial Alembic schema. ``content`` stores a
+    versioned JSON envelope for new rows so chunk metadata survives process
+    restarts; legacy plain-text rows remain readable.
+    """
+
+    __tablename__ = "company_knowledge"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    category = Column(String(50), nullable=False, default="general")
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    embedding_id = Column(String(64), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_company_knowledge_company_embedding", "company_id", "embedding_id"),
+    )
+
+    def __repr__(self):
+        return f"<CompanyKnowledge(id={self.id}, company_id={self.company_id}, title='{self.title}')>"
+
+
 class CostRecord(Base):
     """费用记录表 — 记录每次 LLM 调用产生的 token 用量与成本
     设计原因：多租户场景下需按 company_id 隔离计费数据，供仪表盘与配额告警查询。
