@@ -47,6 +47,9 @@ TOOL_CONFIG_DIR = os.path.join(
 )
 # 审查重试上限
 REVIEW_MAX_RETRIES = 2
+MASTER_MODEL_TIMEOUT_ENV = "AGENTX_MASTER_MODEL_TIMEOUT_SECONDS"
+MASTER_MODEL_TIMEOUT_DEFAULT = 30.0
+MASTER_MODEL_TIMEOUT_MAX = 120.0
 
 HIGH_RISK_DIRECT_TERMS = (
     "直接",
@@ -691,6 +694,9 @@ class MasterAgentRouter:
             yield {"type": "action", "data": f"RAG answer from knowledge base: {query[:50]}..."}
             try:
                 result = await self._answer_from_rag(query, context)
+                result_warning = result.get("warning")
+                if isinstance(result_warning, dict):
+                    yield {**result_warning, "type": "warning"}
                 warning_event = self._model_fallback_warning_event(
                     result.get("model_fallback")
                 )
@@ -700,6 +706,21 @@ class MasterAgentRouter:
                 yield {"type": "result", "data": result.get("answer", query)}
             except Exception as e:
                 logger.warning("rag_answer_failed", error=str(e))
+                config_error = self._model_config_error_event(e)
+                if config_error:
+                    yield {**config_error, "type": "warning"}
+                elif isinstance(e, TimeoutError):
+                    yield {
+                        "type": "warning",
+                        "code": "model_timeout",
+                        "message": "模型响应超时，已改为展示本次命中的企业知识库证据。",
+                    }
+                else:
+                    yield {
+                        "type": "warning",
+                        "code": "rag_answer_model_unavailable",
+                        "message": "模型暂时未能组织答案，已改为展示本次命中的企业知识库证据。",
+                    }
                 fallback = self._format_rag_fallback(rag_answer_chunks)
                 yield {"type": "observation", "data": "RAG answer fallback used"}
                 yield {"type": "result", "data": fallback or query}
@@ -723,8 +744,20 @@ class MasterAgentRouter:
             if error_event:
                 yield error_event
                 return
-            # 降级：直接返回查询作为结果
-            yield {"type": "result", "data": f"ReAct 执行遇到问题，原始查询: {query}"}
+            if isinstance(e, TimeoutError):
+                yield {
+                    "type": "error",
+                    "code": "model_timeout",
+                    "message": "模型响应超时，请检查所选模型或中转站连接后重试。",
+                    "content": "模型响应超时，请检查所选模型或中转站连接后重试。",
+                }
+                return
+            yield {
+                "type": "error",
+                "code": "agent_execution_failed",
+                "message": "模型调用失败，请检查所选模型配置后重试。",
+                "content": "模型调用失败，请检查所选模型配置后重试。",
+            }
 
     @staticmethod
     def _extract_model_fallback_metadata(response) -> dict | None:
@@ -813,6 +846,10 @@ class MasterAgentRouter:
             return {
                 "answer": self._format_rag_fallback(rag_answer_chunks),
                 "intermediate": "model gateway unavailable; returned retrieved RAG content",
+                "warning": {
+                    "code": "rag_answer_model_unavailable",
+                    "message": "模型服务暂时不可用，已改为展示本次命中的企业知识库证据。",
+                },
             }
 
         company_id_int = self._context_company_id(context)
@@ -841,7 +878,7 @@ class MasterAgentRouter:
             ),
             HumanMessage(content=prompt),
         ]
-        response = await llm.ainvoke(messages, company_id=company_id_int)
+        response = await self._invoke_llm(llm, messages, company_id=company_id_int)
         answer = response.content if hasattr(response, "content") else str(response)
         model_fallback = self._extract_model_fallback_metadata(response)
         return {
@@ -872,10 +909,23 @@ class MasterAgentRouter:
 
     @classmethod
     def _format_rag_fallback(cls, rag_chunks: list[dict]) -> str:
-        references = cls._format_rag_references(rag_chunks)
-        if not references:
+        evidence_lines = []
+        for idx, chunk in enumerate(rag_chunks[:5], 1):
+            content = str(chunk.get("content") or chunk.get("text") or "").strip()
+            if not content:
+                continue
+            source = (
+                chunk.get("source_file")
+                or chunk.get("source")
+                or chunk.get("filename")
+                or f"来源 {idx}"
+            )
+            evidence_lines.append(f"{idx}. {content[:2000]}\n   来源：{source}")
+        if not evidence_lines:
             return ""
-        return "I found the following relevant knowledge base content:\n\n" + references
+        return "模型暂时未能生成完整回答，已检索到以下企业知识库证据：\n\n" + "\n\n".join(
+            evidence_lines
+        )
 
     async def _react_execute(self, query: str, context: ContextPackage) -> dict:
         """ReAct 模式执行：构建 master 的 ReAct 图并 ainvoke。
@@ -928,8 +978,10 @@ class MasterAgentRouter:
             async def agent_node(state):
                 messages = state["messages"]
                 messages_with_system = [SystemMessage(content=MASTER_SYSTEM_PROMPT)] + messages
-                response = await llm_with_tools.ainvoke(
-                    messages_with_system, company_id=company_id_int
+                response = await self._invoke_llm(
+                    llm_with_tools,
+                    messages_with_system,
+                    company_id=company_id_int,
                 )
                 model_fallback = self._extract_model_fallback_metadata(response)
                 if model_fallback:
@@ -965,7 +1017,7 @@ class MasterAgentRouter:
             if self._model_config_error_event(e):
                 raise
             logger.warning("react_execute_failed", error=str(e))
-            return {"answer": query, "intermediate": f"ReAct 降级模式: {str(e)}"}
+            raise
 
     def _load_master_tools(self) -> list:
         """加载 master 专属工具集。
@@ -1204,7 +1256,7 @@ class MasterAgentRouter:
                 SystemMessage(content="你是参数抽取器，仅输出 JSON。"),
                 HumanMessage(content=prompt),
             ]
-            resp = await llm.ainvoke(messages, company_id=company_id_int)
+            resp = await self._invoke_llm(llm, messages, company_id=company_id_int)
             content = resp.content if hasattr(resp, "content") else str(resp)
 
             data = self._extract_json(content)
@@ -1528,7 +1580,7 @@ class MasterAgentRouter:
                 SystemMessage(content="你是 AgentX 质量审查员，仅输出 JSON。"),
                 HumanMessage(content=prompt),
             ]
-            resp = await llm.ainvoke(messages, company_id=company_id_int)
+            resp = await self._invoke_llm(llm, messages, company_id=company_id_int)
             content = resp.content if hasattr(resp, "content") else str(resp)
 
             data = self._extract_json(content)
@@ -1600,6 +1652,28 @@ class MasterAgentRouter:
         except Exception as e:
             logger.warning("model_gateway_unavailable", error=str(e))
             return None
+
+    @staticmethod
+    def _model_timeout_seconds() -> float:
+        raw_value = os.getenv(MASTER_MODEL_TIMEOUT_ENV, "").strip()
+        if not raw_value:
+            return MASTER_MODEL_TIMEOUT_DEFAULT
+        try:
+            timeout = float(raw_value)
+        except ValueError:
+            logger.warning("master_model_timeout_invalid")
+            return MASTER_MODEL_TIMEOUT_DEFAULT
+        if not (0 < timeout <= MASTER_MODEL_TIMEOUT_MAX):
+            logger.warning("master_model_timeout_invalid")
+            return MASTER_MODEL_TIMEOUT_DEFAULT
+        return timeout
+
+    async def _invoke_llm(self, llm, messages, *, company_id: int | None):
+        """Bound a model call even when an SDK/provider omits transport timeouts."""
+        return await asyncio.wait_for(
+            llm.ainvoke(messages, company_id=company_id),
+            timeout=self._model_timeout_seconds(),
+        )
 
     def _get_agent_runtime(self):
         """延迟获取 AgentRuntime 实例。

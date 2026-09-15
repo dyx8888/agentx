@@ -6,7 +6,7 @@ from app.agents.master_router import MasterAgentRouter
 from app.api import chat
 from app.perception.context_package import ContextPackage
 from app.perception.pipeline import PerceptionPipeline
-from app.perception.rag_retriever import RagRetriever, RagResult
+from app.perception.rag_retriever import RagResult, RagRetriever
 
 
 class _FakeRag:
@@ -51,6 +51,9 @@ def test_rag_retriever_separates_compact_references_and_richer_evidence(monkeypa
 
     assert result.references
     assert result.evidence_chunks
+    assert result.references[0]["source_file"] == "qpack.txt"
+    assert result.references[0]["source_type"] == "knowledge_base"
+    assert result.references[0]["source"] == "hybrid"
     assert len(result.references[0]["content"]) == 200
     assert late_fact not in result.references[0]["content"]
     assert late_fact in result.evidence_chunks[0]["content"]

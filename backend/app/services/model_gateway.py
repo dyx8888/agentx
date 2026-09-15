@@ -117,6 +117,9 @@ EVAL_PROXY_MODEL_NAME_ENV_KEYS = ("AGENT_EVAL_MODEL_NAME", "EVAL_PROXY_MODEL_NAM
 SMOKE_MODEL_MAX_RETRIES_ENV = "AGENTX_SMOKE_MODEL_MAX_RETRIES"
 SMOKE_DISABLE_MODEL_RETRY_ENV = "AGENTX_SMOKE_DISABLE_MODEL_RETRY"
 SMOKE_ENV_TRUE_VALUES = {"1", "true", "yes", "on"}
+MODEL_REQUEST_TIMEOUT_ENV = "AGENTX_MODEL_REQUEST_TIMEOUT_SECONDS"
+MODEL_REQUEST_TIMEOUT_DEFAULT = 30.0
+MODEL_REQUEST_TIMEOUT_MAX = 120.0
 
 API_KEY_ENV_MAP: dict[str, tuple[str, ...]] = {
     "deepseek": ("DEEPSEEK_API_KEY",),
@@ -149,6 +152,22 @@ def _smoke_model_max_retries(model_key: str, provider: str) -> int | None:
         return None
 
     return max_retries
+
+
+def _model_request_timeout_seconds() -> float:
+    """Return a finite transport timeout for every provider request."""
+    raw_value = os.getenv(MODEL_REQUEST_TIMEOUT_ENV, "").strip()
+    if not raw_value:
+        return MODEL_REQUEST_TIMEOUT_DEFAULT
+    try:
+        timeout = float(raw_value)
+    except ValueError:
+        logger.warning("model_request_timeout_invalid")
+        return MODEL_REQUEST_TIMEOUT_DEFAULT
+    if not (0 < timeout <= MODEL_REQUEST_TIMEOUT_MAX):
+        logger.warning("model_request_timeout_invalid")
+        return MODEL_REQUEST_TIMEOUT_DEFAULT
+    return timeout
 
 # 模型健康度阈值：连续失败次数 >= 此值时暂时跳过该模型
 MODEL_HEALTH_FAIL_THRESHOLD = 3
@@ -2593,6 +2612,7 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
             "model": cfg["model_name"],
             "api_key": api_key,
             "temperature": cfg.get("temperature", 0.7),
+            "timeout": _model_request_timeout_seconds(),
         }
         if "base_url" in cfg:
             params["base_url"] = cfg["base_url"]

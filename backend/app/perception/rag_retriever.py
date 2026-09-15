@@ -77,6 +77,8 @@ class RagRetriever:
         """Build compact reference for UI sources and persistence."""
         return {
             "source_file": result.get("source_file", ""),
+            "source_type": "knowledge_base",
+            "source": result.get("source", ""),
             "source_page": result.get("source_page", 0),
             "score": result.get("score", 0),
             "content": (result.get("content", "") or "")[:REFERENCE_CONTENT_MAX_CHARS],

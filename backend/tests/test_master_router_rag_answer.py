@@ -1,7 +1,9 @@
+import asyncio
+
 import pytest
 
-from app.agents.master_routing import ExecutionPath, select_path
 from app.agents.master_router import MasterAgentRouter
+from app.agents.master_routing import ExecutionPath, select_path
 from app.perception.context_package import ContextPackage
 
 
@@ -158,3 +160,116 @@ def test_exact_reply_prompt_routes_to_react_even_when_intent_is_generate():
     )
 
     assert select_path(context) == ExecutionPath.REACT
+
+
+def test_rag_fallback_is_user_facing_chinese_and_cites_source():
+    result = MasterAgentRouter._format_rag_fallback(
+        [
+            {
+                "content": "测试商品青云收纳盒的建议安全库存为 37 件。",
+                "source_file": "rag-online-smoke.txt",
+                "score": 0.91,
+            }
+        ]
+    )
+
+    assert "企业知识库" in result
+    assert "rag-online-smoke.txt" in result
+    assert "37 件" in result
+    assert "I found the following" not in result
+
+
+@pytest.mark.asyncio
+async def test_rag_model_timeout_returns_evidence_with_visible_warning(monkeypatch):
+    router = MasterAgentRouter(model_gateway=_FakeGateway())
+
+    async def timeout_answer(*_args, **_kwargs):
+        raise TimeoutError
+
+    monkeypatch.setattr(router, "_answer_from_rag", timeout_answer)
+    context = ContextPackage(
+        rewritten_query="库存是多少？",
+        raw_input="库存是多少？",
+        company_id="65",
+        intent_type="knowledge",
+        rag_chunks=[
+            {
+                "content": "青云收纳盒的建议安全库存为 37 件。",
+                "source_file": "rag-online-smoke.txt",
+                "score": 0.91,
+            }
+        ],
+    )
+
+    events = [event async for event in router._run_react(context)]
+
+    warning = next(event for event in events if event.get("type") == "warning")
+    result = next(event for event in events if event.get("type") == "result")
+    assert warning["code"] == "model_timeout"
+    assert "rag-online-smoke.txt" in result["data"]
+    assert "37 件" in result["data"]
+
+
+@pytest.mark.asyncio
+async def test_rag_gateway_unavailable_returns_evidence_with_visible_warning(monkeypatch):
+    router = MasterAgentRouter()
+    monkeypatch.setattr(router, "_get_model_gateway", lambda: None)
+    context = ContextPackage(
+        rewritten_query="库存是多少？",
+        raw_input="库存是多少？",
+        company_id="65",
+        intent_type="knowledge",
+        rag_chunks=[
+            {
+                "content": "青云收纳盒的建议安全库存为 37 件。",
+                "source_file": "rag-online-smoke.txt",
+                "score": 0.91,
+            }
+        ],
+    )
+
+    events = [event async for event in router._run_react(context)]
+
+    warning = next(event for event in events if event.get("type") == "warning")
+    result = next(event for event in events if event.get("type") == "result")
+    assert warning["code"] == "rag_answer_model_unavailable"
+    assert "rag-online-smoke.txt" in result["data"]
+    assert "37 件" in result["data"]
+
+
+@pytest.mark.asyncio
+async def test_generic_model_timeout_emits_error_instead_of_echoing_query(monkeypatch):
+    router = MasterAgentRouter(model_gateway=_FakeGateway())
+
+    async def timeout_execute(*_args, **_kwargs):
+        raise TimeoutError
+
+    monkeypatch.setattr(router, "_react_execute", timeout_execute)
+    context = ContextPackage(
+        rewritten_query="生成一段营销草稿",
+        raw_input="生成一段营销草稿",
+        company_id="65",
+        intent_type="chat",
+        rag_chunks=[],
+    )
+
+    events = [event async for event in router._run_react(context)]
+
+    assert any(
+        event.get("type") == "error" and event.get("code") == "model_timeout"
+        for event in events
+    )
+    assert not any(event.get("type") == "result" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_model_invocation_has_configurable_outer_timeout(monkeypatch):
+    class _BlockingLLM:
+        async def ainvoke(self, *_args, **_kwargs):
+            await asyncio.Event().wait()
+
+    monkeypatch.setenv("AGENTX_MASTER_MODEL_TIMEOUT_SECONDS", "0.01")
+    router = MasterAgentRouter()
+
+    with pytest.raises(asyncio.TimeoutError):
+        await router._invoke_llm(_BlockingLLM(), [], company_id=65)

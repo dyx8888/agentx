@@ -131,6 +131,7 @@ function getSourceType(src) {
     src?.source ||
     src?.kind ||
     src?.type ||
+    (src?.source_file ? 'knowledge_base' : '') ||
     ''
   );
 }
@@ -309,7 +310,13 @@ function SourcesSection({ sources }) {
           const label =
             typeof src === 'string'
               ? src
-              : src?.title || src?.name || src?.document_title || src?.url || `来源 ${i + 1}`;
+              : src?.title ||
+                src?.name ||
+                src?.document_title ||
+                src?.source_file ||
+                src?.filename ||
+                src?.url ||
+                `来源 ${i + 1}`;
           const sourceTypeLabel = getSourceTypeLabel(src);
           const sourceNote =
             typeof src === 'string'

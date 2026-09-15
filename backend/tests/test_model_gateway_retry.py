@@ -40,6 +40,7 @@ def gateway_factory(monkeypatch, tmp_path):
     monkeypatch.setenv("AGENT_EVAL_MODEL_NAME", "test-model")
     monkeypatch.delenv("AGENTX_SMOKE_MODEL_MAX_RETRIES", raising=False)
     monkeypatch.delenv("AGENTX_SMOKE_DISABLE_MODEL_RETRY", raising=False)
+    monkeypatch.delenv("AGENTX_MODEL_REQUEST_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
 
     def build():
@@ -90,3 +91,19 @@ def test_invalid_smoke_model_max_retries_is_ignored(gateway_factory, monkeypatch
     gateway.get_llm("eval_proxy")
 
     assert "max_retries" not in FakeChatOpenAI.instances[0]
+
+
+def test_model_transport_timeout_is_bounded_by_default(gateway_factory):
+    gateway = gateway_factory()
+    gateway.get_llm("eval_proxy")
+
+    assert FakeChatOpenAI.instances[0]["timeout"] == 30.0
+
+
+def test_model_transport_timeout_can_be_configured(gateway_factory, monkeypatch):
+    monkeypatch.setenv("AGENTX_MODEL_REQUEST_TIMEOUT_SECONDS", "12.5")
+
+    gateway = gateway_factory()
+    gateway.get_llm("eval_proxy")
+
+    assert FakeChatOpenAI.instances[0]["timeout"] == 12.5

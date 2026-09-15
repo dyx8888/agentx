@@ -108,6 +108,7 @@ async def test_company_provider_config_drives_get_llm_for_task_without_network(
             "api_key": "sk-company-secret",
             "temperature": 0.7,
             "base_url": "https://proxy.example.com/v1",
+            "timeout": 30.0,
         }
     ]
     assert fake_db.company_ids

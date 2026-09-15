@@ -154,6 +154,32 @@ describe('MessageBubble', () => {
     expect(screen.getByText(/品牌私域资料/)).toBeInTheDocument();
     expect(screen.queryByText(/搜索到 3 个网页/)).not.toBeInTheDocument();
   });
+
+  it('uses source_file as the knowledge evidence label', () => {
+    render(
+      <MessageBubble
+        message={{
+          id: 'assistant-file-source',
+          role: 'assistant',
+          content: '安全库存为 37 件。',
+          isStreaming: false,
+          sources: [
+            {
+              source_file: 'rag-online-smoke.txt',
+              source_type: 'knowledge_base',
+              content: '安全库存为 37 件。',
+            },
+          ],
+          toolResults: [],
+          delegations: [],
+        }}
+      />
+    );
+
+    expect(screen.getByText('知识库')).toBeInTheDocument();
+    expect(screen.getByText('rag-online-smoke.txt')).toBeInTheDocument();
+    expect(screen.queryByText('来源 1')).not.toBeInTheDocument();
+  });
   it('renders grounded KOL results as readable enterprise talent cards', () => {
     render(
       <MessageBubble
