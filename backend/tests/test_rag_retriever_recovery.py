@@ -5,6 +5,22 @@ import app.rag.agentic_rag as agentic_rag
 from app.perception.rag_retriever import RagRetriever
 
 
+def test_production_default_uses_lightweight_backend_without_milvus_probe(monkeypatch):
+    monkeypatch.setenv("ENV", "prod")
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("VECTOR_DB", raising=False)
+    monkeypatch.delenv("MILVUS_HOST", raising=False)
+    monkeypatch.setattr(
+        rag_retriever_module.socket,
+        "create_connection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("lightweight RAG must not probe Milvus")
+        ),
+    )
+
+    assert RagRetriever._external_backend_available() is True
+
+
 def test_retriever_retries_after_a_transient_backend_failure(monkeypatch):
     attempts = []
     now = 100.0

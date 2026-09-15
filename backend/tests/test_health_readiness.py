@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -67,3 +69,43 @@ def test_health_alias_path_uses_same_middleware_probe(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["overall"] in {"healthy", "degraded"}
+
+
+def test_ready_defaults_to_postgres_for_lightweight_production(monkeypatch):
+    previous_db = _install_fake_db(_HealthyDb())
+    try:
+        monkeypatch.setenv("ENV", "prod")
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
+        monkeypatch.delenv("VECTOR_DB", raising=False)
+        monkeypatch.delenv("MILVUS_HOST", raising=False)
+        monkeypatch.delenv("REDIS_URL", raising=False)
+        client = _client()
+        client.app.state.runtime = SimpleNamespace(initialized=True)
+        response = client.get("/ready")
+    finally:
+        db._set_instance(previous_db)
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["ready"] is True
+    assert data["environment"]["vector_db"] == "postgres"
+    assert data["milvus"] == {"status": "not_configured", "backend": "postgres"}
+
+
+def test_ready_respects_explicit_milvus_backend(monkeypatch):
+    previous_db = _install_fake_db(_HealthyDb())
+    try:
+        monkeypatch.setenv("ENV", "prod")
+        monkeypatch.setenv("VECTOR_DB", "milvus")
+        monkeypatch.delenv("MILVUS_HOST", raising=False)
+        monkeypatch.delenv("REDIS_URL", raising=False)
+        client = _client()
+        client.app.state.runtime = SimpleNamespace(initialized=True)
+        response = client.get("/ready")
+    finally:
+        db._set_instance(previous_db)
+
+    data = response.json()
+    assert response.status_code == 503
+    assert data["ready"] is False
+    assert data["environment"]["vector_db"] == "milvus"

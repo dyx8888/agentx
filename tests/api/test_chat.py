@@ -3,13 +3,28 @@ API tests for Chat endpoints (Phase 6 coverage)
 Tests for ChatRequest schema, helper functions, and health endpoint
 """
 
-import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "请只根据企业知识库回答：库存是多少？",
+        "请仅根据企业知识库回答：库存是多少？",
+        "请只基于企业知识库回答：库存是多少？",
+        "请仅基于企业知识库回答：库存是多少？",
+    ],
+)
+def test_enterprise_knowledge_only_phrases_are_detected(message):
+    from app.api.chat import _is_knowledge_only_request
+
+    assert _is_knowledge_only_request(message) is True
 
 
 # ============================================================

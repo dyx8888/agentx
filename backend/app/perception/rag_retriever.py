@@ -167,7 +167,20 @@ class RagRetriever:
 
     @staticmethod
     def _external_backend_available() -> bool:
-        if os.getenv("VECTOR_DB", "milvus").lower() != "milvus":
+        configured_vector_db = os.getenv("VECTOR_DB")
+        if configured_vector_db:
+            vector_db = configured_vector_db.strip().lower()
+        else:
+            # Keep this preflight aligned with HybridRetriever's production
+            # default.  Render may run the lightweight PostgreSQL + BM25 path
+            # without an explicit VECTOR_DB value; treating that as Milvus
+            # makes chat pre-retrieval skip a knowledge base that the direct
+            # knowledge API can already search successfully.
+            from app.rag.hybrid_retriever import is_lightweight_rag_mode
+
+            vector_db = "postgres" if is_lightweight_rag_mode() else "milvus"
+
+        if vector_db != "milvus":
             return True
 
         host = os.getenv("MILVUS_HOST", "localhost")

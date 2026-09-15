@@ -128,7 +128,12 @@ class HealthCheckMiddleware(BaseHTTPMiddleware):
 
         from fastapi.responses import JSONResponse
 
-        vector_db = os.getenv("VECTOR_DB", "milvus").strip().lower()
+        configured_vector_db = os.getenv("VECTOR_DB")
+        if configured_vector_db:
+            vector_db = configured_vector_db.strip().lower()
+        else:
+            environment = (os.getenv("ENV") or os.getenv("ENVIRONMENT") or "dev").strip().lower()
+            vector_db = "postgres" if environment in {"prod", "production"} else "milvus"
         milvus_host = os.getenv("MILVUS_HOST")
         milvus_port = os.getenv("MILVUS_PORT", "19530")
         milvus_collection = os.getenv("MILVUS_COLLECTION", "company_knowledge")
