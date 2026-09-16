@@ -55,6 +55,44 @@ def calculate_roi(gmv: float, ad_spend: float, cost: float = 0) -> dict:
     }
 
 
+NO_REAL_DATA_MESSAGE = (
+    "当前企业暂无可用的真实销售/投放数据，未生成指标或预测。"
+    "请先接入店铺、广告平台或导入数据后重试。"
+)
+_METRIC_KEYS = {
+    "gmv",
+    "payment_amount",
+    "refund_amount",
+    "ad_spend",
+    "impressions",
+    "clicks",
+    "conversions",
+    "orders",
+    "unique_buyers",
+    "repeat_buyers",
+}
+
+
+def _read_metric_data(kwargs: dict) -> dict:
+    """Read caller-provided metrics without inventing a business data source."""
+    for key in ("metrics_data", "sales_data", "business_data"):
+        value = kwargs.get(key)
+        if isinstance(value, dict) and any(name in value for name in _METRIC_KEYS):
+            return value
+    return {}
+
+
+def _metric_value(data: dict, *keys: str) -> float:
+    for key in keys:
+        value = data.get(key)
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
 def analyze_data_quality(data: dict) -> dict:
     """分析数据质量
 
@@ -107,10 +145,11 @@ def competitor_analysis(own_data: dict, competitor_data: dict) -> dict:
 
             if isinstance(own_val, (int, float)) and isinstance(comp_val, (int, float)):
                 if comp_val == 0:
-                    diff = "N/A"
-                else:
-                    diff_pct = round((own_val - comp_val) / comp_val * 100, 1)
-                    diff = f"{diff_pct:+}%"
+                    comparison[key] = "N/A"
+                    continue
+
+                diff_pct = round((own_val - comp_val) / comp_val * 100, 1)
+                diff = f"{diff_pct:+}%"
                 comparison[key] = diff
 
                 if diff_pct > 0:
@@ -205,43 +244,38 @@ async def get_agent_function():
             message=message[:100],
         )
 
+        metrics_data = _read_metric_data(kwargs)
+        if not metrics_data:
+            return NO_REAL_DATA_MESSAGE
+
         message_lower = message.lower()
+        gmv = _metric_value(metrics_data, "gmv", "payment_amount")
+        ad_spend = _metric_value(metrics_data, "ad_spend")
+        cost = _metric_value(metrics_data, "cost")
 
         # 根据消息内容决定分析类型
         if any(kw in message_lower for kw in ["roi", "投入产出", "投产比", "投放效果"]):
             # ROI 分析
-            roi_result = calculate_roi(gmv=100000, ad_spend=20000)
+            roi_result = calculate_roi(gmv=gmv, ad_spend=ad_spend, cost=cost)
             return format_analysis_report(roi_data=roi_result)
 
         elif any(kw in message_lower for kw in ["数据质量", "数据完整性", "数据准确性"]):
             # 数据质量分析
-            quality_result = analyze_data_quality(
-                {
-                    "gmv": 100000,
-                    "orders": 500,
-                    "roi": 3.0,
-                }
-            )
+            quality_result = analyze_data_quality(metrics_data)
             return format_analysis_report(quality_data=quality_result)
 
         elif any(kw in message_lower for kw in ["竞品", "对标", "竞争分析"]):
             # 竞品分析
-            competitor_result = competitor_analysis(
-                own_data={"gmv": 100000, "followers": 50000, "engagement_rate": 3.0},
-                competitor_data={"gmv": 150000, "followers": 80000, "engagement_rate": 2.5},
-            )
+            competitor_data = kwargs.get("competitor_data")
+            if not isinstance(competitor_data, dict):
+                return NO_REAL_DATA_MESSAGE
+            competitor_result = competitor_analysis(metrics_data, competitor_data)
             return format_analysis_report(competitor_data=competitor_result)
 
         else:
             # 综合报告
-            roi_result = calculate_roi(gmv=100000, ad_spend=20000)
-            quality_result = analyze_data_quality(
-                {
-                    "gmv": 100000,
-                    "orders": 500,
-                    "roi": 3.0,
-                }
-            )
+            roi_result = calculate_roi(gmv=gmv, ad_spend=ad_spend, cost=cost)
+            quality_result = analyze_data_quality(metrics_data)
             return format_analysis_report(
                 roi_data=roi_result,
                 quality_data=quality_result,

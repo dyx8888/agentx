@@ -3,17 +3,26 @@ Monitoring and Reminder MCP Server
 Provides functionality to check delivery status and generate reminder messages for KOLs.
 """
 
+import os
+
 from fastmcp import FastMCP
 
 from app.core.logging import get_logger
 from app.mcp_servers.mock_data import MOCK_DELIVERY_STATUS
 from app.services.model_gateway import ModelGateway
-from app.tools.result import ToolResult, ErrorCode, ERROR_SUGGESTIONS
+from app.tools.result import ERROR_SUGGESTIONS, ErrorCode, ToolResult
 
 logger = get_logger(__name__)
 
 # Create MCP server
 mcp = FastMCP("monitor_server")
+
+
+def _allow_mock_fallback() -> bool:
+    """Permit fixture data only outside production or with explicit opt-in."""
+    environment = os.getenv("ENV", "dev").strip().lower()
+    explicit = os.getenv("ALLOW_PLATFORM_MOCK_FALLBACK", "").strip().lower()
+    return environment not in {"prod", "production"} or explicit in {"1", "true", "yes", "on"}
 
 
 def _resolve_company_id(fallback: str = "default") -> str:
@@ -42,13 +51,20 @@ def get_model_gateway():
 def check_delivery_status(order_id: str) -> str:
     """
     Check delivery status for a given order ID.
-    
+
     Args:
         order_id: The order ID to check (e.g., "ORD001")
-    
+
     Returns:
         Delivery status information including tracking details
     """
+    if not _allow_mock_fallback():
+        return ToolResult.error(
+            error_code=ErrorCode.CONNECTION_ERROR,
+            message="mock fallback is disabled; 真实订单/物流后端未接入，未返回模拟配送状态。",
+            suggestion="请先接入订单或物流平台后再查询配送状态。",
+        ).to_json()
+
     try:
         # Get mock delivery status
         delivery_info = MOCK_DELIVERY_STATUS.get(order_id)
@@ -94,12 +110,12 @@ def check_delivery_status(order_id: str) -> str:
 def generate_arrival_script(kol_name: str, product_name: str, delivery_status: str) -> str:
     """
     Generate reminder message for KOL based on delivery status.
-    
+
     Args:
         kol_name: Name of the KOL
         product_name: Name of the product
         delivery_status: Current delivery status (已发货, 运输中, 已签收, 异常)
-    
+
     Returns:
         Personalized reminder message for the KOL
     """
@@ -122,25 +138,25 @@ def generate_arrival_script(kol_name: str, product_name: str, delivery_status: s
         # Create prompt for generating personalized message
         prompt = f"""
         你是品牌商务助手，需要为达人 {kol_name} 生成一条关于产品 {product_name} 的{message_type}私信。
-        
+
         当前配送状态：{delivery_status}
         产品名称：{product_name}
         达人姓名：{kol_name}
-        
+
         请生成一条友好、专业的私信，包含以下要素：
-        
+
         1. 亲切的问候和称呼
         2. 说明当前配送状态
         3. 根据状态给出相应的建议或提醒
         4. 表达感谢和支持
         5. 保持语气友好，不过于正式
-        
+
         要求：
         - 消息长度控制在100-150字
         - 语言自然流畅
         - 体现品牌关怀
         - 根据不同状态调整内容重点
-        
+
         """
 
         # Generate message using LLM

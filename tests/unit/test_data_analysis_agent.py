@@ -4,7 +4,6 @@ Tests for System Prompt, data analysis functions, and Agent function
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 
 # ============================================================
@@ -148,6 +147,19 @@ class TestCompetitorAnalysis:
 
         assert "disadvantage" in result
 
+    def test_competitor_analysis_handles_zero_competitor_value(self):
+        """零值竞品指标应标记为不可比，而不是引用未定义变量。"""
+        from app.agents.data_analysis import competitor_analysis
+
+        result = competitor_analysis(
+            own_data={"gmv": 100},
+            competitor_data={"gmv": 0},
+        )
+
+        assert result["comparison"]["gmv"] == "N/A"
+        assert result["advantage"] == []
+        assert result["disadvantage"] == []
+
 
 # ============================================================
 # Test: format_analysis_report
@@ -245,3 +257,27 @@ class TestDataAnalysisAgentFunction:
         func = await get_agent_function()
         result = await func(message="帮我做竞品分析")
         assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_agent_function_does_not_invent_metrics_without_business_data(self):
+        from app.agents.data_analysis import NO_REAL_DATA_MESSAGE, get_agent_function
+
+        func = await get_agent_function()
+        result = await func(message="请分析本周销售")
+
+        assert result == NO_REAL_DATA_MESSAGE
+        assert "100000" not in result
+        assert "500" not in result
+
+    @pytest.mark.asyncio
+    async def test_agent_function_uses_caller_supplied_metrics(self):
+        from app.agents.data_analysis import get_agent_function
+
+        func = await get_agent_function()
+        result = await func(
+            message="请分析 ROI",
+            metrics_data={"payment_amount": 1200, "ad_spend": 300, "orders": 12},
+        )
+
+        assert "GMV: 1200.0" in result
+        assert "ROI: 4.0" in result

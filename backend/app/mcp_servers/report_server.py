@@ -15,12 +15,19 @@ from fastmcp import FastMCP
 from app.core.logging import get_logger
 from app.mcp_servers.mock_data import MOCK_PERFORMANCE_DATA, MOCK_STRATEGY_DATA
 from app.services.model_gateway import ModelGateway
-from app.tools.result import ToolResult, ErrorCode, ERROR_SUGGESTIONS
+from app.tools.result import ERROR_SUGGESTIONS, ErrorCode, ToolResult
 
 logger = get_logger(__name__)
 
 # Create MCP server
 mcp = FastMCP("report_server")
+
+
+def _allow_mock_fallback() -> bool:
+    """Permit fixture data only outside production or with explicit opt-in."""
+    environment = os.getenv("ENV", "dev").strip().lower()
+    explicit = os.getenv("ALLOW_PLATFORM_MOCK_FALLBACK", "").strip().lower()
+    return environment not in {"prod", "production"} or explicit in {"1", "true", "yes", "on"}
 
 
 def _resolve_company_id(fallback: str = "default") -> str:
@@ -66,7 +73,14 @@ def generate_performance_report(kol_name: str, campaign_id: str) -> str:
             except Exception as e:
                 logger.error("report_platform_error", error=str(e))
 
-        # Fallback to mock data
+        if not _allow_mock_fallback():
+            return ToolResult.error(
+                error_code=ErrorCode.CONNECTION_ERROR,
+                message="mock fallback is disabled; 真实平台活动数据未接入，未返回模拟报告。",
+                suggestion="请先接入真实平台活动数据后再生成报告。",
+            ).to_json()
+
+        # Fallback to mock data only outside production or with explicit opt-in.
         logger.warning("report_mock_fallback", kol=kol_name, campaign=campaign_id)
         result = _generate_mock_report(kol_name, campaign_id)
         return ToolResult.ok(data=result, message="Performance report generated from mock data.").to_json()
@@ -175,6 +189,13 @@ def generate_strategy_suggestion(platform: str, category: str) -> str:
     """
     Generate strategy suggestions based on platform and category.
     """
+    if not _allow_mock_fallback():
+        return ToolResult.error(
+            error_code=ErrorCode.CONNECTION_ERROR,
+            message="mock fallback is disabled; 真实平台策略数据未接入，未返回模拟建议。",
+            suggestion="请先接入真实平台数据后再生成策略建议。",
+        ).to_json()
+
     try:
         platform_data = MOCK_STRATEGY_DATA.get(platform, {})
         category_data = platform_data.get(category, {})

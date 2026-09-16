@@ -112,17 +112,15 @@ class ERPBridge:  # ERP/WMS适配器，作为静态方法集合而非实例，�
 
     @staticmethod  # 静态方法，快递查询不需要任何实例状态
     def query_express(express_no: str, provider: str = "auto") -> dict:  # provider默认auto，由快递鸟API自动识别快递公司
-        return {  # 返回模拟数据作为占位，保留完整API响应结构，便于后续接入快递鸟真实API时无缝替换
+        return {  # 未接入真实物流后端时必须失败闭环，不能把占位轨迹当成真实结果
             "express_no": express_no,
             "provider": provider,
-            "status": "in_transit",
-            "current_location": "\u5e7f\u5dde\u4e2d\u8f6c\u4e2d\u5fc3",
-            "estimated_delivery": str(datetime.now().date()),
-            "tracking_details": [
-                {"time": datetime.now().isoformat(), "status": "\u5df2\u63fd\u6536", "location": "\u6df1\u5733\u5e02"},
-                {"time": datetime.now().isoformat(), "status": "\u5230\u8fbe\u4e2d\u8f6c\u4e2d\u5fc3", "location": "\u5e7f\u5dde\u5e02"},
-            ],
-            "note": "\u5f85\u5b9e\u9645\u5bf9\u63a5\u5feb\u9012\u9e1fAPI\u540e\u8fd4\u56de\u5b9e\u65f6\u6570\u636e",  # 明确标注这是占位实现，避免误以为已对接真实API
+            "status": "unavailable",
+            "current_location": "",
+            "estimated_delivery": "",
+            "tracking_details": [],
+            "requires_logistics_backend": True,
+            "message": "真实物流查询服务尚未接入，未返回模拟物流轨迹。",
         }
 
     @staticmethod  # 静态方法，电子面单创建是纯函数式操作

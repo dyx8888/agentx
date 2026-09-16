@@ -116,6 +116,100 @@ async def test_react_emits_warning_when_rag_answer_uses_model_fallback(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_react_does_not_route_normal_writing_request_to_rag(monkeypatch):
+    router = MasterAgentRouter(model_gateway=_FakeGateway())
+
+    async def generic_react(*_args, **_kwargs):
+        return {"answer": "秋风起，愿你平安顺遂。", "intermediate": "generic answer"}
+
+    monkeypatch.setattr(router, "_react_execute", generic_react)
+    context = ContextPackage(
+        rewritten_query="请写一句秋日问候语。",
+        raw_input="请写一句秋日问候语。",
+        company_id="65",
+        intent_type="generate",
+        rag_chunks=[
+            {
+                "content": "无关的企业知识库测试片段。",
+                "source_file": "rag-online-smoke.txt",
+                "score": 0.99,
+            }
+        ],
+    )
+
+    events = [event async for event in router._run_react(context)]
+
+    assert [event["data"] for event in events if event.get("type") == "result"] == [
+        "秋风起，愿你平安顺遂。"
+    ]
+    assert not any(
+        event.get("type") == "action" and "RAG answer" in event.get("data", "")
+        for event in events
+    )
+
+
+@pytest.mark.asyncio
+async def test_react_explicit_knowledge_request_can_use_rag_even_if_intent_is_chat(monkeypatch):
+    gateway = _FakeGateway()
+    router = MasterAgentRouter(model_gateway=gateway)
+
+    async def fail_react_execute(*args, **kwargs):
+        raise AssertionError("generic ReAct path should not run for explicit knowledge requests")
+
+    monkeypatch.setattr(router, "_react_execute", fail_react_execute)
+    context = ContextPackage(
+        rewritten_query="请只根据企业知识库回答：库存是多少？",
+        raw_input="请只根据企业知识库回答：库存是多少？",
+        company_id="65",
+        intent_type="chat",
+        rag_chunks=[
+            {
+                "content": "RAG_SMOKE_TEST：青云收纳盒的建议安全库存为 37 件。",
+                "source_file": "rag-online-smoke.txt",
+                "score": 0.91,
+            }
+        ],
+    )
+
+    events = [event async for event in router._run_react(context)]
+
+    assert events[-1]["type"] == "result"
+    assert events[-1]["data"] == "RAG_SMOKE_TEST"
+
+
+@pytest.mark.asyncio
+async def test_react_normal_request_with_rag_timeout_keeps_generic_error(monkeypatch):
+    router = MasterAgentRouter(model_gateway=_FakeGateway())
+
+    async def timeout_react(*_args, **_kwargs):
+        raise TimeoutError
+
+    monkeypatch.setattr(router, "_react_execute", timeout_react)
+    context = ContextPackage(
+        rewritten_query="请写一句秋日问候语。",
+        raw_input="请写一句秋日问候语。",
+        company_id="65",
+        intent_type="generate",
+        rag_chunks=[
+            {
+                "content": "无关的企业知识库测试片段。",
+                "source_file": "rag-online-smoke.txt",
+                "score": 0.99,
+            }
+        ],
+    )
+
+    events = [event async for event in router._run_react(context)]
+
+    assert any(
+        event.get("type") == "error" and event.get("code") == "model_timeout"
+        for event in events
+    )
+    assert not any(event.get("type") == "result" for event in events)
+    assert not any("企业知识库证据" in event.get("message", "") for event in events)
+
+
+@pytest.mark.asyncio
 async def test_react_exact_reply_short_path_skips_generic_routing(monkeypatch):
     router = MasterAgentRouter()
 

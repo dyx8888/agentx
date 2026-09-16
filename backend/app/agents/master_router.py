@@ -690,7 +690,7 @@ class MasterAgentRouter:
             return
 
         rag_answer_chunks = self._get_rag_answer_chunks(context)
-        if rag_answer_chunks:
+        if rag_answer_chunks and self._is_knowledge_only_request(context):
             yield {"type": "action", "data": f"RAG answer from knowledge base: {query[:50]}..."}
             try:
                 result = await self._answer_from_rag(query, context)
@@ -835,6 +835,35 @@ class MasterAgentRouter:
         if evidence_chunks:
             return evidence_chunks
         return getattr(context, "rag_chunks", None) or []
+
+    @staticmethod
+    def _is_knowledge_only_request(context: ContextPackage) -> bool:
+        """Allow the direct RAG answer path only for explicitly scoped requests.
+
+        RAG retrieval is intentionally available as context for ordinary requests,
+        so the presence of chunks alone must not change a writing/chat request into
+        a knowledge-base answer.  Keep this check local to the router to avoid a
+        dependency from the agent layer back into the HTTP API module.
+        """
+        intent_type = str(getattr(context, "intent_type", "") or "").strip().lower()
+        if intent_type == "knowledge":
+            return True
+
+        normalized = str(getattr(context, "raw_input", "") or "").strip().lower()
+        knowledge_signals = (
+            "只根据知识库",
+            "仅根据知识库",
+            "只基于知识库",
+            "仅基于知识库",
+            "只根据企业知识库",
+            "仅根据企业知识库",
+            "只基于企业知识库",
+            "仅基于企业知识库",
+            "知识库没有",
+            "knowledge base",
+            "retrieved references",
+        )
+        return any(signal in normalized for signal in knowledge_signals)
 
     async def _answer_from_rag(self, query: str, context: ContextPackage) -> dict:
         """Answer directly from retrieved RAG chunks before generic agent routing."""
