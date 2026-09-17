@@ -101,6 +101,32 @@ def _add_kol(
     )
 
 
+def _add_logistics(
+    session,
+    *,
+    company_id=1,
+    user_id=101,
+    tracking_number="SF1234567890",
+    status="in_transit",
+):
+    from app.database.models import LogisticsTracking
+
+    session.add(
+        LogisticsTracking(
+            company_id=company_id,
+            user_id=user_id,
+            tracking_number=tracking_number,
+            carrier="顺丰",
+            status=status,
+            status_detail="运输中",
+            origin="上海",
+            destination="北京",
+            kol_name="企业达人A",
+            sample_name="测试样品",
+        )
+    )
+
+
 async def _collect_stream_text(response):
     chunks = []
     async for chunk in response.body_iterator:
@@ -552,3 +578,80 @@ class TestChatKolSearchGrounding:
         assert "requires_kol_data" in body
         assert "没有使用 mock、demo 或通用知识库结果补齐" in body
         assert "model_api_key_missing" not in body
+
+
+class TestChatLogisticsGrounding:
+    """Chat logistics lookups must use the authenticated company records."""
+
+    @pytest.mark.asyncio
+    async def test_chat_returns_company_logistics_and_excludes_other_company(
+        self, kol_db_proxy, monkeypatch
+    ):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        with kol_db_proxy() as session:
+            _add_logistics(session, tracking_number="SF1234567890")
+            _add_logistics(
+                session,
+                company_id=2,
+                user_id=202,
+                tracking_number="YT9876543210",
+            )
+            session.commit()
+
+        from app.api.chat import ChatRequest, chat_stream
+
+        response = await chat_stream(
+            ChatRequest(message="查询物流 SF1234567890"),
+            MagicMock(),
+            current_user=SimpleNamespace(id=101, company_id=1),
+        )
+        body = await _collect_stream_text(response)
+
+        assert "SF1234567890" in body
+        assert "YT9876543210" not in body
+        assert "未使用 mock/demo/fallback 数据" in body
+        assert "model_api_key_missing" not in body
+
+    @pytest.mark.asyncio
+    async def test_chat_without_company_logistics_returns_explicit_no_data(
+        self, kol_db_proxy, monkeypatch
+    ):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+        from app.api.chat import ChatRequest, chat_stream
+
+        response = await chat_stream(
+            ChatRequest(message="查物流"),
+            MagicMock(),
+            current_user=SimpleNamespace(id=102, company_id=9),
+        )
+        body = await _collect_stream_text(response)
+
+        assert "当前企业暂无匹配的物流记录" in body
+        assert "没有使用 mock/demo 物流数据" in body
+        assert "model_api_key_missing" not in body
+
+    @pytest.mark.asyncio
+    async def test_logistics_write_request_does_not_use_readonly_lookup(
+        self, kol_db_proxy, monkeypatch
+    ):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+        import app.api.chat as chat_api
+
+        monkeypatch.setattr(
+            chat_api,
+            "_query_company_logistics_for_chat",
+            lambda *args, **kwargs: pytest.fail("write request entered logistics lookup"),
+        )
+
+        from app.api.chat import ChatRequest, chat_stream
+
+        response = await chat_stream(
+            ChatRequest(message="查询物流后补发样品"),
+            MagicMock(),
+            current_user=SimpleNamespace(id=103, company_id=1),
+        )
+        body = await _collect_stream_text(response)
+
+        assert "审核" in body or "不能" in body

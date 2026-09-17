@@ -170,6 +170,50 @@ _KOL_SEARCH_SIGNALS = (
     "creator",
 )
 
+_LOGISTICS_QUERY_SIGNALS = (
+    "查物流",
+    "查询物流",
+    "查快递",
+    "查询快递",
+    "物流查询",
+    "物流信息",
+    "物流记录",
+    "物流状态",
+    "物流进度",
+    "物流轨迹",
+    "物流异常",
+    "订单物流",
+    "订单的物流",
+    "快递",
+    "运单",
+    "查询运单",
+    "运输状态",
+    "运输轨迹",
+    "到哪了",
+    "配送状态",
+    "配送进度",
+    "delivery status",
+    "tracking",
+)
+_LOGISTICS_WRITE_SIGNALS = (
+    "补发",
+    "改地址",
+    "修改地址",
+    "寄样",
+    "创建发货",
+    "发货单",
+)
+_LOGISTICS_STATUS_ALIASES = {
+    "pending": ("待发货", "未发货"),
+    "shipped": ("已发货",),
+    "in_transit": ("运输中",),
+    "out_for_delivery": ("派送中", "派送"),
+    "delivered": ("已签收", "已送达"),
+    "returned": ("已退回", "退回"),
+    "lost": ("丢失",),
+}
+_LOGISTICS_TRACKING_PATTERN = re.compile(r"\b[A-Za-z]{2}\d{8,}\b")
+
 _KOL_EXPLICIT_TERM_PATTERNS = (
     r"(?:名称|名字|昵称|达人名称)\s*(?:包含|含有|为|是|叫|匹配)\s*[“\"'`]?([A-Za-z0-9_\-\u4e00-\u9fff]{2,40})",
     r"(?:包含|含有)\s*[“\"'`]?([A-Za-z0-9_\-\u4e00-\u9fff]{2,40})\s*(?:的)?(?:达人|博主|网红|kol|KOL)",
@@ -191,6 +235,116 @@ def _is_kol_search_request(message: str) -> bool:
     if not text:
         return False
     return any(signal.lower() in text for signal in _KOL_SEARCH_SIGNALS)
+
+
+def _is_logistics_query_request(message: str) -> bool:
+    """Return True for read-only company logistics queries.
+
+    Side-effect requests are rejected by the high-risk guard before this route
+    is reached. This branch only handles status/list/look-up requests so a
+    missing tenant record produces an explicit no-data answer instead of a
+    generic model/tool failure.
+    """
+    text = (message or "").strip().lower()
+    if not text:
+        return False
+    if any(signal.lower() in text for signal in _LOGISTICS_WRITE_SIGNALS):
+        return False
+    return any(signal.lower() in text for signal in _LOGISTICS_QUERY_SIGNALS)
+
+
+def _extract_logistics_search_params(message: str) -> dict[str, Any]:
+    """Extract only deterministic, non-sensitive read-only logistics filters."""
+    text = message or ""
+    tracking_match = _LOGISTICS_TRACKING_PATTERN.search(text)
+    status = None
+    for status_key, aliases in _LOGISTICS_STATUS_ALIASES.items():
+        if any(alias in text for alias in aliases):
+            status = status_key
+            break
+    return {
+        "tracking_number": tracking_match.group(0) if tracking_match else None,
+        "status": status,
+    }
+
+
+def _logistics_record_to_dict(record: Any) -> dict[str, Any]:
+    """Convert an ORM logistics row to the fields supported by the formatter."""
+    return {
+        "id": record.id,
+        "tracking_number": record.tracking_number,
+        "carrier": record.carrier,
+        "status": record.status,
+        "status_detail": record.status_detail,
+        "origin": record.origin,
+        "destination": record.destination,
+        "kol_name": record.kol_name,
+        "sample_name": record.sample_name,
+    }
+
+
+def _query_company_logistics_for_chat(message: str, company_id: str) -> dict[str, Any]:
+    """Query only the authenticated user's company logistics records."""
+    from app.agents.logistics import query_logistics
+    from app.database import db as db_proxy
+
+    params = _extract_logistics_search_params(message)
+    try:
+        company_id_int = int(company_id)
+    except (TypeError, ValueError):
+        company_id_int = 0
+
+    if company_id_int <= 0:
+        return {
+            "results": [],
+            "params": params,
+            "code": "missing_company_context",
+        }
+
+    try:
+        with db_proxy.get_session() as session:
+            results = query_logistics(
+                session=session,
+                company_id=company_id_int,
+                tracking_number=params["tracking_number"],
+                status=params["status"],
+            )
+            return {
+                "results": [_logistics_record_to_dict(record) for record in results],
+                "params": params,
+                "code": "ok" if results else "requires_logistics_data",
+            }
+    except Exception as exc:
+        logger.warning(
+            "chat_logistics_search_failed",
+            error=str(exc),
+            company_id=company_id_int,
+        )
+        return {
+            "results": [],
+            "params": params,
+            "code": "logistics_unavailable",
+        }
+
+
+def _format_company_logistics_response(payload: dict[str, Any]) -> str:
+    """Build a deterministic, tenant-scoped user-visible logistics response."""
+    code = payload.get("code") or "requires_logistics_data"
+    if code == "missing_company_context":
+        return "无法确认当前企业，已拒绝查询跨租户物流数据。"
+    if code == "logistics_unavailable":
+        return "当前企业物流数据暂时不可用，请稍后重试；本次没有使用 mock/demo 物流数据。"
+
+    results = payload.get("results") or []
+    if not results:
+        return "当前企业暂无匹配的物流记录；本次没有使用 mock/demo 物流数据。"
+
+    from app.agents.logistics import format_logistics_result
+
+    return (
+        format_logistics_result(results)
+        + "\n以上结果仅来自当前企业物流记录，未使用 mock/demo/fallback 数据。"
+    )
 
 
 def _extract_explicit_kol_query_terms(message: str) -> list[str]:
@@ -711,6 +865,37 @@ async def chat_stream(
                     except Exception as persist_err:
                         logger.warning(
                             "chat_kol_search_persistence_failed", error=str(persist_err)
+                        )
+                done_payload = {"type": "done"}
+                if conversation_id:
+                    done_payload["conversation_id"] = conversation_id
+                yield _sse(done_payload)
+                return
+
+            if _is_logistics_query_request(request.message):
+                yield _sse({"type": "thinking", "content": "正在查询当前企业物流记录..."})
+                logistics_payload = _query_company_logistics_for_chat(
+                    message=request.message,
+                    company_id=request.company_id or "",
+                )
+                logistics_response = _format_company_logistics_response(logistics_payload)
+                assistant_response_parts.append(logistics_response)
+                yield _sse({"type": "content", "content": logistics_response})
+                if conversation_id:
+                    try:
+                        _persist_assistant_reply(
+                            conversation_id=conversation_id,
+                            content=logistics_response,
+                            metadata={
+                                "agent_name": "master",
+                                "intent_type": "logistics_search",
+                                "code": logistics_payload.get("code", ""),
+                                "result_count": len(logistics_payload.get("results") or []),
+                            },
+                        )
+                    except Exception as persist_err:
+                        logger.warning(
+                            "chat_logistics_search_persistence_failed", error=str(persist_err)
                         )
                 done_payload = {"type": "done"}
                 if conversation_id:
