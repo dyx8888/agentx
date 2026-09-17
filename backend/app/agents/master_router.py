@@ -92,6 +92,7 @@ HIGH_RISK_ACTION_RULES = (
     },
 )
 
+
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
     return any(term and term in text for term in terms)
 
@@ -380,15 +381,18 @@ class MasterAgentRouter:
         # 跟踪路径是否产出 result 事件及其内容，供 Step 3 审查使用
         result_produced = False
         error_produced = False
+        incomplete_result = False
         final_result_text = ""
         try:
             async for event in self._run_path_events(path, context):
                 if event.get("type") == "result":
                     result_produced = True
                     final_result_text = str(event.get("data", ""))
+                    incomplete_result = bool(event.get("incomplete"))
                 elif event.get("type") == "error":
                     error_produced = True
-                yield event
+                if event.get("type") != "done":
+                    yield event
         except Exception as e:
             logger.error("master_execute_path_failed", path=path.value, error=str(e))
             error_event = self._model_config_error_event(e)
@@ -397,6 +401,15 @@ class MasterAgentRouter:
                 "data": f"执行路径 {path.value} 失败: {str(e)}",
             }
             error_produced = True
+
+        if incomplete_result:
+            yield {
+                "type": "warning",
+                "code": "task_incomplete",
+                "message": "尚未取得完整业务执行结果；不会自动重复派发任务。",
+            }
+            yield {"type": "done"}
+            return
 
         if error_produced and not result_produced:
             yield {"type": "done"}
@@ -685,7 +698,10 @@ class MasterAgentRouter:
         exact_reply = self._extract_exact_reply_request(raw_query)
         if exact_reply:
             yield {"type": "action", "data": "deterministic exact reply short path"}
-            yield {"type": "observation", "data": "skipped agent orchestration for exact reply request"}
+            yield {
+                "type": "observation",
+                "data": "skipped agent orchestration for exact reply request",
+            }
             yield {"type": "result", "data": exact_reply}
             return
 
@@ -697,9 +713,7 @@ class MasterAgentRouter:
                 result_warning = result.get("warning")
                 if isinstance(result_warning, dict):
                     yield {**result_warning, "type": "warning"}
-                warning_event = self._model_fallback_warning_event(
-                    result.get("model_fallback")
-                )
+                warning_event = self._model_fallback_warning_event(result.get("model_fallback"))
                 if warning_event:
                     yield warning_event
                 yield {"type": "observation", "data": result.get("intermediate", "")}
@@ -731,13 +745,15 @@ class MasterAgentRouter:
         try:
             # 复用 app/agent.py 的 build_reaction_graph 构建 ReAct 图并 ainvoke
             result = await self._react_execute(query, context)
-            warning_event = self._model_fallback_warning_event(
-                result.get("model_fallback")
-            )
+            warning_event = self._model_fallback_warning_event(result.get("model_fallback"))
             if warning_event:
                 yield warning_event
             yield {"type": "observation", "data": result.get("intermediate", "")}
-            yield {"type": "result", "data": result.get("answer", query)}
+            yield {
+                "type": "result",
+                "data": result.get("answer", query),
+                "incomplete": bool(result.get("incomplete")),
+            }
         except Exception as e:
             logger.warning("react_execute_failed", error=str(e))
             error_event = self._model_config_error_event(e)
@@ -956,6 +972,28 @@ class MasterAgentRouter:
             evidence_lines
         )
 
+    @staticmethod
+    def _pending_delegation_summary(messages) -> str:
+        """Recognize server tool receipts, never user/model text, as enqueue-only."""
+        prefixes = {"schedule_task": "Task scheduled for ", "a2a_delegate_task": "Task sent to "}
+        task_ids = []
+        for message in messages:
+            if getattr(message, "type", "") != "tool":
+                continue
+            prefix = prefixes.get(getattr(message, "name", ""))
+            content = getattr(message, "content", None)
+            if prefix and isinstance(content, str) and content.startswith(prefix):
+                match = re.search(r"Task ID: ([A-Za-z0-9_-]{1,100})(?:$|\s)", content)
+                if match:
+                    task_ids.append(match.group(1))
+        if not task_ids:
+            return ""
+        return (
+            "任务已入队，尚未收到子 Agent 的业务执行结果。"
+            "这不代表已查到销售、订单或物流数据；本轮不自动重复派发。\n"
+            "任务 ID：" + "、".join(dict.fromkeys(task_ids))
+        )
+
     async def _react_execute(self, query: str, context: ContextPackage) -> dict:
         """ReAct 模式执行：构建 master 的 ReAct 图并 ainvoke。
 
@@ -969,7 +1007,7 @@ class MasterAgentRouter:
         6. 从最终消息提取答案，从 tool_calls 提取中间步骤
         """
         try:
-            from langchain_core.messages import HumanMessage, SystemMessage
+            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
             from app.agent import (
                 bind_tenant_core_tools,
@@ -980,7 +1018,7 @@ class MasterAgentRouter:
 
             mg = self._get_model_gateway()
             if mg is None:
-                return {"answer": query, "intermediate": "model_gateway 不可用，ReAct 降级"}
+                raise RuntimeError("model_gateway_unavailable")
 
             company_id_int = self._context_company_id(context)
             llm = mg.get_llm(
@@ -990,12 +1028,14 @@ class MasterAgentRouter:
 
             # 工具：优先用 master 专属工具集（从 tool_providers.yaml 加载），
             # 加载失败或为空时降级到 get_core_tools() 兜底
+            task_context = getattr(context, "task_context", None)
+            task_options = {"task_context": task_context} if task_context is not None else {}
             tools = self._load_master_tools()
             if tools:
-                tools = bind_tenant_core_tools(tools, company_id_int)
+                tools = bind_tenant_core_tools(tools, company_id_int, **task_options)
             else:
                 try:
-                    tools = get_tenant_core_tools(company_id_int) if company_id_int else []
+                    tools = get_tenant_core_tools(company_id_int, **task_options) if company_id_int else []
                     logger.info("react_tools_fallback_core", count=len(tools))
                 except Exception as tool_err:
                     logger.warning("react_tools_unavailable", error=str(tool_err))
@@ -1006,6 +1046,9 @@ class MasterAgentRouter:
 
             async def agent_node(state):
                 messages = state["messages"]
+                pending_summary = self._pending_delegation_summary(messages)
+                if pending_summary:
+                    return {"messages": [AIMessage(content=pending_summary)]}
                 messages_with_system = [SystemMessage(content=MASTER_SYSTEM_PROMPT)] + messages
                 response = await self._invoke_llm(
                     llm_with_tools,
@@ -1028,7 +1071,8 @@ class MasterAgentRouter:
             }
             result_state = await react_app.ainvoke(state)
             final_messages = result_state.get("messages", [])
-            answer = final_messages[-1].content if final_messages else query
+            pending_summary = self._pending_delegation_summary(final_messages)
+            answer = pending_summary or (final_messages[-1].content if final_messages else query)
 
             # 收集中间工具调用作为 observation
             intermediate_parts = []
@@ -1039,6 +1083,7 @@ class MasterAgentRouter:
             intermediate = "; ".join(intermediate_parts) if intermediate_parts else "ReAct 执行完成"
             return {
                 "answer": answer,
+                "incomplete": bool(pending_summary),
                 "intermediate": intermediate,
                 "model_fallback": model_fallbacks[0] if model_fallbacks else None,
             }
@@ -1727,11 +1772,12 @@ class MasterAgentRouter:
         try:
             from app.communication.master_dispatcher import MasterDispatcher
 
-            self._master_dispatcher = MasterDispatcher(
+            # Dispatcher stores company/model/review state: never cache the
+            # default instance on the process-wide router across requests.
+            return MasterDispatcher(
                 model_gateway=self._get_model_gateway(),
                 agent_runtime=self._get_agent_runtime(),
             )
-            return self._master_dispatcher
         except Exception as e:
             logger.warning("master_dispatcher_unavailable", error=str(e))
             return None

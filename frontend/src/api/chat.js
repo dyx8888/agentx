@@ -29,6 +29,17 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, ''
  */
 export function streamChat(params, callbacks) {
   const controller = new AbortController();
+  let terminalReceived = false;
+  let errorNotified = false;
+  const notifyError = (error) => {
+    if (errorNotified || terminalReceived || controller.signal.aborted) return;
+    errorNotified = true;
+    callbacks.onError?.(error);
+  };
+  const interruptedError = () => ({
+    code: 'chat_stream_interrupted',
+    message: '回答连接中断，尚未确认完成。请打开左侧当前历史对话查看已保存结果；不会自动重发模型请求。',
+  });
 
   const body = {
     message: params.message,
@@ -56,19 +67,18 @@ export function streamChat(params, callbacks) {
         const error = new Error(message);
         error.status = response.status;
         error.data = err;
-        callbacks.onError?.(error);
+        notifyError(error);
         return;
       }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let completionNotified = false;
 
       const notifyDone = (event) => {
-        if (completionNotified) return;
-        completionNotified = true;
-        callbacks.onDone?.(event);
+        if (terminalReceived) return;
+        terminalReceived = true;
+        if (!errorNotified) callbacks.onDone?.(event);
       };
 
       const processLine = (line) => {
@@ -81,46 +91,57 @@ export function streamChat(params, callbacks) {
           return true;
         }
 
+        let event;
         try {
-          const event = JSON.parse(data);
-          if (event.type === 'done') {
-            notifyDone(event);
-          } else {
-            _dispatchEvent(event, callbacks);
-          }
+          event = JSON.parse(data);
         } catch {
-          // 跳过格式不正确的数据
+          return false;
+        }
+        if (event.type === 'done') {
+          notifyDone(event);
+          return true;
+        }
+        if (event.type === 'error') {
+          notifyError(_normalizeErrorEvent(event));
+        } else {
+          _dispatchEvent(event, callbacks);
         }
         return false;
       };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          if (processLine(line)) return;
+          for (const line of lines) {
+            if (processLine(line)) return;
+          }
         }
-      }
 
-      // Some reverse proxies close a valid SSE response without appending a
-      // final newline or an explicit [DONE] marker. Process the final partial
-      // event, then close the UI stream state at EOF instead of leaving the
-      // chat input stuck in "streaming" mode.
-      if (buffer) {
-        for (const line of buffer.split('\n')) {
-          if (processLine(line)) break;
+        // EOF is transport termination, not proof of successful model completion.
+        // Still accept a complete terminal event without a trailing newline.
+        buffer += decoder.decode();
+        if (buffer) {
+          for (const line of buffer.split('\n')) {
+            if (processLine(line)) break;
+          }
         }
+        if (!terminalReceived) notifyError(interruptedError());
+      } finally {
+        if (terminalReceived || controller.signal.aborted) {
+          await reader.cancel?.().catch(() => {});
+        }
+        reader.releaseLock?.();
       }
-      notifyDone();
     })
     .catch((err) => {
       if (err.name === 'AbortError') return;
-      callbacks.onError?.(err);
+      notifyError(interruptedError());
     });
 
   return () => controller.abort();

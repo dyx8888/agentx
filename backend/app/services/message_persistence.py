@@ -98,9 +98,12 @@ def get_or_create_conversation(
             .filter(
                 Conversation.id == conversation_id,
                 Conversation.company_id == company_id,
+                Conversation.user_id == user_id,
             )
             .first()
         )
+        if conv is None or conv.status != "active":
+            raise PermissionError("conversation_not_found")
         if conv and conv.status == "active":
             logger.info(
                 "conversation_reused",

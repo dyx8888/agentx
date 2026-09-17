@@ -293,6 +293,22 @@ describe('ChatPage', () => {
     );
   });
 
+  it('marks partial interrupted answers incomplete and refreshes history without retrying chat', async () => {
+    mockStreamChat.mockImplementation((_params, callbacks) => {
+      callbacks.onContent({ content: 'partial answer' });
+      callbacks.onError({ code: 'chat_stream_interrupted', message: '回答连接中断，请查看历史对话' });
+      return vi.fn();
+    });
+    renderChatPage();
+    await waitFor(() => expect(mockGetConversations).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByTestId('send-btn'));
+    await waitFor(() => expect(screen.getByTestId('warning-text')).toHaveTextContent('回答连接中断'));
+    expect(screen.getByTestId('last-content')).toHaveTextContent('partial answer');
+    expect(screen.getByTestId('streaming')).toHaveTextContent('idle');
+    expect(mockGetConversations).toHaveBeenCalledTimes(2);
+    expect(mockStreamChat).toHaveBeenCalledOnce();
+  });
+
   it('shows readable SSE error content instead of unknown error', async () => {
     mockStreamChat.mockImplementation((_params, callbacks) => {
       callbacks.onError?.({

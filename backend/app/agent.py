@@ -252,12 +252,18 @@ def get_core_tools() -> list:
     return [get_current_time, schedule_task, a2a_delegate_task]
 
 
-def get_tenant_core_tools(company_id: int | str) -> list:
+def get_tenant_core_tools(company_id: int | str, task_context=None) -> list:
     """Build core tools whose tenant identity is fixed outside the model schema."""
     normalized_company_id = int(company_id)
 
+    def enqueue_chat_task(target_agent_name, task):
+        receipt = task_context.enqueue(target_agent_name, task, normalized_company_id)
+        return f"Task scheduled for {target_agent_name}. Task ID: {receipt['task_id']}"
+
     def tenant_schedule_task(target_agent_name: str, task: str) -> str:
         """Schedule a task for asynchronous execution by another agent."""
+        if task_context is not None:
+            return enqueue_chat_task(target_agent_name, task)
         return _schedule_task_for_company(target_agent_name, task, normalized_company_id)
 
     def tenant_a2a_delegate_task(
@@ -266,6 +272,8 @@ def get_tenant_core_tools(company_id: int | str) -> list:
         task_type: str = "general",
     ) -> str:
         """Delegate task to another agent using Google A2A protocol."""
+        if task_context is not None:
+            return enqueue_chat_task(target_agent_name, task)
         return _a2a_delegate_task_for_company(
             target_agent_name,
             task,
@@ -293,11 +301,12 @@ def get_tenant_core_tools(company_id: int | str) -> list:
     return [get_current_time, bound_schedule, bound_delegate]
 
 
-def bind_tenant_core_tools(tools: list, company_id: int | str | None) -> list:
+def bind_tenant_core_tools(tools: list, company_id: int | str | None, task_context=None) -> list:
     """Replace unbound core tools without adding tools a provider did not select."""
     if company_id is None or not str(company_id).strip():
         return list(tools)
-    replacements = {tool.name: tool for tool in get_tenant_core_tools(company_id)}
+    core = get_tenant_core_tools(company_id, task_context=task_context) if task_context is not None else get_tenant_core_tools(company_id)
+    replacements = {tool.name: tool for tool in core}
     return [replacements.get(getattr(tool, "name", ""), tool) for tool in tools]
 
 

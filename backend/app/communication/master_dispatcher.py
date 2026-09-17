@@ -109,6 +109,7 @@ class MasterDispatcher:
         # 因为 dispatch/review 的签名按规格只接收 subtasks/results
         self._context: ContextPackage | None = None
         self._review_attempts = 0
+        self._last_model_error = ""
 
     def _selected_model_key(self) -> str | None:
         value = ""
@@ -120,7 +121,8 @@ class MasterDispatcher:
     def _context_company_id(self) -> int | None:
         company_id = getattr(self._context, "company_id", "") if self._context else ""
         try:
-            return int(company_id) if company_id else None
+            value = int(company_id) if company_id else 0
+            return value if value > 0 else None
         except (TypeError, ValueError):
             return None
 
@@ -133,6 +135,7 @@ class MasterDispatcher:
         """
         self._context = context
         self._review_attempts = 0  # 重置审查计数，避免实例复用时串状态
+        self._last_model_error = ""
 
         query = (context.rewritten_query or context.raw_input or "").strip()
         if not query:
@@ -142,6 +145,9 @@ class MasterDispatcher:
         available_agents = context.available_agents or self._all_agent_keys()
 
         subtasks = await self._llm_decompose(query, available_agents)
+        if self._last_model_error == "model_timeout":
+            # A timed-out plan is not permission to enqueue a guessed task.
+            return []
         if subtasks:
             logger.info("master_decompose_llm", count=len(subtasks))
             return subtasks
@@ -360,32 +366,76 @@ class MasterDispatcher:
             else:
                 out = await self._master_execute(task, results)
 
-            res.output = out if isinstance(out, dict) else {"result": str(out)}
-            has_error = bool(res.output.get("error"))
-            res.success = bool(res.output.get("success", True)) and not has_error
-            res.summary = (
-                res.output.get("summary")
-                or res.output.get("response")
-                or res.output.get("result")
-                or ""
+            res.output = (
+                out if isinstance(out, dict) else {"success": False, "error": "执行结果格式无效"}
             )
-            if res.success:
-                res.status = SubTaskStatus.COMPLETED
+            if res.output.get("task_id"):
+                # An existing receipt must never create a second task on review.
+                res.output = {**res.output, "retryable": False}
+            state = str(res.output.get("status", "")).lower()
+            accepted = res.output.get("success") is True
+            has_error = bool(res.output.get("error")) or state in {"failed", "timeout", "cancelled"}
+            receipt_only = (
+                accepted
+                and not has_error
+                and (
+                    state in {"pending", "queued", "running"}
+                    or (res.output.get("task_id") and state != "completed")
+                )
+            )
+            if receipt_only:
+                # send_task success acknowledges enqueueing, not business completion.
+                res.status = SubTaskStatus.RUNNING if state == "running" else SubTaskStatus.PENDING
+                res.summary = "任务已入队或执行中，尚未收到业务执行结果；本轮不自动重复派发。"
+                if res.output.get("task_id"):
+                    res.summary += f" 任务 ID：{res.output['task_id']}"
             else:
-                res.status = SubTaskStatus.FAILED
-                res.error = res.output.get("error", "执行未成功")
+                payload = next(
+                    (
+                        res.output[k]
+                        for k in ("summary", "response", "result")
+                        if k in res.output
+                        and (
+                            isinstance(res.output[k], str)
+                            and res.output[k].strip()
+                            or isinstance(res.output[k], (dict, list))
+                        )
+                    ),
+                    None,
+                )
+                res.summary = (
+                    payload
+                    if isinstance(payload, str)
+                    else (json.dumps(payload, ensure_ascii=False) if payload is not None else "")
+                )
+                res.success = (
+                    accepted
+                    and not has_error
+                    and payload is not None
+                    and state in {"", "completed"}
+                )
+                res.status = SubTaskStatus.COMPLETED if res.success else SubTaskStatus.FAILED
+                if not res.success:
+                    res.error = res.output.get("error") or "尚未返回可确认的业务执行结果"
         except Exception as e:
             res.status = SubTaskStatus.FAILED
             res.error = str(e)
             logger.warning("master_subtask_failed", task_id=task.task_id, error=str(e))
 
         completed = datetime.utcnow()
-        res.completed_at = completed.isoformat()
+        if res.status not in {SubTaskStatus.PENDING, SubTaskStatus.RUNNING}:
+            res.completed_at = completed.isoformat()
         res.duration_ms = (completed - started).total_seconds() * 1000
         return res
 
     async def _delegate(self, task: SubTask, results: dict[str, SubTaskResult]) -> dict:
         """通过 A2A 协议把子任务委派给目标 Agent。"""
+        task_context = getattr(self._context, "task_context", None)
+        if task_context is not None:
+            return await asyncio.to_thread(
+                task_context.enqueue, task.agent_name, self._augment_description(task, results),
+                self._context_company_id(),
+            )
         adapter = self._get_a2a_adapter()
         if adapter is None:
             return {"success": False, "error": "A2A adapter 不可用"}
@@ -394,6 +444,9 @@ class MasterDispatcher:
         if send is None:
             return {"success": False, "error": "A2A adapter 不支持 send_task"}
 
+        company_id = self._context_company_id()
+        if company_id is None:
+            return {"success": False, "error": "缺少有效的当前公司身份，未派发任务"}
         description = self._augment_description(task, results)
         try:
             # send_task 为同步调用且可能含网络 IO，放到线程池避免阻塞事件循环
@@ -404,25 +457,26 @@ class MasterDispatcher:
                     target_agent_name=task.agent_name,
                     task_message=description,
                     task_type=DELEGATION_TASK_TYPE,
-                    company_id=self._context_company_id(),
+                    company_id=company_id,
                 ),
             )
             if isinstance(result, dict):
                 return result
-            return {"success": True, "result": str(result)}
+            return {"success": False, "error": "委派接口未返回有效执行状态"}
         except Exception as e:
             logger.warning("master_delegate_failed", agent=task.agent_name, error=str(e))
             return {"success": False, "error": str(e)}
 
     async def _master_execute(self, task: SubTask, results: dict[str, SubTaskResult]) -> dict:
-        """master 自己执行子任务（ReAct）。AgentRuntime 不可用时降级返回任务描述。"""
+        """Execute in the trusted company; missing runtime is not task success."""
+        company_id = self._context_company_id()
+        if company_id is None:
+            return {"success": False, "error": "缺少有效的当前公司身份，任务尚未执行"}
         runtime = self._get_agent_runtime()
         if runtime is None:
-            return {"success": True, "summary": task.description, "degraded": True}
+            return {"success": False, "error": "Agent 执行器未就绪，任务尚未执行", "degraded": True}
 
         description = self._augment_description(task, results)
-        company_id = self._context_company_id()
-
         try:
             out = await runtime.run(
                 message=description,
@@ -431,7 +485,7 @@ class MasterDispatcher:
                 model_key=self._selected_model_key(),
             )
             return {
-                "success": bool(out.get("success", True)),
+                "success": out.get("success") is True and bool(out.get("response", "")),
                 "response": out.get("response", ""),
                 "summary": out.get("response", ""),
             }
@@ -465,29 +519,49 @@ class MasterDispatcher:
             review.needs_retry = self._review_attempts <= MAX_REVIEW_RETRIES
             return review
 
-        review.failed_task_ids = [tid for tid, r in results.items() if not r.success]
+        incomplete = [r for r in results.values() if not r.success]
+        review.failed_task_ids = [
+            tid for tid, r in results.items() if not r.success and r.output.get("retryable", True)
+        ]
         review.final_output = self._synthesize(results)
+
+        if any(
+            r.status in {SubTaskStatus.PENDING, SubTaskStatus.RUNNING} for r in results.values()
+        ):
+            review.issues.append("尚有任务等待业务执行结果，不作为完成，也不自动重复派发")
+            review.failed_task_ids = []
+            review.needs_retry = False
+            return review
 
         if not any(r.success for r in results.values()):
             review.issues.append("所有子任务均失败")
-            review.needs_retry = self._review_attempts <= MAX_REVIEW_RETRIES
+            review.needs_retry = (
+                bool(review.failed_task_ids) and self._review_attempts <= MAX_REVIEW_RETRIES
+            )
             return review
 
         # ── LLM 验收（对比原始意图）──
         accepted, issues = await self._llm_accept(review.final_output)
         review.issues.extend(issues)
 
-        if accepted and not review.failed_task_ids:
+        if accepted and not incomplete:
             review.passed = True
             review.needs_retry = False
         else:
             review.passed = False
-            review.needs_retry = self._review_attempts <= MAX_REVIEW_RETRIES
+            review.needs_retry = (
+                bool(review.failed_task_ids) and self._review_attempts <= MAX_REVIEW_RETRIES
+            )
 
         return review
 
     def _synthesize(self, results: dict[str, SubTaskResult]) -> str:
-        """综合成功子任务的结果为最终输出。"""
+        """Return incomplete statuses explicitly; aggregate only completed work."""
+        if any(not r.success for r in results.values()):
+            return "本轮尚未全部完成：\n" + "\n".join(
+                f"- [{r.agent_name or 'master'}] {r.status}: {r.summary or r.error or '尚未返回结果'}"
+                for r in results.values()
+            )
         try:
             from app.agents.master import aggregate_results
 
@@ -549,6 +623,7 @@ class MasterDispatcher:
                 "results": {},
                 "subtasks": [],
                 "issues": ["任务拆解为空"],
+                "code": self._last_model_error or "empty_plan",
                 "retry_count": 0,
             }
 
@@ -608,7 +683,13 @@ class MasterDispatcher:
 
         subtasks = await self.decompose(context)
         if not subtasks:
-            yield {"type": "error", "data": "任务拆解为空"}
+            yield {
+                "type": "error",
+                "code": self._last_model_error or "empty_plan",
+                "data": "模型规划超时，尚未派发业务任务。"
+                if self._last_model_error == "model_timeout"
+                else "任务拆解为空",
+            }
             yield {"type": "done"}
             return
 
@@ -643,7 +724,7 @@ class MasterDispatcher:
             issues_str = "; ".join(review.issues) if review.issues else "未知问题"
             yield {"type": "reflection", "data": f"审查未通过: {issues_str}"}
 
-        yield {"type": "result", "data": review.final_output}
+        yield {"type": "result", "data": review.final_output, "incomplete": not review.passed}
         yield {"type": "done"}
 
     async def _dispatch_stream(
@@ -728,7 +809,7 @@ class MasterDispatcher:
                 # 委派子任务：发 completed/failed 事件
                 task = task_map[tid]
                 if task.agent_name and task.agent_name != "master":
-                    status = "completed" if results[tid].success else "failed"
+                    status = results[tid].status
                     yield {
                         "type": "delegation",
                         "agent_name": task.agent_name,
@@ -792,7 +873,11 @@ class MasterDispatcher:
 
         # 汇总结果
         final_summary = self._summarize_workflow(workflow_name, results)
-        yield {"type": "result", "data": final_summary}
+        yield {
+            "type": "result",
+            "data": final_summary,
+            "incomplete": any(not r.success for r in results.values()),
+        }
         yield {"type": "done"}
 
     def _workflow_nodes_to_subtasks(self, nodes: list[dict]) -> list[SubTask]:
@@ -953,7 +1038,8 @@ class MasterDispatcher:
         if not results:
             return f"workflow {workflow_name} 无执行结果"
 
-        parts = [f"workflow {workflow_name} 执行完成，共 {len(results)} 个节点:"]
+        state = "执行完成" if all(r.success for r in results.values()) else "尚未全部完成"
+        parts = [f"workflow {workflow_name} {state}，共 {len(results)} 个节点:"]
         for node_id, result in results.items():
             status = result.status if hasattr(result, "status") else "unknown"
             summary = result.summary or result.error or ""
@@ -977,6 +1063,7 @@ class MasterDispatcher:
 
     async def _llm_complete(self, system_prompt: str, user_prompt: str) -> str:
         """统一的 LLM 调用封装，优先 async ainvoke，否则线程池跑同步 invoke。"""
+        self._last_model_error = ""
         gateway = self._get_model_gateway()
         if gateway is None:
             return ""
@@ -995,14 +1082,25 @@ class MasterDispatcher:
 
             messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
             ainvoke = getattr(llm, "ainvoke", None)
+            # Reuse the same finite budget as master calls; do not extend it
+            # silently for planning/review. A sync legacy call may keep running
+            # in its worker thread after the bounded wait, so it is not retried here.
+            from app.agents.master_router import MasterAgentRouter
+
             if ainvoke is not None:
-                resp = await ainvoke(messages, company_id=company_id)
+                pending = ainvoke(messages, company_id=company_id)
             else:
-                loop = asyncio.get_event_loop()
-                resp = await loop.run_in_executor(
+                pending = asyncio.get_running_loop().run_in_executor(
                     None, lambda: llm.invoke(messages, company_id=company_id)
                 )
+            resp = await asyncio.wait_for(
+                pending, timeout=MasterAgentRouter._model_timeout_seconds()
+            )
             return resp.content if hasattr(resp, "content") else str(resp)
+        except TimeoutError:
+            self._last_model_error = "model_timeout"
+            logger.warning("master_dispatcher_model_timeout")
+            return ""
         except Exception as e:
             logger.warning("master_dispatcher_llm_failed", error=str(e))
             return ""

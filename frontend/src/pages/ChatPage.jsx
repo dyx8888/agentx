@@ -33,6 +33,8 @@ import FilePanel from '@/components/FilePanel';
 import FilePreviewModal from '@/components/FilePreviewModal';
 import { LLM_PROVIDERS } from '@/lib/llmProviders';
 import CaptureRequestCard from '@/components/CaptureRequestCard';
+import ConversationTaskCard from '@/components/ConversationTaskCard';
+import { listConversationTasks, resumeConversationTask } from '@/api/conversationTasks';
 
 const LEGACY_SELECTED_MODEL_VALUES = new Set(
   LLM_PROVIDERS.flatMap((provider) => provider.models.map((model) => model.value))
@@ -93,6 +95,39 @@ export default function ChatPage() {
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [captureJobs, setCaptureJobs] = useState([]);
   const [captureBusyJobId, setCaptureBusyJobId] = useState(null);
+  const [conversationTasks, setConversationTasks] = useState([]);
+
+  const loadConversationTasks = useCallback(async (conversationId) => {
+    if (!conversationId) {
+      setConversationTasks([]);
+      return;
+    }
+    try {
+      const data = await listConversationTasks(conversationId);
+      setConversationTasks(data.items || []);
+    } catch (err) {
+      console.error('加载对话任务失败:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!activeConversationId) return undefined;
+    loadConversationTasks(activeConversationId);
+    const timer = setInterval(() => loadConversationTasks(activeConversationId), 4000);
+    return () => clearInterval(timer);
+  }, [activeConversationId, loadConversationTasks]);
+
+  useEffect(() => {
+    const task = ws.taskStatus;
+    if (task?.conversation_id && String(task.conversation_id) === String(activeConversationId)) {
+      loadConversationTasks(activeConversationId);
+    }
+  }, [ws.taskStatus, activeConversationId, loadConversationTasks]);
+
+  const handleResumeConversationTask = useCallback(async (task) => {
+    await resumeConversationTask(activeConversationId, task.id);
+    await loadConversationTasks(activeConversationId);
+  }, [activeConversationId, loadConversationTasks]);
 
   const mergeCaptureJobs = useCallback((incoming) => {
     const next = Array.isArray(incoming) ? incoming : [];
@@ -287,6 +322,7 @@ export default function ChatPage() {
     }
     setActiveConversationId(null);
     setMessages([]);
+    setConversationTasks([]);
     setIsStreaming(false);
     setSidebarOpen(false);
   }, []);
@@ -306,12 +342,13 @@ export default function ChatPage() {
           isStreaming: false,
         }))
       );
+      await loadConversationTasks(id);
       setIsStreaming(false);
       setSidebarOpen(false);
     } catch (err) {
       console.error('加载对话详情失败:', err);
     }
-  }, []);
+  }, [loadConversationTasks]);
 
   // 鈹€鈹€ 鍒犻櫎瀵硅瘽 鈹€鈹€
   const handleDeleteConversation = useCallback(
@@ -499,6 +536,9 @@ export default function ChatPage() {
             abortRef.current = null;
             // 鍒锋柊瀵硅瘽鍒楄〃
             loadConversations();
+            if (newConvId || activeConversationId) {
+              loadConversationTasks(newConvId || activeConversationId);
+            }
           },
           onError: (err) => {
             const readableError = resolveChatErrorMessage(err);
@@ -508,16 +548,21 @@ export default function ChatPage() {
               content:
                 msg.content ||
                 `抱歉，处理时出错了：${readableError}`,
+              warnings: [
+                ...(msg.warnings || []),
+                { id: 'stream-error', code: err?.code || 'chat_stream_error', message: readableError },
+              ],
             }));
             setIsStreaming(false);
             abortRef.current = null;
+            loadConversations();
           },
         }
       );
 
       abortRef.current = abort;
     },
-    [isStreaming, activeConversationId, companyId, selectedModel, updateLastAssistant, loadConversations]
+    [isStreaming, activeConversationId, companyId, selectedModel, updateLastAssistant, loadConversations, loadConversationTasks]
   );
 
   // 鈹€鈹€ 鍋滄娴佸紡 鈹€鈹€
@@ -643,6 +688,7 @@ export default function ChatPage() {
             onDraft={handleCaptureDraft}
             busyJobId={captureBusyJobId}
           />
+          <ConversationTaskCard tasks={conversationTasks} onResume={handleResumeConversationTask} />
           <ChatArea
             messages={messages}
             isStreaming={isStreaming}
@@ -916,6 +962,5 @@ function WsNotifications({ ws, taskToasts, dismissTaskToast }) {
     </>
   );
 }
-
 
 

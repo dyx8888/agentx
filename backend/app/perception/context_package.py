@@ -16,7 +16,7 @@ ContextPackage 汇总了感知管线所有阶段的结果：
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # 仅类型检查时导入，避免运行时循环依赖
@@ -68,6 +68,7 @@ class ContextPackage:
     # === 上下文 ===
     company_id: str = ""  # 公司 ID，用于后续 LLM 成本归因、审计和多租户上下文传递
     company_context: dict = field(default_factory=dict)  # 公司画像上下文（品牌、品类、平台等）
+    task_context: Any = None  # request-local durable delegation admission; never serialized
 
     # === 缓存命中标记（预检索层直接返回时使用）===
     cache_hit: bool = False  # True 表示预检索缓存命中，调用方应直接返回 direct_return

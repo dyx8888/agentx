@@ -212,6 +212,7 @@ async def list_conversations(
     with db.get_session() as session:
         base_query = session.query(Conversation).filter(
             Conversation.company_id == current_user.company_id,
+            Conversation.user_id == current_user.id,
         )
         total = base_query.count()
         items = (
@@ -271,6 +272,7 @@ async def get_conversation_detail(
         conv = session.query(Conversation).filter(
             Conversation.id == conversation_id,
             Conversation.company_id == current_user.company_id,
+            Conversation.user_id == current_user.id,
         ).first()
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
@@ -316,6 +318,7 @@ async def list_conversation_files(
         conv = session.query(Conversation).filter(
             Conversation.id == conversation_id,
             Conversation.company_id == current_user.company_id,
+            Conversation.user_id == current_user.id,
         ).first()
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
@@ -338,6 +341,7 @@ async def delete_conversation(
         conv = session.query(Conversation).filter(
             Conversation.id == conversation_id,
             Conversation.company_id == current_user.company_id,
+            Conversation.user_id == current_user.id,
         ).first()
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")

@@ -661,6 +661,29 @@ class Message(Base):
         return f"<Message(id={self.id}, role='{self.role}', content_type='{self.content_type}')>"
 
 
+class ConversationTask(Base):
+    """Only new, identity-bound chat delegations; never consumes legacy queues."""
+
+    __tablename__ = "conversation_tasks"
+    id = Column(String(64), primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    source_message_id = Column(Integer, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
+    agent_name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=False)
+    model_key = Column(String(200), nullable=False)
+    status = Column(String(30), nullable=False, default="pending")
+    result = Column(Text, nullable=True)
+    error_code = Column(String(100), nullable=True)
+    result_message_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    __table_args__ = (Index("ix_conversation_tasks_owner", "company_id", "user_id", "conversation_id"),)
+
+
 class KolProfile(Base):
     """达人档案表 — 存储达人基础信息与数据指标"""
 

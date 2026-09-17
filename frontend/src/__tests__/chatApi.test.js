@@ -84,8 +84,9 @@ describe('streamChat API routing', () => {
     );
   });
 
-  it('notifies completion when the SSE stream reaches EOF without a done marker', async () => {
+  it('reports incomplete EOF instead of successful completion', async () => {
     const onDone = vi.fn();
+    const onError = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       body: {
@@ -102,8 +103,9 @@ describe('streamChat API routing', () => {
     vi.stubGlobal('fetch', fetchMock);
     const streamChat = await loadStreamChat();
 
-    streamChat({ message: 'hello' }, { onDone });
-    await vi.waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    streamChat({ message: 'hello' }, { onDone, onError });
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'chat_stream_interrupted' })));
+    expect(onDone).not.toHaveBeenCalled();
   });
   it('processes multiple final SSE lines and CRLF before completing at EOF', async () => {
     const onContent = vi.fn();
@@ -129,5 +131,73 @@ describe('streamChat API routing', () => {
     streamChat({ message: 'hello' }, { onContent, onDone });
     await vi.waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(onContent).toHaveBeenCalledWith({ type: 'content', content: 'answer' });
+  });
+});
+
+describe('streamChat terminal-state contract', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  async function run(chunks, { failure, abort = false } = {}) {
+    const read = vi.fn();
+    chunks.forEach((text) => read.mockResolvedValueOnce({ done: false, value: new TextEncoder().encode(text) }));
+    if (failure) read.mockRejectedValueOnce(failure);
+    else read.mockResolvedValueOnce({ done: true });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, body: { getReader: () => ({ read }) } }));
+    const callbacks = { onContent: vi.fn(), onDone: vi.fn(), onError: vi.fn() };
+    const streamChat = await loadStreamChat();
+    const stop = streamChat({ message: 'synthetic test' }, callbacks);
+    if (abort) stop();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return callbacks;
+  }
+
+  it('accepts terminal done without final newline exactly once', async () => {
+    const c = await run(['data: {"type":"done","conversation_id":42}']);
+    expect(c.onDone).toHaveBeenCalledOnce();
+    expect(c.onDone).toHaveBeenCalledWith(expect.objectContaining({ conversation_id: 42 }));
+    expect(c.onError).not.toHaveBeenCalled();
+  });
+
+  it('ignores heartbeat comments and preserves Unicode content', async () => {
+    const c = await run([': keepalive\n\ndata: {"type":"content","content":"测试"}\n\n', 'data: {"type":"done"}\n\n']);
+    expect(c.onContent).toHaveBeenCalledOnce();
+    expect(c.onContent).toHaveBeenCalledWith({ type: 'content', content: '测试' });
+    expect(c.onDone).toHaveBeenCalledOnce();
+  });
+
+  it('keeps partial content but reports network interruption, not completion', async () => {
+    const c = await run(['data: {"type":"content","content":"partial"}\n\n'], { failure: new TypeError('network error') });
+    expect(c.onContent).toHaveBeenCalledOnce();
+    expect(c.onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'chat_stream_interrupted' }));
+    expect(c.onDone).not.toHaveBeenCalled();
+  });
+
+  it('does not report a completed terminal event as a later network error', async () => {
+    const c = await run(['data: {"type":"done"}\n\n'], { failure: new TypeError('network error') });
+    expect(c.onDone).toHaveBeenCalledOnce();
+    expect(c.onError).not.toHaveBeenCalled();
+  });
+
+  it('retains the server error exactly once even when the stream then closes', async () => {
+    const c = await run(['data: {"type":"error","code":"model_timeout","message":"model timed out"}\n\n']);
+    expect(c.onError).toHaveBeenCalledOnce();
+    expect(c.onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'model_timeout' }));
+    expect(c.onDone).not.toHaveBeenCalled();
+  });
+
+  it('does not turn an error followed by done into success', async () => {
+    const c = await run(['data: {"type":"error","message":"failed"}\n\ndata: {"type":"done"}\n\n']);
+    expect(c.onError).toHaveBeenCalledOnce();
+    expect(c.onDone).not.toHaveBeenCalled();
+  });
+
+  it('does not emit a transport error after user cancellation', async () => {
+    const c = await run([], { failure: new DOMException('Aborted', 'AbortError'), abort: true });
+    expect(c.onError).not.toHaveBeenCalled();
+    expect(c.onDone).not.toHaveBeenCalled();
   });
 });

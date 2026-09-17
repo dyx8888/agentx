@@ -11,7 +11,7 @@ import time
 import uuid
 
 import structlog
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.core.logging import get_logger
 from app.database import db
@@ -134,16 +134,23 @@ class TaskWorker:
         """Process a single task with AgentRuntime Plan-Execute-Reflect."""
         task_request_id = f"task-{uuid.uuid4().hex[:12]}"
 
+        # A queue task must already carry a trusted, positive tenant identity.
+        # Reject invalid identities before status writes, context or model access.
+        company_id = task.get("company_id")
+        if isinstance(company_id, str) and company_id.isascii() and company_id.isdecimal():
+            company_id = int(company_id)
+        if type(company_id) is not int or company_id <= 0:
+            logger.error("task_worker_invalid_company")
+            return
+
         if "id" in task:
             task_id = task["id"]
-            company_id = task["company_id"]
             source_agent_id = task["source_agent_id"]
             target_agent_name = task["target_agent_name"]
             task_description = task["task_description"]
             db.update_task_status(task_id, "processing")
         else:
             task_id = task.get("task_id", f"redis_{int(time.time())}")
-            company_id = task.get("company_id")
             source_agent_id = task.get("source_agent_id")
             target_agent_name = task.get("target_agent_name")
             task_description = task.get("task_description")
@@ -163,13 +170,7 @@ class TaskWorker:
 
             from app.agents import create_agent_execution_context
 
-            exec_context = create_agent_execution_context(
-                agent_key=target_agent_name,
-                company_id=company_id,
-                task_description=task_description,
-            )
-
-            target_agent = db.get_agent_by_name(target_agent_name)
+            target_agent = db.get_agent_by_name(target_agent_name, company_id=company_id)
             if not target_agent:
                 raise Exception(f"Target agent '{target_agent_name}' not found")
 
@@ -178,25 +179,36 @@ class TaskWorker:
                     f"Agent '{target_agent_name}' does not belong to company {company_id}"
                 )
 
+            exec_context = create_agent_execution_context(
+                agent_key=target_agent_name,
+                company_id=company_id,
+                task_description=task_description,
+            )
+
             import json
 
             tool_names = json.loads(target_agent.tools_json)
 
-            from app.agent import State, build_reaction_graph, build_system_message
+            from app.agent import (
+                State,
+                bind_tenant_core_tools,
+                build_reaction_graph,
+                build_system_message,
+            )
             from app.services.model_gateway import get_global_model_gateway
             from app.tools.registry import registry
 
             mg = get_global_model_gateway()
-            llm = mg.get_llm()
-            tools = registry.get_tools_by_names(tool_names)
+            llm = mg.get_llm(company_id=company_id)
+            tools = bind_tenant_core_tools(registry.get_tools_by_names(tool_names), company_id)
             llm_with_tools = llm.bind_tools(tools)
 
-            def agent(state: State):
+            async def agent(state: State):
                 messages = state["messages"]
                 company_context = state.get("company_context", {})
                 system_message = build_system_message(company_context)
                 messages_with_system = [SystemMessage(content=system_message)] + messages
-                response = llm_with_tools.invoke(messages_with_system)
+                response = await llm_with_tools.ainvoke(messages_with_system, company_id=company_id)
                 return {"messages": [response]}
 
             target_agent_app, _ = build_reaction_graph(agent, tools, mg)
@@ -262,7 +274,6 @@ class TaskWorker:
             try:
                 from app.evolution.suggester import EvolutionSuggester
 
-                target_agent = db.get_agent_by_name(target_agent_name)
                 agent_id = target_agent.id if target_agent else None
 
                 if agent_id:
@@ -300,33 +311,26 @@ class TaskWorker:
             structlog.contextvars.clear_contextvars()
 
     def _execute_with_timeout(self, agent_app, state: dict, timeout: int = 300) -> str:
-        """Execute agent with timeout"""
-        import threading
+        """Run in the worker thread; cancel cooperative async work on timeout.
 
-        result_container = {}
-        exception_container = []
+        Cancellation does not undo tool side effects or stop synchronous tools
+        already running in an executor. It must not be used as an approval gate.
+        """
+        async def execute():
+            return await asyncio.wait_for(agent_app.ainvoke(state), timeout=timeout)
 
-        def target():
-            try:
-                result = agent_app.invoke(state)
-                if result and result.get("messages"):
-                    result_container["value"] = result["messages"][-1].content
-                else:
-                    result_container["value"] = "Task completed but no response generated"
-            except Exception as e:
-                exception_container.append(e)
-
-        thread = threading.Thread(target=target)
-        thread.start()
-        thread.join(timeout=timeout)
-
-        if thread.is_alive():
-            raise TimeoutError(f"Task execution timed out after {timeout} seconds")
-
-        if exception_container:
-            raise exception_container[0]
-
-        return result_container.get("value", "No result generated")
+        result = asyncio.run(execute())
+        messages = result.get("messages") if isinstance(result, dict) else None
+        last = messages[-1] if isinstance(messages, (list, tuple)) and messages else None
+        if (
+            not isinstance(last, AIMessage)
+            or last.tool_calls
+            or last.invalid_tool_calls
+            or not isinstance(last.content, str)
+            or not last.content.strip()
+        ):
+            raise ValueError("task_result_incomplete")
+        return last.content
 
     def _notify_task_started(self, company_id: int, task_id: int, agent_key: str, description: str):
         try:

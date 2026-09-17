@@ -9,28 +9,65 @@ routing, planning, action, observation, delegation, and reflection events are
 logged but not streamed to the browser or persisted in conversation history.
 """
 
+import asyncio
 import json
 import os
 import re
+from contextlib import suppress
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
+from starlette.background import BackgroundTask
 
+from app.api.conversation_tasks import router as conversation_tasks_router
 from app.auth import get_current_active_user
 from app.core.high_risk_actions import detect_high_risk_action
 from app.core.logging import get_logger
 from app.database import User
 from app.middleware.input_filter import InputFilter
 from app.perception.pipeline import PerceptionPipeline
+from app.services.conversation_tasks import TaskContext, run_admitted_tasks
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["chat"])
+router.include_router(conversation_tasks_router)
 
 _perception_pipeline: PerceptionPipeline | None = None
 _master_router = None
 _SMOKE_TRUE_VALUES = {"1", "true", "yes"}
+
+
+async def _stream_with_heartbeat(source, interval: float = 10.0):
+    """Keep idle SSE connections active without cancelling model work on timeout.
+
+    At most one anext task exists. Client disconnect closes/cancels that task;
+    heartbeats are SSE comments, not assistant content or persisted messages.
+    """
+    iterator = source.__aiter__()
+    pending = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(anext(iterator))
+            ready, _ = await asyncio.wait({pending}, timeout=interval)
+            if not ready:
+                yield ": keepalive\n\n"
+                continue
+            try:
+                chunk = pending.result()
+            except StopAsyncIteration:
+                return
+            finally:
+                pending = None
+            yield chunk
+    finally:
+        if pending is not None:
+            pending.cancel()
+            with suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
+                await pending
+        await iterator.aclose()
 
 
 def _get_perception_pipeline() -> PerceptionPipeline:
@@ -575,7 +612,14 @@ async def chat_stream(
 ):
     """Stream a chat response from the production master route."""
 
+    task_contexts = []
+
+    async def complete_admitted_tasks():
+        for task_context in task_contexts:
+            await run_admitted_tasks(task_context)
+
     async def generate_events():
+        source_message_id = None
         conversation_id = None
         assistant_response_parts: list[str] = []
         context_package = None
@@ -624,7 +668,7 @@ async def chat_stream(
                         title=request.message,
                     )
                     conversation_id = conv.id
-                    save_user_message(
+                    source_message = save_user_message(
                         session=persist_session,
                         conversation_id=conversation_id,
                         user_id=current_user.id,
@@ -632,6 +676,7 @@ async def chat_stream(
                         metadata={"intent_type": None, "agent_name": "master"},
                         sequence_num=conv.message_count + 1,
                     )
+                    source_message_id = source_message.id
                     logger.info(
                         "chat_message_persistence_user_saved",
                         conversation_id=conversation_id,
@@ -687,6 +732,13 @@ async def chat_stream(
                 agent_name="master",
                 skip_rag=skip_rag_preretrieval,
             )
+            task_context = TaskContext(
+                company_id=current_user.company_id, user_id=current_user.id,
+                conversation_id=conversation_id, source_message_id=source_message_id,
+                model_key=request.model_provider or None,
+            )
+            context_package.task_context = task_context
+            task_contexts.append(task_context)
             if request.model_provider:
                 context_package.intent_entities["model_provider"] = request.model_provider
 
@@ -711,10 +763,6 @@ async def chat_stream(
                 yield _sse(
                     {"type": "content", "content": cached_content, "cache_hit": True}
                 )
-                done_payload = {"type": "done"}
-                if conversation_id:
-                    done_payload["conversation_id"] = conversation_id
-                yield _sse(done_payload)
             else:
                 if rag_refs:
                     yield _sse({"type": "sources", "sources": rag_refs})
@@ -767,11 +815,10 @@ async def chat_stream(
                         stream_error_payload = _chat_error_payload_from_event(event)
                         yield _sse(stream_error_payload)
                     elif event_type == "done":
-                        done_payload = {"type": "done"}
-                        if conversation_id:
-                            done_payload["conversation_id"] = conversation_id
-                        yield _sse(done_payload)
+                        # The public terminal event follows persistence below.
+                        continue
 
+            history_saved = False
             if conversation_id:
                 try:
                     if stream_error_payload and not assistant_response_parts:
@@ -804,19 +851,26 @@ async def chat_stream(
                         metadata=metadata,
                         references=rag_refs if rag_refs else None,
                     )
+                    history_saved = True
                 except Exception as persist_err:
                     logger.warning(
                         "chat_message_persistence_save_failed", error=str(persist_err)
                     )
+
+            done_payload = {"type": "done", "history_saved": history_saved}
+            if conversation_id:
+                done_payload["conversation_id"] = conversation_id
+            yield _sse(done_payload)
 
         except Exception as e:
             logger.error("chat_stream_error", error=str(e))
             yield _sse(_chat_error_payload_from_exception(e))
 
     return StreamingResponse(
-        generate_events(),
-        media_type="text/plain",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        _stream_with_heartbeat(generate_events()),
+        media_type="text/event-stream",
+        background=BackgroundTask(complete_admitted_tasks),
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -840,4 +894,3 @@ async def health_check(req: Request):
         }
     except Exception as e:
         return {"status": "unhealthy", "error": str(e), "agent_initialized": False}
-
