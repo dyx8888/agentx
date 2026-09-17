@@ -21,6 +21,22 @@ def test_production_default_uses_lightweight_backend_without_milvus_probe(monkey
     assert RagRetriever._external_backend_available() is True
 
 
+def test_production_explicit_milvus_uses_lightweight_backend_without_probe(monkeypatch):
+    monkeypatch.setenv("ENV", "prod")
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.setenv("VECTOR_DB", "milvus")
+    monkeypatch.delenv("RAG_LIGHTWEIGHT_MODE", raising=False)
+    monkeypatch.setattr(
+        rag_retriever_module.socket,
+        "create_connection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("lightweight RAG must not probe Milvus")
+        ),
+    )
+
+    assert RagRetriever._external_backend_available() is True
+
+
 def test_retriever_retries_after_a_transient_backend_failure(monkeypatch):
     attempts = []
     now = 100.0
