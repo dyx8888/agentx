@@ -117,21 +117,24 @@ def _db_execute_first(cursor, sql: str, params: tuple[Any, ...]):
 
 def _is_knowledge_only_request(message: str) -> bool:
     """Detect requests that explicitly require knowledge-base-only answers."""
-    normalized = (message or "").lower()
-    knowledge_signals = (
-        "只根据知识库",
-        "仅根据知识库",
-        "只基于知识库",
-        "仅基于知识库",
-        "只根据企业知识库",
-        "仅根据企业知识库",
-        "只基于企业知识库",
-        "仅基于企业知识库",
-        "知识库没有",
-        "knowledge base",
-        "retrieved references",
+    normalized = re.sub(r"\s+", "", (message or "").lower())
+    # Users commonly insert scope qualifiers such as "当前" or "本企业"
+    # between the grounding verb and "企业知识库". Keep this detector
+    # tolerant while retaining the explicit knowledge-only requirement.
+    knowledge_patterns = (
+        r"只根据(?:当前|本|公司)?企业知识库",
+        r"仅根据(?:当前|本|公司)?企业知识库",
+        r"只基于(?:当前|本|公司)?企业知识库",
+        r"仅基于(?:当前|本|公司)?企业知识库",
+        r"只根据知识库",
+        r"仅根据知识库",
+        r"只基于知识库",
+        r"仅基于知识库",
+        r"知识库没有",
+        r"knowledgebase",
+        r"retrievedreferences",
     )
-    return any(signal.lower() in normalized for signal in knowledge_signals)
+    return any(re.search(pattern, normalized) for pattern in knowledge_patterns)
 
 
 _KOL_PLATFORM_ALIASES = {

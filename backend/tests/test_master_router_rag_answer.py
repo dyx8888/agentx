@@ -244,6 +244,20 @@ def test_exact_reply_extractor_is_narrow():
     assert MasterAgentRouter._extract_exact_reply_request("请分析 GMV 增长原因") == ""
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "请只根据当前企业知识库回答：库存是多少？",
+        "请仅基于本企业知识库回答：库存是多少？",
+        "请只基于公司企业知识库回答：库存是多少？",
+    ],
+)
+def test_router_recognizes_scoped_knowledge_only_phrases(message):
+    context = ContextPackage(raw_input=message, intent_type="chat")
+
+    assert MasterAgentRouter._is_knowledge_only_request(context) is True
+
+
 def test_exact_reply_prompt_routes_to_react_even_when_intent_is_generate():
     context = ContextPackage(
         rewritten_query="生成 DOCKER_UI_SMOKE_OK_abc123",

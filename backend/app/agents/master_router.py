@@ -865,21 +865,21 @@ class MasterAgentRouter:
         if intent_type == "knowledge":
             return True
 
-        normalized = str(getattr(context, "raw_input", "") or "").strip().lower()
-        knowledge_signals = (
-            "只根据知识库",
-            "仅根据知识库",
-            "只基于知识库",
-            "仅基于知识库",
-            "只根据企业知识库",
-            "仅根据企业知识库",
-            "只基于企业知识库",
-            "仅基于企业知识库",
-            "知识库没有",
-            "knowledge base",
-            "retrieved references",
+        normalized = re.sub(r"\s+", "", str(getattr(context, "raw_input", "") or "").strip().lower())
+        knowledge_patterns = (
+            r"只根据(?:当前|本|公司)?企业知识库",
+            r"仅根据(?:当前|本|公司)?企业知识库",
+            r"只基于(?:当前|本|公司)?企业知识库",
+            r"仅基于(?:当前|本|公司)?企业知识库",
+            r"只根据知识库",
+            r"仅根据知识库",
+            r"只基于知识库",
+            r"仅基于知识库",
+            r"知识库没有",
+            r"knowledgebase",
+            r"retrievedreferences",
         )
-        return any(signal in normalized for signal in knowledge_signals)
+        return any(re.search(pattern, normalized) for pattern in knowledge_patterns)
 
     async def _answer_from_rag(self, query: str, context: ContextPackage) -> dict:
         """Answer directly from retrieved RAG chunks before generic agent routing."""
