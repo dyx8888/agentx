@@ -155,7 +155,7 @@ from app.api.knowledge import router as knowledge_router  # 知识库管理，RA
 from app.api.oauth_router import router as oauth_router
 from app.api.subscription import router as subscription_router
 from app.api.conversations import router as conversations_router
-from app.api.tools import router as tools_router
+from app.api.tools import router as tools_router, public_router as public_tools_router
 from app.middleware.logging import setup_logging_middleware  # 请求日志中间件，自动记录每个请求的耗时、状态码等
 from app.monitoring.metrics import setup_metrics  # Prometheus 指标暴露，用于 Grafana 监控面板
 # Plan-Execute-Reflect 模式：先规划 → 执行 → 反思，比纯 ReAct 模式更适合多步骤复杂任务
@@ -298,6 +298,7 @@ app.include_router(
     tags=["admin"],
     dependencies=[Depends(admin_required)],
 )
+app.include_router(public_tools_router, prefix="/api/tools", tags=["tools"])
 app.include_router(agents_router, prefix="/api/admin/agents", tags=["admin"])
 app.include_router(agents_router, prefix="/api/agents", tags=["agents"])  # 同一个 router 注册两次：/api/admin/agents 给管理员，/api/agents 给普通用户
 

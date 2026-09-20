@@ -206,6 +206,13 @@ async function captureCurrentPage(tabId) {
       Array.from(document.querySelectorAll('script[type="application/ld+json"]')).slice(0, MAX_JSON_LD_ITEMS).forEach((node) => {
         try { structuredData.push(sanitizeValue(JSON.parse(node.textContent || "null"))); } catch (_error) { /* Ignore invalid JSON-LD. */ }
       });
+      const pageItems = window.location.hostname === "www.xiaohongshu.com" && window.location.pathname.startsWith("/explore")
+        ? Array.from(document.querySelectorAll(".note-item")).slice(0, 30).map((node) => {
+            const link = node.querySelector('a[href*="/explore/"]');
+            const text = sanitizeText(String(node.innerText || node.textContent || "").replace(/\s+/g, " ").trim()).slice(0, 500);
+            return { text, url: link ? safeUrl(link.href) : null };
+          }).filter((item) => item.text)
+        : [];
       return {
         captured_at: new Date().toISOString(),
         page: { url: pageUrl, title: sanitizeText(document.title || ""), referrer: safeUrl(document.referrer) },
@@ -214,7 +221,10 @@ async function captureCurrentPage(tabId) {
           kind: "generic_web_page",
           title: sanitizeText(document.title || ""),
           headings: Array.from(document.querySelectorAll("h1, h2, h3")).map((node) => sanitizeText(node.innerText || node.textContent || "").trim()).filter(Boolean).slice(0, MAX_HEADING_COUNT),
-          visible_text: sanitizeText(String((document.body || document.documentElement).innerText || "")).slice(0, MAX_VISIBLE_TEXT_LENGTH),
+          visible_text: pageItems.length
+            ? sanitizeText(pageItems.map((item) => item.text).join("\n")).slice(0, MAX_VISIBLE_TEXT_LENGTH)
+            : sanitizeText(String((document.body || document.documentElement).innerText || "")).slice(0, MAX_VISIBLE_TEXT_LENGTH),
+          page_items: pageItems,
           meta,
           structured_data: structuredData
         }

@@ -21,6 +21,7 @@ BASE_DIR = os.path.dirname(
 )  # 直接计算路径，避免从 app 模块导入导致循环引用
 
 router = APIRouter()
+public_router = APIRouter()
 
 _TOOL_NAME_ALIASES = {
     "search_kols": "kol_search",
@@ -137,6 +138,14 @@ async def get_tool_capabilities(
         logger.error("get_tool_capabilities_failed", error=str(e))
         # 降级返回默认 4 项
         return [{"key": k, "label": f"/{v}"} for k, v in list(_CAPABILITY_LABELS.items())[:4]]
+
+
+@public_router.get("/capabilities")
+async def get_public_tool_capabilities(
+    current_user: User = Depends(get_current_active_user),
+):
+    """Return safe chat shortcuts for every authenticated user."""
+    return await get_tool_capabilities(current_user)
 
 
 @router.get("/{tool_name}")

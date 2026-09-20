@@ -395,7 +395,10 @@ def classify_capture_job(job: CaptureJob, event: BrowserConnectorEvent) -> str:
 def build_capture_evidence_summary(job: CaptureJob, event: BrowserConnectorEvent) -> dict[str, Any]:
     payload = _safe_payload(event.sanitized_payload_json)
     title = _first_text(payload, ("title", "name", "subject"))
-    visible_text = _first_text(payload, ("visible_text", "summary", "description", "content"))
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    page_items = data.get("page_items") if isinstance(data, dict) else None
+    item_text = _page_item_excerpt(page_items)
+    visible_text = item_text or _first_text(data, ("visible_text", "summary", "description", "content"))
     excerpt = (visible_text or "").strip().replace("\n", " ")[:600]
     return {
         "event_id": event.id,
@@ -406,6 +409,19 @@ def build_capture_evidence_summary(job: CaptureJob, event: BrowserConnectorEvent
         "source_url_hash": event.api_url_hash,
         "read_only": True,
     }
+
+
+def _page_item_excerpt(items: Any) -> str | None:
+    if not isinstance(items, list):
+        return None
+    values = []
+    for item in items[:20]:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        if text:
+            values.append(text)
+    return " | ".join(values)[:1200] or None
 
 
 def build_stationary_draft(job: CaptureJob, evidence: dict[str, Any], draft_kind: str) -> str:

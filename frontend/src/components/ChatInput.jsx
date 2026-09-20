@@ -42,7 +42,7 @@ export default function ChatInput({
     onDraftApplied?.();
   }, [draftText, onDraftApplied]);
 
-  // T4.12: 从后端动态获取快捷指令
+  // T4.12: 从普通用户路由获取安全的快捷指令
   useEffect(() => {
     let cancelled = false;
     getToolCapabilities()

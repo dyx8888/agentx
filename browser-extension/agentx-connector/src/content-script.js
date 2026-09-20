@@ -141,6 +141,7 @@
     if (!pageUrl) {
       return null;
     }
+    const pageItems = collectPlatformPageItems();
     return {
       captured_at: new Date().toISOString(),
       page: {
@@ -160,11 +161,29 @@
         kind: "generic_web_page",
         title: sanitizeText(document.title || ""),
         headings: collectHeadings(),
-        visible_text: sanitizeText(String((document.body || document.documentElement).innerText || "")).slice(0, MAX_VISIBLE_TEXT_LENGTH),
+          visible_text: pageItems.length
+            ? sanitizeText(pageItems.map((item) => item.text).join("\n")).slice(0, MAX_VISIBLE_TEXT_LENGTH)
+            : sanitizeText(String((document.body || document.documentElement).innerText || "")).slice(0, MAX_VISIBLE_TEXT_LENGTH),
+          page_items: pageItems,
         meta: collectSafeMeta(),
         structured_data: collectJsonLd()
       }
     };
+  }
+
+  function collectPlatformPageItems() {
+    if (window.location.hostname !== "www.xiaohongshu.com" || !window.location.pathname.startsWith("/explore")) {
+      return [];
+    }
+    return Array.from(document.querySelectorAll(".note-item"))
+      .slice(0, 30)
+      .map((node) => {
+        const link = node.querySelector('a[href*="/explore/"]');
+        const text = sanitizeText(String(node.innerText || node.textContent || "").replace(/\s+/g, " ").trim()).slice(0, 500);
+        const href = link ? safeUrl(link.href) : null;
+        return { text, url: href };
+      })
+      .filter((item) => item.text);
   }
 
   function collectHeadings() {
