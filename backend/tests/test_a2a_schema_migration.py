@@ -83,4 +83,4 @@ def test_a2a_schema_migration_upgrades_legacy_table(tmp_path):
 def test_runtime_detects_current_migration_head():
     from app.database.core import _detect_alembic_head_revision
 
-    assert _detect_alembic_head_revision() == "014_ensure_company_knowledge"
+    assert _detect_alembic_head_revision() == "015_conversation_tasks"

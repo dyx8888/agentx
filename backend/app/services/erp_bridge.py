@@ -126,13 +126,15 @@ class ERPBridge:  # ERP/WMS适配器，作为静态方法集合而非实例，�
     @staticmethod  # 静态方法，电子面单创建是纯函数式操作
     def create_ewaybill(order_id: str, sender: dict, receiver: dict,
                           package_info: dict, provider: str = "zhongtong") -> dict:  # 默认中通快递，因为中通覆盖面广且价格适中
-        return {  # 返回模拟数据，保留快递鸟电子面单API的标准响应格式
-            "success": True,
+        return {
+            "success": False,
+            "status": "unavailable",
+            "requires_external_shipping_api": True,
             "order_id": order_id,
-            "ewaybill_no": f"SF{int(datetime.now().timestamp())}",  # 使用时间戳生成唯一运单号，避免与真实运单号冲突
+            "ewaybill_no": "",
             "provider": provider,
             "print_url": "",
-            "note": "\u5f85\u5bf9\u63a5\u5feb\u9012\u9e1f\u7535\u5b50\u9762\u5355API",
+            "note": "快递鸟电子面单 API 未接入，未创建真实面单。",
         }
 
     @staticmethod  # 静态方法，ERP同步是纯数据转换操作
@@ -142,13 +144,16 @@ class ERPBridge:  # ERP/WMS适配器，作为静态方法集合而非实例，�
         if erp_system not in supported_erps:  # 先验证再执行，防止无效请求进入后续处理
             return {"success": False, "error": f"ERP系统{erp_system}不支持，支持: {supported_erps}"}
 
-        return {  # 返回模拟数据，保留各ERP厂商的通用响应格式
-            "success": True,
+        return {
+            "success": False,
+            "status": "unavailable",
+            "requires_erp_backend": True,
             "entity_type": entity_type,
             "entity_id": entity_id,
             "erp_system": erp_system,
-            "synced_fields": list(data.keys()),  # 仅记录同步了哪些字段，不暴露实际数据内容
-            "note": "待对接实际ERP API",
+            "synced_fields": [],
+            "requested_fields": list(data.keys()),
+            "note": "真实 ERP API 未接入，未同步任何外部系统数据。",
         }
 
     @staticmethod  # 静态方法，审计日志记录不依赖实例状态

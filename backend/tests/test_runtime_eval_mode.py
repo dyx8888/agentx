@@ -1,17 +1,10 @@
 import os
 import sys
 
-import pytest
-
 sys.path.insert(0, str(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.runtime.nodes.reflector_node import reflector_node
 from app.runtime.validator import DynamicValidator
-
-pytestmark = pytest.mark.skip(
-    reason="runtime eval-mode LLM bypass depends on uncommitted runtime changes"
-)
-
 
 class ForbiddenLLM:
     def invoke(self, *args, **kwargs):

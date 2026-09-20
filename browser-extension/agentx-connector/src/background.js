@@ -232,9 +232,7 @@ async function captureCurrentPage(tabId) {
 function isAgentXAppPage(rawUrl) {
   try {
     const hostname = new URL(rawUrl).hostname;
-    return hostname === "localhost" || hostname === "127.0.0.1" ||
-      hostname === "agentx-fnbfc0d1r-dyx8888s-projects.vercel.app" ||
-      /^agentx-[a-z0-9-]+\.vercel\.app$/i.test(hostname);
+    return LOCAL_DEV_HOSTS.has(hostname) || AGENTX_VERCEL_HOST_PATTERN.test(hostname);
   } catch (_error) {
     return true;
   }

@@ -17,11 +17,12 @@ from dotenv import load_dotenv  # 在代码最早期加载 .env 文件，确保�
 load_dotenv()  # 必须在任何配置读取之前调用，否则 os.getenv 会返回 None 导致数据库等连接失败
 
 import uvicorn  # 仅用于 __main__ 块中的开发服务器启动，生产环境用 gunicorn + uvicorn workers 替代
-from fastapi import FastAPI, HTTPException, Request  # HTTPException 用于全局异常处理器路由；Request 用于提取请求元数据做日志追踪
+from fastapi import Depends, FastAPI, HTTPException, Request  # HTTPException 用于全局异常处理器路由；Request 用于提取请求元数据做日志追踪
 from fastapi.middleware.cors import CORSMiddleware  # 浏览器同源策略下，前后端分离部署必须配置 CORS，否则前端请求会被拦截
 from fastapi.responses import JSONResponse  # 异常处理器返回统一 JSON 格式，方便客户端统一解析错误信息
 
 from app.core.logging import get_logger, log_error  # 使用结构化日志而非 print，便于接入 ELK/Loki 等日志系统做聚合查询
+from app.core.permissions import admin_required
 
 logger = get_logger(__name__)  # 模块级别的 logger，__name__ 确保日志来源可追溯到 main 模块
 
@@ -80,6 +81,17 @@ CORS_ALLOW_ORIGINS = _get_cors_origins()
 DOCS_ENABLED = _docs_enabled()
 EVOLUTION_API_ENABLED = _evolution_api_enabled()
 _runtime_model_status = {"status": "not_initialized"}
+
+
+def AgentRuntime(*args, **kwargs):
+    """Lazy compatibility factory for the runtime orchestrator.
+
+    Keeping this module-level name preserves test and extension points without
+    importing the heavy runtime graph during lightweight app import.
+    """
+    from app.runtime.orchestrator import AgentRuntime as _AgentRuntime
+
+    return _AgentRuntime(*args, **kwargs)
 
 
 def _is_origin_allowed(origin: str) -> bool:
@@ -146,7 +158,6 @@ from app.api.conversations import router as conversations_router
 from app.api.tools import router as tools_router
 from app.middleware.logging import setup_logging_middleware  # 请求日志中间件，自动记录每个请求的耗时、状态码等
 from app.monitoring.metrics import setup_metrics  # Prometheus 指标暴露，用于 Grafana 监控面板
-from app.runtime.orchestrator import AgentRuntime  # New AgentRuntime for Plan-Execute-Reflect
 # Plan-Execute-Reflect 模式：先规划 → 执行 → 反思，比纯 ReAct 模式更适合多步骤复杂任务
 from app.skills.registry import skill_registry  # 技能注册表，管理 agent 可调用的结构化技能
 from app.tools.registry import registry  # 工具注册表，管理 agent 可调用的外部工具（API、函数等）
@@ -281,7 +292,12 @@ app.include_router(rag_router, prefix="/api/rag", tags=["rag"])
 from app.api.admin.costs import router as costs_router  # 延迟导入：cost 模块可能依赖已注册的其他路由
 
 app.include_router(costs_router, prefix="/api/admin/costs", tags=["costs"])  # 成本管理是 admin 功能的一部分，共用 /api/admin 前缀
-app.include_router(tools_router, prefix="/api/admin/tools", tags=["admin"])
+app.include_router(
+    tools_router,
+    prefix="/api/admin/tools",
+    tags=["admin"],
+    dependencies=[Depends(admin_required)],
+)
 app.include_router(agents_router, prefix="/api/admin/agents", tags=["admin"])
 app.include_router(agents_router, prefix="/api/agents", tags=["agents"])  # 同一个 router 注册两次：/api/admin/agents 给管理员，/api/agents 给普通用户
 

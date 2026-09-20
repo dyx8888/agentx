@@ -4,11 +4,12 @@ Provides functionality to generate outreach messages for KOLs using LLM with RAG
 """
 
 from fastmcp import FastMCP
+from pydantic import BaseModel
 
 from app.core.logging import get_logger
 from app.mcp_servers.knowledge_retrieval_server import search_knowledge
 from app.services.model_gateway import ModelGateway
-from app.tools.result import ToolResult, ErrorCode, ERROR_SUGGESTIONS
+from app.tools.result import ERROR_SUGGESTIONS, ErrorCode, ToolResult
 
 logger = get_logger(__name__)
 
@@ -16,12 +17,32 @@ logger = get_logger(__name__)
 mcp = FastMCP("outreach_server")
 
 
+class GenerateOutreachRequest(BaseModel):
+    kol_name: str
+    product_name: str
+    style: str = "professional"
+    brand_name: str | None = None
+    company_name: str | None = None
+    company_id: str | int | None = None
+
+
+async def generate_outreach_http_endpoint(request: GenerateOutreachRequest):
+    """HTTP wrapper for the MCP tool that preserves tenant context."""
+    return generate_outreach(
+        request.kol_name,
+        request.product_name,
+        request.style,
+        company_id=request.company_id,
+    )
+
+
 def _resolve_company_id(fallback: str = "default") -> str:
     """从 MCP 请求上下文中读取 company_id（优先），fallback 到参数值"""
     try:
         from fastmcp.server.context import get_request_context
+
         ctx = get_request_context()
-        if ctx and hasattr(ctx, 'meta') and ctx.meta:
+        if ctx and hasattr(ctx, "meta") and ctx.meta:
             return ctx.meta.get("company_id", fallback)
     except Exception:
         pass
@@ -31,6 +52,7 @@ def _resolve_company_id(fallback: str = "default") -> str:
 # Singleton instance for ModelGateway
 _model_gateway = None
 
+
 def get_model_gateway():
     """Get singleton ModelGateway instance"""
     global _model_gateway
@@ -38,22 +60,28 @@ def get_model_gateway():
         _model_gateway = ModelGateway()
     return _model_gateway
 
+
 @mcp.tool()
-def generate_outreach(kol_name: str, product_name: str, style: str = "professional") -> str:
+def generate_outreach(
+    kol_name: str,
+    product_name: str,
+    style: str = "professional",
+    company_id: str | int | None = None,
+) -> str:
     """
     Generate outreach messages for a KOL using LLM with RAG knowledge retrieval.
-    
+
     Args:
         kol_name: Name of the KOL to create outreach for
         product_name: Name of the product to promote
         style: Style of the outreach message (professional, casual, creative)
-    
+
     Returns:
         Generated outreach message content
     """
     try:
         # Phase 1: 从上下文获取 company_id，传给知识检索
-        company_id = _resolve_company_id()
+        company_id = _resolve_company_id(str(company_id) if company_id else "default")
         # Step 1: Retrieve relevant knowledge from brand script database
         search_query = f"{product_name} collaboration outreach {style}"
         knowledge_results_json = search_knowledge(search_query, n_results=3, company_id=company_id)
@@ -62,6 +90,7 @@ def generate_outreach(kol_name: str, product_name: str, style: str = "profession
         knowledge_results = []
         try:
             import json
+
             parsed = json.loads(knowledge_results_json)
             if parsed.get("status") == "ok":
                 knowledge_results = parsed.get("data", [])
@@ -80,21 +109,21 @@ def generate_outreach(kol_name: str, product_name: str, style: str = "profession
             knowledge_context = "\n\nReference Brand Script Templates:\n"
             for i, result in enumerate(knowledge_results, 1):
                 knowledge_context += f"{i}. {result['content']}\n"
-                if result.get('metadata'):
-                    metadata = result['metadata']
+                if result.get("metadata"):
+                    metadata = result["metadata"]
                     knowledge_context += f"   Category: {metadata.get('category', 'N/A')}, Scenario: {metadata.get('scenario', 'N/A')}\n"
                 knowledge_context += "\n"
 
         # Step 4: Create enhanced prompt with RAG knowledge
         prompt = f"""
         You are a professional marketing assistant. Generate 3 different outreach messages for {kol_name} to promote {product_name}.
-        
+
         Style: {style}
-        
+
         {knowledge_context}
-        
+
         IMPORTANT: Reference the above brand script templates for style and structure. Customize the messages for {kol_name} while maintaining our brand voice and key elements from the templates.
-        
+
         Requirements:
         1. Each message should be personalized and mention the KOL's name
         2. Each message should highlight the product benefits
@@ -102,12 +131,12 @@ def generate_outreach(kol_name: str, product_name: str, style: str = "profession
         4. Messages should be concise but persuasive
         5. Follow the style and structure of the reference templates
         6. Format as a numbered list with clear separation between messages
-        
+
         Example format:
         1. [First personalized message here]
-        
+
         2. [Second personalized message here]
-        
+
         3. [Third personalized message here]
         """
 
@@ -115,8 +144,7 @@ def generate_outreach(kol_name: str, product_name: str, style: str = "profession
         response = llm.invoke(prompt)
 
         return ToolResult.ok(
-            data=response.content,
-            message=f"Outreach messages generated for {kol_name}."
+            data=response.content, message=f"Outreach messages generated for {kol_name}."
         ).to_json()
 
     except Exception as e:
@@ -126,8 +154,10 @@ def generate_outreach(kol_name: str, product_name: str, style: str = "profession
             suggestion=ERROR_SUGGESTIONS[ErrorCode.UNKNOWN_ERROR],
         ).to_json()
 
+
 if __name__ == "__main__":
     import os
+
     # Check if we should run as HTTP service
     if os.getenv("RUN_AS_HTTP_SERVICE", "false").lower() == "true":
         # Run as independent FastAPI service
@@ -136,19 +166,9 @@ if __name__ == "__main__":
 
         app = FastAPI()
 
-        from pydantic import BaseModel
-        from typing import Optional
-
-        class GenerateOutreachRequest(BaseModel):
-            kol_name: str
-            product_name: str
-            style: str = "professional"
-            brand_name: Optional[str] = None
-            company_name: Optional[str] = None
-
         @app.post("/tools/generate_outreach")
         async def generate_outreach_endpoint(request: GenerateOutreachRequest):
-            return generate_outreach(request.kol_name, request.product_name, request.style)
+            return await generate_outreach_http_endpoint(request)
 
         @app.get("/health")
         async def health_check():
@@ -159,4 +179,6 @@ if __name__ == "__main__":
         uvicorn.run(app, host="0.0.0.0", port=port)
     else:
         # Run as MCP server
-        mcp.run()
+        from app.mcp_servers.runtime import run_mcp_stdio
+
+        run_mcp_stdio(mcp)

@@ -1,7 +1,28 @@
-version: '3.8'
+# ===========================================================================
+# AgentX docker-compose 双 profile 策略
+# ---------------------------------------------------------------------------
+# 默认（dev/mvp）模式 —— 与 docs/Scope.md 的 MVP 边界对齐：
+#   docker compose up
+#   仅启动 frontend + main（backend），使用 SQLite + ChromaDB + 内存降级，
+#   不启动 Redis 集群（S-OUT-05）、不启动 Milvus（S-OUT-06）。
+#
+# 完整（prod/full）模式 —— 启动全部服务：
+#   docker compose --profile full up
+#   启动 PostgreSQL + Redis + Milvus（含 etcd/minio 依赖）+ kol-search +
+#   outreach-server + script-server + logistics-server + report-server，
+#   使用生产级存储、检索后端与独立工具服务。
+#
+# 说明：
+#   - frontend 和 main 不绑定 profile，两种模式下均默认启动。
+#   - postgres/redis/milvus/etcd/minio/kol-search/outreach-server/
+#     script-server/logistics-server/report-server 绑定到 `full` profile，
+#     仅在 `--profile full` 时启动。
+#   - 所有服务定义保留，未删除任何服务（符合 S-OUT-10 不删代码原则）。
+# ===========================================================================
 
 services:
   redis:
+    profiles: [full]
     image: redis:7-alpine
     container_name: agentx-redis
     ports:
@@ -27,6 +48,10 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-docker.m.daocloud.io/library/node:20-alpine}
+        NGINX_IMAGE: ${NGINX_IMAGE:-docker.m.daocloud.io/library/nginx:alpine}
+        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
     image: agentx-frontend:latest
     container_name: agentx-frontend
     ports:
@@ -38,13 +63,14 @@ services:
     depends_on:
       - main
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
   etcd:
+    profiles: [full]
     image: quay.io/coreos/etcd:v3.5.5
     container_name: agentx-etcd
     environment:
@@ -65,11 +91,15 @@ services:
       retries: 3
 
   minio:
+    profiles: [full]
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     container_name: agentx-minio
     environment:
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-change-me-minio-local}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-change-me-minio-local}
+      # 凭据从环境变量读取，未设置时回退到本地默认值（仅限开发，生产必须通过 .env 注入）
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
     volumes:
       - minio_data:/minio_data
     command: minio server /minio_data --console-address ":9001"
@@ -85,11 +115,14 @@ services:
       retries: 3
 
   milvus:
+    profiles: [full]
     image: milvusdb/milvus:v2.3.3
     container_name: agentx-milvus
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
     volumes:
       - milvus_data:/var/lib/milvus
     ports:
@@ -100,10 +133,12 @@ services:
       - agentx-network
     restart: unless-stopped
     depends_on:
-      - etcd
-      - minio
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9091/healthz | grep -q '^OK$'"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -113,47 +148,93 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        PYTHON_BUILDER_IMAGE: ${PYTHON_BUILDER_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PYTHON_RUNTIME_IMAGE: ${PYTHON_RUNTIME_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-120}
     image: agentx-backend:latest
     container_name: agentx-main
     ports:
       - "8000:8000"
+    env_file:
+      - ./.env.production
     environment:
-      - DEEPSEEK_API_KEY=
       - TOOL_LOAD_MODE=${TOOL_LOAD_MODE:-local}
-      - DATABASE_URL=${DATABASE_URL:-postgresql://agentx:change-me-local-only@postgres:5432/agentx}
-      - REDIS_URL=redis://redis:6379/0
+      # Local Docker uses http://localhost, so Secure cookies would not be sent.
+      # Set COOKIE_SECURE=true for HTTPS deployments.
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      # dev/mvp 模式默认 SQLite（后端 app/database/core.py 已支持 fallback）；
+      # full 模式必须通过 .env 设置 DATABASE_URL，POSTGRES_PASSWORD 无默认值。
+      # dev/mvp 模式默认不启用 Redis（后端多模块连接失败时自动降级到内存）；
+      # full 模式通过 .env 覆盖为 redis://redis:6379/0
       - HF_ENDPOINT=https://hf-mirror.com
+      # 关键：离线模式，避免容器内联网下载embedding模型超时（模型从挂载的宿主机缓存读取）
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+      - HF_HOME=/data/hf_cache
+      - RERANKER_ENABLED=${RERANKER_ENABLED:-false}
+      # async: do not block knowledge upload while GraphRAG extracts entities.
+      # sync: old behavior, waits for extraction; off: skip dynamic graph updates.
+      - GRAPH_RAG_DYNAMIC_EXTRACTION_MODE=${GRAPH_RAG_DYNAMIC_EXTRACTION_MODE:-async}
+      # Local full rehearsals often run on external disks, where Milvus collection
+      # loading can be slower than the default client timeout.
+      # Keep per-call timeouts below the API search timeout so stuck collections
+      # fail fast and are visible in quality reports instead of hanging requests.
+      - KNOWLEDGE_SEARCH_TIMEOUT_SECONDS=${KNOWLEDGE_SEARCH_TIMEOUT_SECONDS:-8}
+      - MILVUS_COLLECTION=${MILVUS_COLLECTION:-agentx_vectors}
+      - MILVUS_LOAD_TIMEOUT_SECONDS=${MILVUS_LOAD_TIMEOUT_SECONDS:-8}
+      - MILVUS_OPERATION_TIMEOUT_SECONDS=${MILVUS_OPERATION_TIMEOUT_SECONDS:-8}
+      - MILVUS_RETRY_INTERVAL=${MILVUS_RETRY_INTERVAL:-5}
+      - MILVUS_FLUSH_AFTER_WRITE=${MILVUS_FLUSH_AFTER_WRITE:-true}
+      - ALLOW_PLATFORM_MOCK_FALLBACK=${ALLOW_PLATFORM_MOCK_FALLBACK:-false}
+      # API keys must be injected from the caller environment for local full
+      # smoke. Do not persist real keys in .env.production or the repository.
+      - TOKENRHYTHM_API_KEY
+      - DEEPSEEK_API_KEY
+      - OPENAI_API_KEY
     volumes:
       - ./data:/app/data
-      - ./.env:/app/.env:ro
+      # 挂载生产环境配置（替代开发用 .env）
+      - ./.env.production:/app/.env:ro
+      # 挂载宿主机 HuggingFace 缓存，避免容器内重新下载 embedding 模型
+      # Windows 路径：C:\Users\win\.cache\huggingface → 容器内 /data/hf_cache
+      - C:/Users/win/.cache/huggingface:/data/hf_cache:ro
     networks:
       - agentx-network
     restart: unless-stopped
     logging: *default-logging
-    depends_on:
-      - redis
-      - postgres
-      - kol-search
-      - report-server
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
   kol-search:
+    profiles: [full]
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        PYTHON_BUILDER_IMAGE: ${PYTHON_BUILDER_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PYTHON_RUNTIME_IMAGE: ${PYTHON_RUNTIME_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-120}
     image: agentx-backend:latest
     container_name: agentx-kol-search
     command: python app/mcp_servers/kol_search_server.py
     ports:
       - "8101:8101"
+    env_file:
+      - ./.env.production
     environment:
       - RUN_AS_HTTP_SERVICE=true
+      - PORT=8101
       - HF_ENDPOINT=https://hf-mirror.com
+      - TOKENRHYTHM_API_KEY
+      - DEEPSEEK_API_KEY
+      - OPENAI_API_KEY
     networks:
       - agentx-network
     restart: unless-stopped
@@ -165,19 +246,135 @@ services:
       retries: 3
       start_period: 40s
 
-  report-server:
+  outreach-server:
+    profiles: [full]
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        PYTHON_BUILDER_IMAGE: ${PYTHON_BUILDER_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PYTHON_RUNTIME_IMAGE: ${PYTHON_RUNTIME_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-120}
+    image: agentx-backend:latest
+    container_name: agentx-outreach-server
+    command: python app/mcp_servers/outreach_server.py
+    ports:
+      - "8105:8105"
+    env_file:
+      - ./.env.production
+    environment:
+      - RUN_AS_HTTP_SERVICE=true
+      - PORT=8105
+      - HF_ENDPOINT=https://hf-mirror.com
+      - TOKENRHYTHM_API_KEY
+      - DEEPSEEK_API_KEY
+      - OPENAI_API_KEY
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8105/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  script-server:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_BUILDER_IMAGE: ${PYTHON_BUILDER_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PYTHON_RUNTIME_IMAGE: ${PYTHON_RUNTIME_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-120}
+    image: agentx-backend:latest
+    container_name: agentx-script-server
+    command: python app/mcp_servers/script_server.py
+    ports:
+      - "8103:8103"
+    env_file:
+      - ./.env.production
+    environment:
+      - RUN_AS_HTTP_SERVICE=true
+      - PORT=8103
+      - HF_ENDPOINT=https://hf-mirror.com
+      - TOKENRHYTHM_API_KEY
+      - DEEPSEEK_API_KEY
+      - OPENAI_API_KEY
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8103/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  logistics-server:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_BUILDER_IMAGE: ${PYTHON_BUILDER_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PYTHON_RUNTIME_IMAGE: ${PYTHON_RUNTIME_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-120}
+    image: agentx-backend:latest
+    container_name: agentx-logistics-server
+    command: python app/mcp_servers/monitor_server.py
+    ports:
+      - "8106:8106"
+    env_file:
+      - ./.env.production
+    environment:
+      - RUN_AS_HTTP_SERVICE=true
+      - PORT=8106
+      - HF_ENDPOINT=https://hf-mirror.com
+      - TOKENRHYTHM_API_KEY
+      - DEEPSEEK_API_KEY
+      - OPENAI_API_KEY
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8106/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  report-server:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_BUILDER_IMAGE: ${PYTHON_BUILDER_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PYTHON_RUNTIME_IMAGE: ${PYTHON_RUNTIME_IMAGE:-docker.m.daocloud.io/library/python:3.11-slim}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-120}
     image: agentx-backend:latest
     container_name: agentx-report-server
     command: python app/mcp_servers/report_server.py
     ports:
       - "8104:8104"
+    env_file:
+      - ./.env.production
     environment:
       - RUN_AS_HTTP_SERVICE=true
-      - DEEPSEEK_API_KEY=
+      - PORT=8104
       - HF_ENDPOINT=https://hf-mirror.com
+      - TOKENRHYTHM_API_KEY
+      - DEEPSEEK_API_KEY
+      - OPENAI_API_KEY
     networks:
       - agentx-network
     restart: unless-stopped
@@ -189,13 +386,29 @@ services:
       retries: 3
       start_period: 40s
 
+  # MailHog: 本地邮件捕获服务（用于密码重置邮件测试）
+  # SMTP/Web UI 仅绑定本机回环，避免 full profile 在局域网暴露测试邮箱入口。
+  mailhog:
+    profiles: [full]
+    image: mailhog/mailhog:latest
+    container_name: agentx-mailhog
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    networks:
+      - agentx-network
+    restart: unless-stopped
+    logging: *default-logging
+
   postgres:
+    profiles: [full]
     image: postgres:15-alpine
     container_name: agentx-postgres
     environment:
-      - POSTGRES_DB=agentx
-      - POSTGRES_USER=agentx
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change-me-local-only}
+      # 数据库凭据从环境变量读取，未设置时回退到本地默认值（仅限开发，生产必须通过 .env 注入）
+      - POSTGRES_DB=${POSTGRES_DB:-agentx}
+      - POSTGRES_USER=${POSTGRES_USER:-agentx}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env before starting Postgres}
     ports:
       - "5432:5432"
     volumes:

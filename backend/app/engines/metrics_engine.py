@@ -184,12 +184,12 @@ class MetricsEngine:
             },
             "roi": {
                 "down": [
-                    "\u7d27\u6025\u6682\u505c\u4f4e\u6548\u8ba1\u5212\uff0c\u907f\u514d\u4e8f\u635f\u6269\u5927",
+                    "建议人工确认后暂停低效计划，避免亏损扩大",
                     "\u66f4\u6362\u4f4eCTR\u7d20\u6750\uff0c\u4f7f\u7528\u5386\u53f2\u9ad8\u6548\u7d20\u6750",
                     "\u8c03\u6574\u4eba\u7fa4\u5305\uff0c\u6536\u7a84\u5b9a\u5411\u81f3\u9ad8\u8f6c\u5316\u4eba\u7fa4",
                     "\u68c0\u67e5\u5546\u54c1\u5b9a\u4ef7\u662f\u5426\u9700\u8981\u8c03\u6574",
                 ],
-                "up": ["\u9002\u5f53\u52a0\u5927\u9884\u7b97\u6295\u653e\uff0c\u6269\u5927\u76c8\u5229\u89c4\u6a21"],
+                "up": ["建议评估预算上限，人工确认后再适当加大投放"],
             },
             "ctr": {
                 "down": [
@@ -204,17 +204,17 @@ class MetricsEngine:
                     "\u7acb\u5373\u68c0\u67e5\u8fd1\u671f\u8d28\u91cf\u53cd\u9988\u548c\u5dee\u8bc4",
                     "\u6838\u5b9e\u4ed3\u50a8\u53d1\u8d27\u662f\u5426\u51fa\u73b0\u95ee\u9898",
                     "\u901a\u77e5\u5ba2\u670d\u52a0\u5f3a\u552e\u540e\u5904\u7406",
-                    "\u6682\u505c\u95ee\u9898SKU\u7684\u6295\u653e\u63a8\u5e7f",
+                    "建议人工确认后暂停问题SKU的投放推广",
                 ],
                 "down": [],  # 退款率下降是好事，无建议
             },
             "cpa": {
                 "up": [
-                    "\u964d\u4f4e\u51fa\u4ef7\u81f3\u53ef\u63a5\u53d7\u8303\u56f4",
+                    "建议人工确认后降低出价至可接受范围",
                     "\u4f18\u5316\u4eba\u7fa4\u5b9a\u5411\u7cbe\u51c6\u5ea6",
                     "\u68c0\u67e5\u843d\u5730\u9875\u8f6c\u5316\u7387\u662f\u5426\u4e0b\u964d",
                 ],
-                "down": ["\u4fdd\u6301\u5f53\u524d\u7b56\u7565\uff0c\u53ef\u9002\u5f53\u52a0\u5927\u9884\u7b97"],
+                "down": ["保持当前策略，如需加大预算应先经人工确认"],
             },
         }
 

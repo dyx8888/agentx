@@ -43,15 +43,19 @@ from app.core.logging import get_logger
 # 导入用户模型和数据库操作对象
 from app.database import User, db
 
-# 导入模型网关，统一管理 AI 模型调用
-from app.services.model_gateway import get_global_model_gateway
-
 # 导入工具注册表，根据名称获取工具
 from app.tools.registry import registry
 
 # 创建路由对象，tags=["agent_communication"] 用于 API 文档分组
 router = APIRouter(tags=["agent_communication"])
 logger = get_logger(__name__)
+
+
+def get_global_model_gateway():
+    """Lazy gateway accessor kept patchable for API tests and integrations."""
+    from app.services.model_gateway import get_global_model_gateway as _get_gateway
+
+    return _get_gateway()
 
 # ==========================================
 # 请求和响应的数据格式定义

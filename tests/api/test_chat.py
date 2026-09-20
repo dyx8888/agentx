@@ -661,3 +661,68 @@ class TestChatLogisticsGrounding:
         body = await _collect_stream_text(response)
 
         assert "审核" in body or "不能" in body
+
+
+class TestChatSalesGrounding:
+    """Sales analysis must not turn missing tenant data into a model error."""
+
+    def test_sales_analysis_request_is_detected(self):
+        from app.api.chat import _is_sales_analysis_request
+
+        assert _is_sales_analysis_request("请分析本周销售数据") is True
+        assert _is_sales_analysis_request("本月 GMV 是多少？") is True
+        assert _is_sales_analysis_request("查看最近订单量趋势") is True
+        assert _is_sales_analysis_request("你好") is False
+        assert _is_sales_analysis_request("如何提升销量？") is False
+        assert _is_sales_analysis_request("给我一些店铺经营策略") is False
+        assert _is_sales_analysis_request("销售数据如何优化？") is False
+        assert _is_sales_analysis_request("请分析销售数据并给出优化建议") is True
+
+    @pytest.mark.asyncio
+    async def test_chat_without_sales_data_returns_explicit_no_data(self, monkeypatch):
+        import app.api.chat as chat_api
+        from app.agents.data_analysis import NO_REAL_DATA_MESSAGE
+        from app.api.chat import ChatRequest, chat_stream
+
+        monkeypatch.setattr(
+            chat_api,
+            "_get_master_router",
+            lambda: pytest.fail("missing sales data must not call the model router"),
+        )
+
+        response = await chat_stream(
+            ChatRequest(message="请只基于当前企业已接入的真实店铺或平台数据，给出本周销售分析"),
+            MagicMock(),
+            current_user=SimpleNamespace(id=104, company_id=9),
+        )
+        body = await _collect_stream_text(response)
+
+        assert NO_REAL_DATA_MESSAGE in body
+        assert "模型调用失败" not in body
+        assert "mock/demo" not in body
+
+    @pytest.mark.asyncio
+    async def test_client_company_context_cannot_claim_real_sales_data(self, monkeypatch):
+        import app.api.chat as chat_api
+        from app.agents.data_analysis import NO_REAL_DATA_MESSAGE
+        from app.api.chat import ChatRequest, chat_stream
+
+        monkeypatch.setattr(
+            chat_api,
+            "_get_master_router",
+            lambda: pytest.fail("untrusted client metrics must not call the model router"),
+        )
+
+        response = await chat_stream(
+            ChatRequest(
+                message="分析本周销售额",
+                company_context={"metrics_data": {"gmv": 999999, "orders": 999}},
+            ),
+            MagicMock(),
+            current_user=SimpleNamespace(id=105, company_id=9),
+        )
+        body = await _collect_stream_text(response)
+
+        assert NO_REAL_DATA_MESSAGE in body
+        assert "999999" not in body
+        assert "模型调用失败" not in body

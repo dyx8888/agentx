@@ -198,6 +198,52 @@ _LOGISTICS_QUERY_SIGNALS = (
     "delivery status",
     "tracking",
 )
+_SALES_DATA_REQUEST_PHRASES = (
+    "销售分析",
+    "销售业绩",
+    "经营分析",
+    "投放数据",
+    "广告数据",
+)
+_SALES_METRIC_TERMS = (
+    "销售额",
+    "销量",
+    "成交额",
+    "gmv",
+    "营收",
+    "营业额",
+    "订单量",
+)
+_SALES_GENERIC_DATA_TERMS = ("销售数据",)
+_SALES_DATA_QUERY_TERMS = (
+    "分析",
+    "查询",
+    "查看",
+    "统计",
+    "报告",
+    "复盘",
+    "趋势",
+    "表现",
+    "情况",
+    "多少",
+    "同比",
+    "环比",
+    "本周",
+    "本月",
+    "今天",
+    "昨日",
+    "最近",
+)
+_SALES_ADVISORY_TERMS = (
+    "如何",
+    "怎么",
+    "建议",
+    "策略",
+    "优化",
+    "提升",
+    "方法",
+    "方案",
+)
 _LOGISTICS_WRITE_SIGNALS = (
     "补发",
     "改地址",
@@ -254,6 +300,26 @@ def _is_logistics_query_request(message: str) -> bool:
     if any(signal.lower() in text for signal in _LOGISTICS_WRITE_SIGNALS):
         return False
     return any(signal.lower() in text for signal in _LOGISTICS_QUERY_SIGNALS)
+
+
+def _is_sales_analysis_request(message: str) -> bool:
+    """Return True for read-only sales or advertising data requests."""
+    text = re.sub(r"\s+", "", (message or "").lower())
+    if not text:
+        return False
+    if any(term in text for term in _SALES_ADVISORY_TERMS) and not any(
+        query_term in text for query_term in _SALES_DATA_QUERY_TERMS
+    ):
+        return False
+    if any(phrase in text for phrase in _SALES_DATA_REQUEST_PHRASES):
+        return True
+    if any(term in text for term in _SALES_GENERIC_DATA_TERMS) and any(
+        query_term in text for query_term in _SALES_DATA_QUERY_TERMS
+    ):
+        return True
+    return any(metric in text for metric in _SALES_METRIC_TERMS) and any(
+        query_term in text for query_term in _SALES_DATA_QUERY_TERMS
+    )
 
 
 def _extract_logistics_search_params(message: str) -> dict[str, Any]:
@@ -899,6 +965,33 @@ async def chat_stream(
                     except Exception as persist_err:
                         logger.warning(
                             "chat_logistics_search_persistence_failed", error=str(persist_err)
+                        )
+                done_payload = {"type": "done"}
+                if conversation_id:
+                    done_payload["conversation_id"] = conversation_id
+                yield _sse(done_payload)
+                return
+
+            if _is_sales_analysis_request(request.message):
+                from app.agents.data_analysis import NO_REAL_DATA_MESSAGE
+
+                yield _sse({"type": "thinking", "content": "正在检查当前企业销售数据..."})
+                assistant_response_parts.append(NO_REAL_DATA_MESSAGE)
+                yield _sse({"type": "content", "content": NO_REAL_DATA_MESSAGE})
+                if conversation_id:
+                    try:
+                        _persist_assistant_reply(
+                            conversation_id=conversation_id,
+                            content=NO_REAL_DATA_MESSAGE,
+                            metadata={
+                                "agent_name": "data_analysis",
+                                "intent_type": "sales_analysis",
+                                "data_source_status": "missing",
+                            },
+                        )
+                    except Exception as persist_err:
+                        logger.warning(
+                            "chat_sales_analysis_persistence_failed", error=str(persist_err)
                         )
                 done_payload = {"type": "done"}
                 if conversation_id:

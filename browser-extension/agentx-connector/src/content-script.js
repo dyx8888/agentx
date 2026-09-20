@@ -34,9 +34,9 @@
   ]);
   const AGENTX_APP_HOSTS = new Set([
     "localhost",
-    "127.0.0.1",
-    "agentx-fnbfc0d1r-dyx8888s-projects.vercel.app"
+    "127.0.0.1"
   ]);
+  const AGENTX_VERCEL_HOST_PATTERN = /^agentx(?:-[a-z0-9-]+)?-dyx8888s-projects\.vercel\.app$/i;
 
   if (isAgentXAppPage()) {
     announceConnectorStatus();
@@ -58,7 +58,7 @@
 
   function isAgentXAppPage() {
     const hostname = window.location.hostname;
-    return AGENTX_APP_HOSTS.has(hostname) || /^agentx-[a-z0-9-]+\.vercel\.app$/i.test(hostname);
+    return AGENTX_APP_HOSTS.has(hostname) || AGENTX_VERCEL_HOST_PATTERN.test(hostname);
   }
 
   function setCapturePolicy(currentPlatform) {

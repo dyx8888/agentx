@@ -119,6 +119,12 @@ const senders = {{
   xiaohongshu: {{ tab: {{ url: "https://www.xiaohongshu.com/explore" }} }}
 }};
   const result = {{
+    agentXPages: {{
+      currentPreview: helper.isAgentXAppPage("https://agentx-kke6ud6jj-dyx8888s-projects.vercel.app/"),
+      oldPreview: helper.isAgentXAppPage("https://agentx-fnbfc0d1r-dyx8888s-projects.vercel.app/"),
+      unrelatedVercel: helper.isAgentXAppPage("https://agentx-not-agentx.vercel.app/"),
+      localhost: helper.isAgentXAppPage("http://localhost:5173/")
+    }},
     endpoints: Object.fromEntries(Object.entries(endpoints).map(([name, value]) => [name, helper.validateEndpoint(value)])),
     normalized: Object.fromEntries(Object.entries(endpoints).map(([name, value]) => {{
       const check = helper.validateEndpoint(value);
@@ -321,6 +327,20 @@ def test_background_endpoint_policy_accepts_only_manifest_granted_ingest_urls():
         assert result["endpoints"][name]["ok"] is False
 
 
+def test_background_identifies_only_agentx_project_preview_hosts():
+    result = _run_background_policy_probe(
+        ["http://localhost/*"],
+        {"localhost": "http://localhost:8000/api/browser-connector/ingest"},
+    )
+
+    assert result["agentXPages"] == {
+        "currentPreview": True,
+        "oldPreview": True,
+        "unrelatedVercel": False,
+        "localhost": True,
+    }
+
+
 def test_popup_migrates_origin_only_endpoint_and_saves_canonical_ingest_url():
     result = _run_popup_probe(
         ["https://api.example.com/*"],
@@ -348,6 +368,22 @@ def test_content_script_reports_connector_status_on_agentx_app_without_capture_h
     assert result["events"] == ["agentx-browser-connector-status"]
     assert result["injectedScriptCount"] == 0
     assert result["injectedScriptSrc"] is None
+
+
+def test_content_script_reports_connector_status_on_current_agentx_preview():
+    result = _run_content_script_probe("agentx-kke6ud6jj-dyx8888s-projects.vercel.app")
+
+    assert result["status"] == "connected"
+    assert result["events"] == ["agentx-browser-connector-status"]
+    assert result["injectedScriptCount"] == 0
+    assert result["injectedScriptSrc"] is None
+
+
+def test_content_script_does_not_claim_unrelated_agentx_vercel_host():
+    result = _run_content_script_probe("agentx-not-agentx.vercel.app")
+
+    assert result["status"] is None
+    assert result["injectedScriptCount"] == 1
 
 
 def test_content_script_keeps_capture_hook_on_allowlisted_platform_hosts():
