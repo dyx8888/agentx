@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 
 def test_erp_tracking_is_fail_closed_without_a_logistics_backend():
     from app.agents.tools import track_shipment
@@ -14,7 +16,8 @@ def test_erp_tracking_is_fail_closed_without_a_logistics_backend():
     assert result["current_location"] == ""
 
 
-def test_production_mcp_fallbacks_are_not_presented_as_real_data(monkeypatch):
+@pytest.mark.asyncio
+async def test_production_mcp_fallbacks_are_not_presented_as_real_data(monkeypatch):
     from app.mcp_servers.monitor_server import check_delivery_status
     from app.mcp_servers.report_server import (
         generate_performance_report,
@@ -28,7 +31,7 @@ def test_production_mcp_fallbacks_are_not_presented_as_real_data(monkeypatch):
     monkeypatch.setattr(app.platforms, "get_platform_adapter", lambda *_args, **_kwargs: None)
 
     monitor = json.loads(check_delivery_status("ORD001"))
-    report = json.loads(generate_performance_report("unknown", "campaign-1"))
+    report = json.loads(await generate_performance_report("unknown", "campaign-1"))
     strategy = json.loads(generate_strategy_suggestion("xiaohongshu", "beauty"))
 
     assert monitor["status"] == "error"

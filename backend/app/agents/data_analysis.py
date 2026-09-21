@@ -93,6 +93,92 @@ def _metric_value(data: dict, *keys: str) -> float:
     return 0.0
 
 
+def calculate_sales_summary(
+    *,
+    orders: float = 0,
+    gmv: float = 0,
+    ad_spend: float = 0,
+    refund_amount: float = 0,
+) -> dict[str, float]:
+    """Calculate a deterministic summary for explicitly supplied sales metrics.
+
+    This function deliberately does not load tenant or platform data. Callers
+    must label the result as user-provided and pass only values extracted from
+    the current request.
+    """
+    orders_value = float(orders or 0)
+    gmv_value = round(float(gmv or 0), 2)
+    ad_spend_value = round(float(ad_spend or 0), 2)
+    refund_value = round(float(refund_amount or 0), 2)
+    net_sales = round(gmv_value - refund_value, 2)
+    roas = 0.0 if ad_spend_value == 0 else round(gmv_value / ad_spend_value, 2)
+
+    return {
+        "orders": int(orders_value) if orders_value.is_integer() else round(orders_value, 2),
+        "gmv": gmv_value,
+        "ad_spend": ad_spend_value,
+        "refund_amount": refund_value,
+        "net_sales": net_sales,
+        "roas": roas,
+    }
+
+
+def _format_display_number(value: float | int) -> str:
+    numeric = float(value)
+    if numeric.is_integer():
+        return str(int(numeric))
+    return f"{numeric:.2f}".rstrip("0").rstrip(".")
+
+
+def format_sales_analysis_report(
+    summary: dict[str, float],
+    *,
+    source_label: str,
+    provided_fields: set[str] | None = None,
+) -> str:
+    """Format a user-provided sales calculation without presenting it as real data."""
+    provided = set(provided_fields or summary.keys())
+
+    orders = (
+        _format_display_number(summary["orders"])
+        if "orders" in provided
+        else "未提供"
+    )
+    gmv = _format_display_number(summary["gmv"]) if "gmv" in provided else "未提供"
+    ad_spend = (
+        _format_display_number(summary["ad_spend"])
+        if "ad_spend" in provided
+        else "未提供"
+    )
+    refund = (
+        _format_display_number(summary["refund_amount"])
+        if "refund_amount" in provided
+        else "未提供"
+    )
+    if {"gmv", "refund_amount"}.issubset(provided):
+        net_sales = _format_display_number(summary["net_sales"])
+    else:
+        net_sales = "无法计算（需要销售额和退款）"
+    if {"gmv", "ad_spend"}.issubset(provided) and summary["ad_spend"]:
+        roas = _format_display_number(summary["roas"])
+    else:
+        roas = "无法计算（需要销售额和广告费）"
+
+    return "\n".join(
+        [
+            "## 销售分析报告",
+            f"- 数据来源：{source_label}",
+            "- 口径：仅计算本条消息明确提供的数值，未查询企业或平台真实数据。",
+            f"- 总订单：{orders}",
+            f"- 总销售额：{gmv}",
+            f"- 总广告费：{ad_spend}",
+            f"- 总退款：{refund}",
+            f"- 净销售额：{net_sales}",
+            f"- ROAS：{roas}",
+        ]
+    )
+
+
 def analyze_data_quality(data: dict) -> dict:
     """分析数据质量
 

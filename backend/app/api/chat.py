@@ -244,6 +244,25 @@ _SALES_ADVISORY_TERMS = (
     "方法",
     "方案",
 )
+_EXPLICIT_SALES_NUMBER_PATTERN = (
+    r"([+-]?(?:\d[\d,]*(?:\.\d+)?|\.\d+))\s*(亿|万|千|百|k|K)?"
+)
+_EXPLICIT_SALES_METRIC_ALIASES = {
+    "orders": ("订单数量", "订单量", "订单数", "订单", "销量"),
+    "gmv": ("销售额", "成交额", "营业额", "营收", "GMV"),
+    "ad_spend": (
+        "广告费用",
+        "广告花费",
+        "广告费",
+        "广告投放",
+        "投放费用",
+        "投放费",
+        "投放成本",
+        "广告成本",
+    ),
+    "refund_amount": ("退款金额", "退款额", "退款"),
+}
+_EXPLICIT_SALES_TEST_MARKERS = ("合成", "虚构", "模拟", "测试数据", "示例数据")
 _LOGISTICS_WRITE_SIGNALS = (
     "补发",
     "改地址",
@@ -320,6 +339,58 @@ def _is_sales_analysis_request(message: str) -> bool:
     return any(metric in text for metric in _SALES_METRIC_TERMS) and any(
         query_term in text for query_term in _SALES_DATA_QUERY_TERMS
     )
+
+
+def _parse_explicit_sales_number(raw_value: str, unit: str | None) -> float:
+    value = float(raw_value.replace(",", ""))
+    multiplier = {"百": 100, "千": 1_000, "万": 10_000, "亿": 100_000_000}.get(
+        unit or "", 1
+    )
+    if unit in {"k", "K"}:
+        multiplier = 1_000
+    return round(value * multiplier, 2)
+
+
+def _extract_explicit_sales_metrics(message: str) -> dict[str, float]:
+    """Extract only metric-number pairs explicitly written in the user message.
+
+    The parser intentionally ignores 'company_context' and all database data.
+    Multiple product rows are aggregated by metric, while unrelated numbers in
+    prose are not treated as sales data.
+    """
+    metrics: dict[str, float] = {}
+    text = message or ""
+    for metric_name, aliases in _EXPLICIT_SALES_METRIC_ALIASES.items():
+        label_pattern = "(?:" + "|".join(
+            re.escape(alias) for alias in sorted(aliases, key=len, reverse=True)
+        ) + ")"
+        prefix_pattern = re.compile(
+            rf"{label_pattern}\s*(?:(?:约|大约|合计|共|为|是)\s*)*[:：=]?\s*"
+            rf"{_EXPLICIT_SALES_NUMBER_PATTERN}",
+            flags=re.IGNORECASE,
+        )
+        suffix_pattern = re.compile(
+            rf"{_EXPLICIT_SALES_NUMBER_PATTERN}\s*(?:元|件|单|笔)?\s*{label_pattern}",
+            flags=re.IGNORECASE,
+        )
+        values = [
+            _parse_explicit_sales_number(match.group(1), match.group(2))
+            for match in prefix_pattern.finditer(text)
+        ]
+        values.extend(
+            _parse_explicit_sales_number(match.group(1), match.group(2))
+            for match in suffix_pattern.finditer(text)
+        )
+        if values:
+            metrics[metric_name] = round(sum(values), 2)
+    return metrics
+
+
+def _explicit_sales_source_label(message: str) -> str:
+    lowered = (message or "").lower()
+    if any(marker.lower() in lowered for marker in _EXPLICIT_SALES_TEST_MARKERS):
+        return "用户提供的合成/测试数据（未连接平台）"
+    return "用户在本条消息中提供的数据（未经平台核验）"
 
 
 def _extract_logistics_search_params(message: str) -> dict[str, Any]:
@@ -973,6 +1044,51 @@ async def chat_stream(
                 return
 
             if _is_sales_analysis_request(request.message):
+                explicit_metrics = _extract_explicit_sales_metrics(request.message)
+                if explicit_metrics:
+                    from app.agents.data_analysis import (
+                        calculate_sales_summary,
+                        format_sales_analysis_report,
+                    )
+
+                    source_label = _explicit_sales_source_label(request.message)
+                    sales_summary = calculate_sales_summary(
+                        orders=explicit_metrics.get("orders", 0),
+                        gmv=explicit_metrics.get("gmv", 0),
+                        ad_spend=explicit_metrics.get("ad_spend", 0),
+                        refund_amount=explicit_metrics.get("refund_amount", 0),
+                    )
+                    sales_response = format_sales_analysis_report(
+                        sales_summary,
+                        source_label=source_label,
+                        provided_fields=set(explicit_metrics),
+                    )
+                    yield _sse({"type": "thinking", "content": "正在计算你提供的销售数据..."})
+                    assistant_response_parts.append(sales_response)
+                    yield _sse({"type": "content", "content": sales_response})
+                    if conversation_id:
+                        try:
+                            _persist_assistant_reply(
+                                conversation_id=conversation_id,
+                                content=sales_response,
+                                metadata={
+                                    "agent_name": "data_analysis",
+                                    "intent_type": "sales_analysis",
+                                    "data_source_status": "user_provided_unverified",
+                                    "data_source_label": source_label,
+                                    "metric_keys": sorted(explicit_metrics),
+                                },
+                            )
+                        except Exception as persist_err:
+                            logger.warning(
+                                "chat_sales_analysis_persistence_failed", error=str(persist_err)
+                            )
+                    done_payload = {"type": "done"}
+                    if conversation_id:
+                        done_payload["conversation_id"] = conversation_id
+                    yield _sse(done_payload)
+                    return
+
                 from app.agents.data_analysis import NO_REAL_DATA_MESSAGE
 
                 yield _sse({"type": "thinking", "content": "正在检查当前企业销售数据..."})

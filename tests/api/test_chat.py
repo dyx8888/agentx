@@ -220,8 +220,8 @@ class TestInjectRagContext:
         # RAG module has a syntax error in company_context_bus.py
         # The function should gracefully fall back to original message
         message, refs = _inject_rag_context("test", "1", "master")
-        assert type(message) == str
-        assert type(refs) == list
+        assert type(message) is str
+        assert type(refs) is list
 
 
 # ============================================================
@@ -677,6 +677,53 @@ class TestChatSalesGrounding:
         assert _is_sales_analysis_request("给我一些店铺经营策略") is False
         assert _is_sales_analysis_request("销售数据如何优化？") is False
         assert _is_sales_analysis_request("请分析销售数据并给出优化建议") is True
+
+    def test_explicit_sales_metrics_are_aggregated_without_unrelated_numbers(self):
+        from app.api.chat import _extract_explicit_sales_metrics
+
+        message = (
+            "请基于合成测试数据分析：商品 A：订单 100、销售额 10000、广告费 2000、退款 500；"
+            "商品 B：订单 50、销售额 4000、广告费 500、退款 0。"
+        )
+
+        assert _extract_explicit_sales_metrics(message) == {
+            "orders": 150,
+            "gmv": 14000,
+            "ad_spend": 2500,
+            "refund_amount": 500,
+        }
+
+    @pytest.mark.asyncio
+    async def test_chat_calculates_explicit_sales_data_as_unverified_user_input(self, monkeypatch):
+        import app.api.chat as chat_api
+        from app.api.chat import ChatRequest, chat_stream
+
+        monkeypatch.setattr(
+            chat_api,
+            "_get_master_router",
+            lambda: pytest.fail("explicit user metrics should not call the model router"),
+        )
+
+        response = await chat_stream(
+            ChatRequest(
+                message=(
+                    "请基于合成测试数据分析：商品 A：订单 100、销售额 10000、广告费 2000、退款 500；"
+                    "商品 B：订单 50、销售额 4000、广告费 500、退款 0。"
+                )
+            ),
+            MagicMock(),
+            current_user=SimpleNamespace(id=106, company_id=9),
+        )
+        body = await _collect_stream_text(response)
+
+        assert "总订单：150" in body
+        assert "总销售额：14000" in body
+        assert "总广告费：2500" in body
+        assert "总退款：500" in body
+        assert "净销售额：13500" in body
+        assert "ROAS：5.6" in body
+        assert "合成/测试数据" in body
+        assert "当前企业暂无可用的真实销售/投放数据" not in body
 
     @pytest.mark.asyncio
     async def test_chat_without_sales_data_returns_explicit_no_data(self, monkeypatch):

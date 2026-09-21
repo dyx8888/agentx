@@ -281,3 +281,33 @@ class TestDataAnalysisAgentFunction:
 
         assert "GMV: 1200.0" in result
         assert "ROI: 4.0" in result
+
+    def test_calculate_sales_summary_and_format_report(self):
+        from app.agents.data_analysis import (
+            calculate_sales_summary,
+            format_sales_analysis_report,
+        )
+
+        summary = calculate_sales_summary(
+            orders=150,
+            gmv=14000,
+            ad_spend=2500,
+            refund_amount=500,
+        )
+        report = format_sales_analysis_report(
+            summary,
+            source_label="用户提供的合成/测试数据（未连接平台）",
+            provided_fields={"orders", "gmv", "ad_spend", "refund_amount"},
+        )
+
+        assert summary == {
+            "orders": 150,
+            "gmv": 14000.0,
+            "ad_spend": 2500.0,
+            "refund_amount": 500.0,
+            "net_sales": 13500.0,
+            "roas": 5.6,
+        }
+        assert "净销售额：13500" in report
+        assert "ROAS：5.6" in report
+        assert "未连接平台" in report
