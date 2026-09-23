@@ -2654,6 +2654,13 @@ class ModelGateway:  # 模型网关核心类，集成配置管理、Key管理、
             company_id,
             agent_key,
         )
+
+    def get_embeddings(self):
+        """Return the shared embedding service without requiring a chat API key."""
+        from app.rag.embedding_service import get_embedding_service
+
+        return get_embedding_service()
+
     def get_llm_for_agent(
         self,
         agent_name: str,

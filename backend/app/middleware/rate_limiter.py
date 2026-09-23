@@ -532,6 +532,10 @@ def _build_redis_client():
 
     from app.core.config import RATE_LIMIT_REDIS_URL
 
+    if not RATE_LIMIT_REDIS_URL:
+        logger.info("rate_limiter_redis_disabled_using_memory")
+        return None
+
     try:
         client = _redis.from_url(
             RATE_LIMIT_REDIS_URL,

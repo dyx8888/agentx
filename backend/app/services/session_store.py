@@ -13,7 +13,7 @@ from app.core.logging import get_logger  # 统一日志记录
 
 logger = get_logger(__name__)  # 模块级logger
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")  # 环境变量优先，本地默认值作为回退
+REDIS_URL = os.getenv("REDIS_URL")
 SESSION_TTL = int(os.getenv("SESSION_TTL_SECONDS", "86400"))  # 默认24小时，平衡内存占用和用户体验
 SESSION_MAX_MESSAGES = int(os.getenv("SESSION_MAX_MESSAGES", "50"))  # 最多50条消息，防止上下文过长
 SESSION_MAX_TOKENS = int(
@@ -47,6 +47,9 @@ class SessionStore:  # 会话存储：支持Redis和内存两种后端，Redis�
     def _init_redis(
         self,
     ):  # 创建异步Redis客户端对象（仅构造对象，不发起连接，避免在同步构造函数中阻塞事件循环）
+        if not REDIS_URL:
+            logger.info("session_store_redis_disabled_using_memory")
+            return
         try:  # 外层try包裹，Redis不可用不应阻止应用启动
             import redis.asyncio as aioredis  # 异步Redis客户端，所有IO操作需await，避免阻塞事件循环
 

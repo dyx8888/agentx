@@ -705,6 +705,14 @@ class EmbeddingService:
     def encode_single(self, text: str) -> np.ndarray:
         return self.encode([text])[0]
 
+    def embed_query(self, text: str) -> list[float]:
+        """LangChain-compatible single-query embedding adapter."""
+        return self.encode_single(text).tolist()
+
+    def embed_query(self, text: str) -> list[float]:
+        """LangChain-compatible single-query embedding adapter."""
+        return self.encode_single(text).tolist()
+
     def _fallback_embedding(self, text: str, dim: int = 512) -> np.ndarray:
         """Deterministic lightweight hashing vectorizer used when ML/API embeddings are unavailable."""
         normalized = (text or "").lower()

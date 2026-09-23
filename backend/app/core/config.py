@@ -32,9 +32,7 @@ def is_public_registration_enabled() -> bool:
 
 # 限流相关配置 — T3.1
 # 限流专用 Redis URL，默认与全局 REDIS_URL 相同，多实例部署时共享计数
-RATE_LIMIT_REDIS_URL: str = _env("RATE_LIMIT_REDIS_URL") or _env(
-    "REDIS_URL", "redis://localhost:6379/0"
-)
+RATE_LIMIT_REDIS_URL: str | None = _env("RATE_LIMIT_REDIS_URL") or _env("REDIS_URL")
 
 
 # ── 密钥相关配置 — T3.5 ──────────────────────────────────────────

@@ -83,9 +83,7 @@ class RedisSaver(BaseCheckpointSaver):
             JsonPlusSerializer() if JsonPlusSerializer else None
         )  # 序列化器优先使用 JsonPlus，支持更多类型
         super().__init__(serde=serde)  # 调用父类初始化，传入序列化器以注册到 LangGraph 框架
-        self._redis_url = redis_url or os.getenv(
-            "REDIS_URL", "redis://localhost:6379/0"
-        )  # 优先参数 > 环境变量 > 默认值，保证灵活性
+        self._redis_url = redis_url or os.getenv("REDIS_URL")
         self._redis_client: redis.Redis | None = (
             None  # 延迟初始化：连接在 _connect() 中建立，避免构造时阻塞
         )
@@ -112,6 +110,9 @@ class RedisSaver(BaseCheckpointSaver):
     def _connect(
         self,
     ) -> bool:  # 返回 bool 让调用方可判断连接是否成功，但不建议依赖返回值（连接失败内部已降级）
+        if not self._redis_url:
+            logger.info("checkpoint_redis_disabled_using_memory")
+            return False
         if redis is None:  # redis-py 未安装时直接跳过，不抛异常
             logger.warning("checkpoint_redis_not_installed")
             return False
