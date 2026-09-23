@@ -104,9 +104,10 @@ async def lifespan(app: FastAPI):
     skill_registry.load_from_config()  # 技能加载在 runtime 初始化之前，确保 agent 启动时所有技能立即可用
 
     runtime = AgentRuntime()  # AgentRuntime 是全局单例，管理所有 agent 的生命周期和执行调度
-    await runtime.initialize()  # async 初始化：可能涉及模型加载、外部服务连接等 I/O 操作
+    # 模型密钥属于当前公司，由首次聊天请求按 company_id 懒加载。
+    # 启动阶段没有租户上下文时不能强制要求平台级 DEEPSEEK_API_KEY。
     app.state.runtime = runtime  # 挂载到 app.state 上，所有请求处理器通过 request.app.state.runtime 访问
-    logger.info("agent_runtime_initialized")
+    logger.info("agent_runtime_deferred_until_request")
 
     logger.info("startup_complete")  # 标记所有初始化步骤完成，日志中这条记录之后才代表服务真正就绪
 

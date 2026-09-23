@@ -95,7 +95,14 @@ class AgentRuntime:
         # 1. 获取 LLM
         # 通过全局网关获取 LLM 而非直接创建，是为了复用连接池和配置——网关统一管理 API key、重试策略和负载均衡
         model_gateway = get_global_model_gateway()
-        self.llm = model_gateway.get_llm()
+        company_id = getattr(ctx, "company_id", None) if ctx else None
+        try:
+            company_id = int(company_id) if company_id else None
+        except (TypeError, ValueError):
+            company_id = None
+        # 解析到租户后再加载其自有模型密钥；没有租户上下文时保留
+        # 原有异常语义，让请求层返回可诊断的模型配置错误。
+        self.llm = model_gateway.get_llm(company_id=company_id)
         default_model = model_gateway.get_default_model()
         logger.info("agent_runtime_model_selected", model=default_model)
 
