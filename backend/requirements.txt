@@ -27,7 +27,9 @@ starlette==1.0.0
 pydantic==2.13.3
 uvicorn>=0.15.0
 sse-starlette>=1.6.0
-sentence-transformers>=2.2.0
+# Optional local semantic embedding is kept out of the default cloud build.
+# Install backend/requirements-rag-optional.txt when a deployment explicitly
+# enables the local SentenceTransformer/CrossEncoder path.
 # numpy: 业务代码（rag/runtime）直接 import，显式声明避免仅靠 pandas 传递依赖
 numpy>=1.24.0
 python-jose[cryptography]>=3.3.0

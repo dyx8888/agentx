@@ -1,3 +1,4 @@
 # Optional LlamaIndex adapter for deployments that explicitly enable it.
 llama-index>=0.10.0
 llama-index-vector-stores-milvus>=0.1.0
+sentence-transformers>=2.2.0
