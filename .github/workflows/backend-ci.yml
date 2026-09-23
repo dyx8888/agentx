@@ -34,6 +34,8 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -45,16 +47,56 @@ jobs:
           pip install -r requirements.txt
 
       - name: Ruff lint
-        run: ruff check app/
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git -C .. rev-list --max-parents=0 "$GITHUB_SHA")"
+          fi
+          mapfile -t changed < <(git -C .. diff --name-only --diff-filter=ACMR "$base" "$GITHUB_SHA" -- 'backend/app/*.py' 'backend/app/**/*.py' | sed 's#^backend/##')
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "No changed backend Python files; skipping Ruff lint."
+          else
+            ruff check "${changed[@]}"
+          fi
 
       - name: Ruff format check
-        run: ruff format --check app/
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git -C .. rev-list --max-parents=0 "$GITHUB_SHA")"
+          fi
+          mapfile -t changed < <(git -C .. diff --name-only --diff-filter=ACMR "$base" "$GITHUB_SHA" -- 'backend/app/*.py' 'backend/app/**/*.py' | sed 's#^backend/##')
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "No changed backend Python files; skipping Ruff format check."
+          else
+            ruff format --check "${changed[@]}"
+          fi
 
       - name: Mypy type check
-        run: mypy app/ --config-file pyproject.toml
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git -C .. rev-list --max-parents=0 "$GITHUB_SHA")"
+          fi
+          mapfile -t changed < <(git -C .. diff --name-only --diff-filter=ACMR "$base" "$GITHUB_SHA" -- 'backend/app/*.py' 'backend/app/**/*.py' | sed 's#^backend/##')
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "No changed backend Python files; skipping Mypy."
+          else
+            mypy --config-file pyproject.toml "${changed[@]}"
+          fi
 
       - name: Bandit security scan
-        run: bandit -r app/ -c pyproject.toml
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git -C .. rev-list --max-parents=0 "$GITHUB_SHA")"
+          fi
+          mapfile -t changed < <(git -C .. diff --name-only --diff-filter=ACMR "$base" "$GITHUB_SHA" -- 'backend/app/*.py' 'backend/app/**/*.py' | sed 's#^backend/##')
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "No changed backend Python files; skipping Bandit."
+          else
+            bandit -c pyproject.toml "${changed[@]}"
+          fi
 
   test:
     runs-on: ubuntu-latest

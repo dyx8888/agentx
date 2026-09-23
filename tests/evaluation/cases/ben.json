@@ -25,7 +25,8 @@
     {
       "agent": "ben",
       "scenario": "error_extremely_long_input",
-      "message": "A" * 20000,
+      "message": "A",
+      "message_repeat": 20000,
       "expected_tools": [],
       "expected_output_contains": []
     },

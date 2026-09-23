@@ -53,10 +53,7 @@ hiredis>=2.2.0
 celery>=5.5.0
 gevent>=24.0.0
 
-# LlamaIndex: 对照实现（RAG-Anything 风格）使用，与自研 HybridRAG 互为参照
-llama-index>=0.10.0
-llama-index-vector-stores-milvus>=0.1.0
-
+# Optional LlamaIndex adapter: install backend/requirements-rag-optional.txt when enabled.
 # Test dependencies
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
