@@ -405,7 +405,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         if redis_client is not None:
             logger.info("rate_limiter_distributed_enabled")
         else:
-            logger.warning("rate_limiter_redis_not_injected_fallback_to_memory")
+            logger.info("rate_limiter_memory_mode_enabled")
 
     @staticmethod
     def _extract_access_token(request: Request) -> str | None:
@@ -558,7 +558,10 @@ def setup_rate_limiter(app, redis_client=None):
                       首个限流请求连接失败则降级为内存限流
     """
     if redis_client is None:
-        redis_client = LazyRedisClient(_build_redis_client)
+        from app.core.config import RATE_LIMIT_REDIS_URL
+
+        if RATE_LIMIT_REDIS_URL:
+            redis_client = LazyRedisClient(_build_redis_client)
     app.add_middleware(RateLimiterMiddleware, redis_client=redis_client)
     logger.info(
         "rate_limiter_middleware_configured",
