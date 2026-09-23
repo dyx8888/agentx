@@ -110,6 +110,10 @@ class SkillRegistry:
 
     def _precompute_embeddings(self):
         """为每个 SKILL 预计算 embedding 向量，存储在 _skill_embeddings 缓存中"""
+        enabled = os.getenv("SKILL_EMBEDDINGS_ENABLED", "false").strip().lower()
+        if enabled not in {"1", "true", "yes", "on"}:
+            logger.info("skill_embedding_precompute_disabled")
+            return
         try:
             from app.services.model_gateway import ModelGateway
             model_gateway = ModelGateway()
